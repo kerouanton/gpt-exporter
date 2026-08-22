@@ -1,15 +1,15 @@
-# v7 frozen version manifest
+# v2.7 frozen version manifest
 
-The code package containing this file is **gpt-exporter v7**, frozen on **2026-08-17** after complete validation on the target Windows archive. v7 branches directly from the v6 frozen baseline and preserves its canonical archive invariants.
+The code package containing this file is **gpt-exporter v2.7**, frozen on **2026-08-17** after complete validation on the target Windows archive. v2.7 branches directly from the v2.6 frozen baseline and preserves its canonical archive invariants.
 
 ## Release identity
 
 - Project: `gpt-exporter` / ChatGPT Archiver
-- Frozen release: **v7**
+- Frozen release: **v2.7**
 - Freeze date: **2026-08-17**
-- Reference archive filename: `gpt-exporter-v7.zip`
+- Reference archive filename: `gpt-exporter-v2.7.zip`
 - Exact package-source hashes: `SOURCE_SHA256SUMS.txt`
-- Previous frozen baseline: **v6**
+- Previous frozen baseline: **v2.6**
 
 `SOURCE_SHA256SUMS.txt` identifies every source/documentation file in the release except the checksum file itself. The distributable ZIP hash is published next to the release artifact because embedding the ZIP hash inside the ZIP would be self-referential.
 
@@ -26,7 +26,7 @@ DOCX, Markdown, manifests, reports, indexes, and provenance catalogs are derived
 
 The stable join key is the ChatGPT `file_id` embedded in archived filenames. DOCX is a readable representation rather than the source of truth. Unsupported image formats may be normalized in memory for DOCX embedding, but source assets are never rewritten for compatibility.
 
-## v7 acceptance record
+## v2.7 acceptance record
 
 The frozen code was validated on the target Windows installation with:
 
@@ -78,9 +78,9 @@ tool_source_or_internal              : 34
 
 The 45 local-missing assets are real visible user attachments preserved as explicit missing-attachment markers in the derived documents. Their absence is not hidden or substituted.
 
-The remaining 12 historical sandbox-link occurrences with several non-identical same-basename local candidates were inspected against canonical conversation JSON. Six are generic/generated `README.md` paths without a reliable path-to-file-ID mapping; six are network-rescue script paths where two or three distinct revisions with the same basename exist in the same conversation. v7 intentionally leaves these links non-clickable rather than selecting a guessed target.
+The remaining 12 historical sandbox-link occurrences with several non-identical same-basename local candidates were inspected against canonical conversation JSON. Six are generic/generated `README.md` paths without a reliable path-to-file-ID mapping; six are network-rescue script paths where two or three distinct revisions with the same basename exist in the same conversation. v2.7 intentionally leaves these links non-clickable rather than selecting a guessed target.
 
-## v7 feature delta from v6
+## v2.7 feature delta from v2.6
 
 - restores visible generated-image tool results in DOCX/Markdown while continuing to exclude hidden technical duplicates;
 - links original dictation `.m4a` audio next to the visible transcript;
@@ -93,8 +93,8 @@ The remaining 12 historical sandbox-link occurrences with several non-identical 
 
 ## Preservation rule for future work
 
-Any future v8+ work should branch conceptually from this v7 frozen release. Changes that alter canonical data, cumulative behavior, asset collection breadth, deletion policy, visible-role semantics, or local-link semantics must be explicit in `CHANGELOG.md` and include a migration/rollback plan.
+Any future v2.8+ work should branch conceptually from this v2.7 frozen release. Changes that alter canonical data, cumulative behavior, asset collection breadth, deletion policy, visible-role semantics, or local-link semantics must be explicit in `CHANGELOG.md` and include a migration/rollback plan.
 
 ## Historical baseline
 
-The prior frozen reference was v6, also frozen on 2026-08-17. v7 retains v6's canonical `.json.xz + assets` architecture and broad collector; its changes are confined to derived export behavior, conservative hyperlink recovery, and diagnostics.
+The prior frozen reference was v2.6, also frozen on 2026-08-17. v2.7 retains v2.6's canonical `.json.xz + assets` architecture and broad collector; its changes are confined to derived export behavior, conservative hyperlink recovery, and diagnostics.
