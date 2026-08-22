@@ -1,6 +1,8 @@
-# v2.7 frozen version manifest
+# Historical v2.7 frozen baseline
 
-The code package containing this file is **gpt-exporter v2.7**, frozen on **2026-08-17** after complete validation on the target Windows archive. v2.7 branches directly from the v2.6 frozen baseline and preserves its canonical archive invariants.
+This document records the **original gpt-exporter v2.7 frozen package**, validated on 2026-08-17 before the repository was prepared for public development.
+
+It is intentionally historical. The current Git checkout may contain later repository-maintenance changes such as documentation, CI, packaging metadata, tests, or portability fixes while still preserving the v2.7 behavioral baseline.
 
 ## Release identity
 
@@ -8,10 +10,10 @@ The code package containing this file is **gpt-exporter v2.7**, frozen on **2026
 - Frozen release: **v2.7**
 - Freeze date: **2026-08-17**
 - Reference archive filename: `gpt-exporter-v2.7.zip`
-- Exact package-source hashes: `SOURCE_SHA256SUMS.txt`
+- Original package-source hashes: `SOURCE_SHA256SUMS.txt`
 - Previous frozen baseline: **v2.6**
 
-`SOURCE_SHA256SUMS.txt` identifies every source/documentation file in the release except the checksum file itself. The distributable ZIP hash is published next to the release artifact because embedding the ZIP hash inside the ZIP would be self-referential.
+`SOURCE_SHA256SUMS.txt` is retained unchanged as evidence for the original v2.7 ZIP package. It is **not expected to match the evolving Git repository checkout** after public-release preparation. In particular, the historical manifest includes local Wing project/session files that were deliberately excluded from Git and hashes documentation/source files as they existed in the frozen package.
 
 ## Frozen architectural invariants
 

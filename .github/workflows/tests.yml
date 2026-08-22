@@ -34,5 +34,8 @@ jobs:
           $files = Get-ChildItem -Path . -Filter *.py -File | ForEach-Object { $_.FullName }
           python -m py_compile $files
 
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
       - name: Validate project metadata
-        run: python -m pip install --dry-run .
+        run: python -c "import pathlib, tomllib; data=tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8')); p=data['project']; assert p['name']=='gpt-exporter'; assert p['version']=='2.7'; assert p['license']=='GPL-3.0-or-later'; print('pyproject metadata OK')"

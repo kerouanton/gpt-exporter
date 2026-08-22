@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 
-DEFAULT_ARCHIVE_ROOT = Path(r"C:\Users\bruno\Documents\ChatGPT Archive")
+DEFAULT_ARCHIVE_ROOT = Path(os.environ.get("USERPROFILE") or Path.home()) / "Documents" / "ChatGPT Archive"
 DEFAULT_DOWNLOADS_DIR = DEFAULT_ARCHIVE_ROOT / "downloads"
 DEFAULT_DATABASE_PATH = DEFAULT_ARCHIVE_ROOT / "conversations-index.sqlite"
 SCHEMA_VERSION = 4

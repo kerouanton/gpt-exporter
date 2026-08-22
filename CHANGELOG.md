@@ -67,7 +67,7 @@ This changelog documents the lineage of the current `gpt-exporter` architecture.
 ### Validation performed before packaging
 
 - `py_compile` succeeds for every Python source file.
-- The real `Haken audio et tri-octave` `.json.xz` was used as the regression conversation.
+- A real archived conversation containing generated images was used as the regression conversation.
 - Its two visible generated-image tool nodes are now detected; the hidden duplicate of the second generated image remains excluded.
 - Synthetic local PNG stand-ins using the two real `file_id` values were both embedded into the reconstructed DOCX, producing two drawing occurrences.
 - The first generated image was merged into the preceding assistant answer; the second became a standalone ChatGPT image response because it follows a user message directly.
@@ -188,7 +188,7 @@ Regenerating historical DOCX files exposed an architectural flaw: `export_markdo
 
 ### Validation
 
-For the historical `Tatouage HP-15C` test conversation, the v2.3 regenerated DOCX contained the same internal ZIP members and identical member contents as the previously trusted DOCX. The overall DOCX SHA differed only because ZIP container timestamps/metadata differed.
+For a historical archived test conversation, the v2.3 regenerated DOCX contained the same internal ZIP members and identical member contents as the previously trusted DOCX. The overall DOCX SHA differed only because ZIP container timestamps/metadata differed.
 
 This established the key architectural rule still used by v2.6:
 
