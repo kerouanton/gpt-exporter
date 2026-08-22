@@ -345,7 +345,7 @@ def main() -> int:
         if not args.convert_only:
             source_bundle = require_source_bundle()
             run_step(
-                "1/4 - Import browser archive bundle",
+                "1/5 - Import browser archive bundle",
                 "import_browser_bundle.py",
                 [str(source_bundle)],
             )
@@ -362,8 +362,8 @@ def main() -> int:
             )
 
         if not args.skip_assets:
-            run_step("2/4 - Inventory media references", "inventory_media.py")
-            run_step("3/4 - Build asset manifest", "build_asset_manifest.py")
+            run_step("2/5 - Inventory media references", "inventory_media.py")
+            run_step("3/5 - Build asset manifest", "build_asset_manifest.py")
         else:
             print("\nAssets skipped by request.")
 
@@ -386,10 +386,24 @@ def main() -> int:
 
         if not skip_export:
             run_step(
-                "4/4 - Export new or larger conversations",
+                "4/5 - Export new or larger conversations",
                 "export_all.py",
                 export_arguments,
             )
+
+        run_step(
+            "5/5 - Update archive search index",
+            "index_chatgpt_archive.py",
+            [
+                "--archive-root",
+                str(ARCHIVE_ROOT),
+                "--downloads-dir",
+                str(DOWNLOADS_DIR),
+                "--database",
+                str(ARCHIVE_ROOT / "conversations-index.sqlite"),
+                "index",
+            ],
+        )
 
     except (FileNotFoundError, RuntimeError) as exc:
         print(f"\nERROR: {exc}", file=sys.stderr)
