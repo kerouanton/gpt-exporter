@@ -40,7 +40,12 @@ import archive_core as core
 DEBUG = True
 LOGGER = logging.getLogger("chatgpt_archive_browser")
 
-DEFAULT_DATABASE_PATH = Path(r"C:\Users\bruno\Documents\ChatGPT Archive\conversations-index.sqlite")
+DEFAULT_DATABASE_PATH = (
+    Path(os.environ.get("USERPROFILE") or Path.home())
+    / "Documents"
+    / "ChatGPT Archive"
+    / "conversations-index.sqlite"
+)
 STATE_PATH = Path.home() / ".chatgpt_archive_browser.json"
 ALL_VALUE = "All"
 PROJECT_VIEW_ALL = "__ALL__"
