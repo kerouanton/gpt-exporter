@@ -1,11 +1,11 @@
 # ChatGPT Archiver
 
-> **Current code package: v7 — frozen release — 2026-08-17**  
-> **Previous frozen baseline: v6.** v7 was validated on the complete 80-conversation local corpus. It preserves the canonical archive format, restores visible generated-image tool results, links original dictation audio, makes missing visible attachments explicit, and adds a cumulative asset-reference audit.
+> **Current code package: v2.7 — frozen release — 2026-08-17**  
+> **Previous frozen baseline: v2.6.** v2.7 was validated on the complete 80-conversation local corpus. It preserves the canonical archive format, restores visible generated-image tool results, links original dictation audio, makes missing visible attachments explicit, and adds a cumulative asset-reference audit.
 
 ## Frozen-release invariants
 
-The following rules are inherited from the v6 frozen design and remain invariants in v7:
+The following rules are inherited from the v2.6 frozen design and remain invariants in v2.7:
 
 1. **Canonical archive data is `downloads\*.json.xz + assets\*`.** DOCX, Markdown, manifests, indexes, and reports are derived and rebuildable.
 2. **The archive is cumulative.** A normal run never removes an older conversation or an existing asset because it is absent from the current browser bundle.
@@ -301,7 +301,7 @@ Use `--fresh` only when deliberately starting a completely new archive from the 
 | `inventory_media.py` | Inventories media references found in the local conversation `.json.xz` files |
 | `build_asset_manifest.py` | Builds a cumulative diagnostic manifest of media and attachment references found in local conversation JSON/XZ files |
 | `export_all.py` | Generates root-level DOCX files for all local conversation `.json.xz` files or for a specified batch, using temporary Markdown by default, then runs the cumulative asset-reference audit |
-| `audit_asset_references.py` | Verifies that physical local asset IDs are represented by explicit provenance markers or real local-asset hyperlinks in generated DOCX/persistent Markdown; hashes duplicate IDs and writes `reports\asset-reference-audit-v7.json.xz` |
+| `audit_asset_references.py` | Verifies that physical local asset IDs are represented by explicit provenance markers or real local-asset hyperlinks in generated DOCX/persistent Markdown; hashes duplicate IDs and writes `reports\asset-reference-audit-v2.7.json.xz` |
 | `export_markdown.py` | Converts one conversation `.json.xz` file to Markdown, resolves assets from the registry plus a safe local-disk fallback scan, exports visible generated-image tool results, and emits visible `file_id`/archive-path provenance for inline assets and message attachments; direct/manual use defaults to `ChatGPT Archive\markdown` |
 | `export_docx.py` | Converts Markdown to DOCX, embedding supported images directly, normalizing unsupported raster formats through Pillow only when needed, rewriting local hyperlinks as Atlantis-compatible Windows-relative targets, and resolving archived `sandbox:/mnt/data/...` links when possible; direct/manual output defaults to the `ChatGPT Archive` root |
 | `check_environment.py` | Validates the active pipeline and Python dependencies |
@@ -368,7 +368,7 @@ The following paths may contain complete private conversations, uploaded files, 
 
 Keep them private and include them in the backup strategy for the cumulative archive.
 
-## Generated images and v7 asset-reference audit
+## Generated images and v2.7 asset-reference audit
 
 ChatGPT-generated images can be stored in the conversation graph as visible tool results rather than ordinary assistant messages:
 
@@ -378,7 +378,7 @@ content.content_type = multimodal_text
 parts[].content_type = image_asset_pointer
 ```
 
-v7 exports those visible image results as ChatGPT content while continuing to ignore tool nodes marked `is_visually_hidden_from_conversation = true` and unrelated technical tool output. The physical image is resolved through the existing asset registry plus local `assets` fallback scan; no collector change is required.
+v2.7 exports those visible image results as ChatGPT content while continuing to ignore tool nodes marked `is_visually_hidden_from_conversation = true` and unrelated technical tool output. The physical image is resolved through the existing asset registry plus local `assets` fallback scan; no collector change is required.
 
 After every successful export batch, `export_all.py` runs:
 
@@ -398,7 +398,7 @@ physical asset file has no recognizable ID          -> WARNING
 The complete machine-readable result is stored in:
 
 ```text
-%USERPROFILE%\Documents\ChatGPT Archive\reports\asset-reference-audit-v7.json.xz
+%USERPROFILE%\Documents\ChatGPT Archive\reports\asset-reference-audit-v2.7.json.xz
 ```
 
 Warnings are deliberately non-destructive and non-fatal. Broad collection can retain technical or historical assets that are not visible in the active conversation branch, so an unreferenced asset is a signal for review, not proof of corruption. The audit never removes anything.
@@ -440,9 +440,9 @@ Local archive status: missing
 
 This is intentionally a rendering/audit feature only. It never deletes, substitutes, or fabricates the missing file.
 
-v7 preserves Markdown-significant characters in the original filename literally when producing DOCX output; for example `[EXTERNE]` remains `[EXTERNE]` rather than acquiring visible escape backslashes.
+v2.7 preserves Markdown-significant characters in the original filename literally when producing DOCX output; for example `[EXTERNE]` remains `[EXTERNE]` rather than acquiring visible escape backslashes.
 
-After upgrading from v6, rebuild all derived DOCX files once so historical generated images can be recovered and the cumulative audit compares against current outputs:
+After upgrading from v2.6, rebuild all derived DOCX files once so historical generated images can be recovered and the cumulative audit compares against current outputs:
 
 ```text
 py archive_chats.py --convert-only

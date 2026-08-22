@@ -15,7 +15,7 @@ Version 4 schema adds:
 - uncategorized/untagged listing helpers,
 - an explicit rebuild command for disposable index databases.
 
-Version 06 CLI safety adds:
+Version 2.6 CLI safety adds:
 - relevance previews for bulk tag/category assignment,
 - dry-run-by-default bulk classification,
 - explicit --apply before bulk writes,
@@ -23,7 +23,7 @@ Version 06 CLI safety adds:
 - tag-suggest / category-suggest commands,
 - tag-clear / category-clear with preview-by-default semantics.
 
-Version 07 project organization adds:
+Version 2.7 project organization adds:
 - first-class work projects spanning conversations from any origin,
 - succinct project listing and per-project conversation views,
 - project filters and unprojected conversation listing.

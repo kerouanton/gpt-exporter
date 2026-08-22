@@ -19,7 +19,7 @@ MVP goals:
 - project-tree context menu with sub-project / rename / delete operations.
 
 The application uses only Python's standard library and the schema created by
-index_chatgpt_archive07.py.  It does not modify JSON or DOCX archive files.
+index_chatgpt_archive.py.  It does not modify JSON or DOCX archive files.
 """
 
 import argparse

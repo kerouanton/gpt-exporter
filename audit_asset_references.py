@@ -20,7 +20,7 @@ DEBUG = False
 
 USER_PROFILE = Path(os.environ.get("USERPROFILE") or Path.home())
 DEFAULT_ARCHIVE_ROOT = USER_PROFILE / "Documents" / "ChatGPT Archive"
-DEFAULT_REPORT_NAME = "asset-reference-audit-v7.json.xz"
+DEFAULT_REPORT_NAME = "asset-reference-audit-v2.7.json.xz"
 
 LOCAL_ASSET_ID_PATTERN = re.compile(
     r"^(file(?:_|-)[A-Za-z0-9]+|external_[A-Za-z0-9]+)"
@@ -521,7 +521,7 @@ def main() -> int:
 
     report = {
         "schema_version": 2,
-        "audit_version": "v7",
+        "audit_version": "v2.7",
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "archive_root": str(archive_root),
         "asset_files_scanned": asset_files_scanned,
