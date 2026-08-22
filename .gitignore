@@ -1,0 +1,15 @@
+conversations-list.json
+curl-template.txt
+asset-curl-template.txt
+downloads/
+assets/
+exports/
+reports/
+__pycache__/
+*.pyc
+*.wpu
+*.wpr
+.chatgpt_archive_browser.json
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
