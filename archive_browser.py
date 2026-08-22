@@ -105,6 +105,23 @@ def reveal_in_file_manager(path_value: str | None) -> None:
         subprocess.Popen(["xdg-open", str(path.parent)])
 
 
+def build_index_command(database_path: Path) -> list[str]:
+    """Build the incremental indexer command for the browser's open database."""
+    database_path = Path(database_path)
+    archive_root = database_path.parent
+    return [
+        sys.executable,
+        str(Path(__file__).resolve().parent / "index_chatgpt_archive.py"),
+        "--archive-root",
+        str(archive_root),
+        "--downloads-dir",
+        str(archive_root / "downloads"),
+        "--database",
+        str(database_path),
+        "index",
+    ]
+
+
 class ArchiveBrowser(tk.Tk):
     def __init__(self, database_path: Path, *, debug: bool = False) -> None:
         super().__init__()
@@ -252,6 +269,8 @@ class ArchiveBrowser(tk.Tk):
         file_menu = tk.Menu(menu_bar, tearoff=False)
         file_menu.add_command(label="Open DOCX", command=self.open_selected_docx)
         file_menu.add_command(label="Open in Explorer", command=self.open_selected_in_explorer)
+        file_menu.add_separator()
+        file_menu.add_command(label="Update Search Index", command=self.update_index)
         file_menu.add_separator()
         file_menu.add_command(label="Refresh", command=self._refresh_all)
         file_menu.add_separator()
@@ -708,6 +727,51 @@ class ArchiveBrowser(tk.Tk):
         self._refresh_filter_values()
         self._refresh_project_tree()
         self.refresh_conversations()
+
+    def update_index(self) -> None:
+        """Run the incremental indexer and reload Browser views on success."""
+        command = build_index_command(self.database_path)
+        LOGGER.info("Updating archive search index")
+        LOGGER.debug("Indexer command: %r", command)
+        self.status_var.set("Updating search index…")
+        self.update_idletasks()
+
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=Path(__file__).resolve().parent,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as error:
+            LOGGER.exception("Unable to start indexer: %s", error)
+            self.status_var.set("Index update failed.")
+            messagebox.showerror("Update Search Index", str(error), parent=self)
+            return
+
+        if completed.stdout:
+            LOGGER.debug("Indexer stdout:\n%s", completed.stdout.rstrip())
+        if completed.stderr:
+            LOGGER.debug("Indexer stderr:\n%s", completed.stderr.rstrip())
+
+        if completed.returncode != 0:
+            details = (
+                completed.stderr.strip()
+                or completed.stdout.strip()
+                or f"Indexer exited with code {completed.returncode}."
+            )
+            self.status_var.set("Index update failed.")
+            messagebox.showerror("Update Search Index", details, parent=self)
+            return
+
+        self._validate_database()
+        self._refresh_all()
+        messagebox.showinfo(
+            "Update Search Index",
+            "Search index updated successfully.",
+            parent=self,
+        )
 
     # ------------------------------------------------------------------
     # Sorting
