@@ -21,9 +21,9 @@ This checklist tracks the work required before changing the repository from priv
 
 ## Before publication
 
-- [ ] Review examples and regression notes for unnecessarily specific private conversation names.
-- [ ] Confirm the full GPL-3.0-or-later license text is present and recognized by GitHub.
-- [ ] Review the complete branch diff against `main` after the final license change.
+- [x] Review examples and regression notes for unnecessarily specific private conversation names.
+- [x] Confirm the full GPL-3.0-or-later license text is present in the release-preparation branch.
+- [x] Review the complete branch diff against `main` after the final license change.
 - [ ] Merge only after local inspection.
 - [ ] Re-run a complete local archive/index/browser smoke test after merge.
 - [ ] Create the public release/tag only after the repository contents are accepted.
