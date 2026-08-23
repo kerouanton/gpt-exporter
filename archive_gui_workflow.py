@@ -1,14 +1,14 @@
 import os
 import queue
 import shutil
-import subprocess
-import sys
 import threading
 import webbrowser
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
+
+from gpt_exporter.pipeline import archive_bundle
 
 ROOT = Path(__file__).resolve().parent
 COLLECTOR_PATH = ROOT / "collect_chatgpt_archive.js"
@@ -85,11 +85,6 @@ def read_collector_source(path: Path = COLLECTOR_PATH) -> str:
     return source
 
 
-def build_archive_command() -> list[str]:
-    """Build an unbuffered child-process command for the canonical archive workflow."""
-    return [sys.executable, "-u", str(ROOT / "archive_chats.py")]
-
-
 def open_chatgpt() -> bool:
     """Open ChatGPT in the user's default browser."""
     return bool(webbrowser.open(CHATGPT_URL, new=2))
@@ -122,13 +117,55 @@ def should_auto_close_archive(return_code: int, refresh_succeeded: bool) -> bool
     return return_code == 0 and refresh_succeeded
 
 
+def _queued_progress(
+    events: queue.Queue[tuple[str, object]],
+    message: str,
+) -> None:
+    """Translate one pipeline progress message into the GUI event stream."""
+    text = str(message)
+    if not text.endswith("\n"):
+        text += "\n"
+    events.put(("line", text))
+
+
+def run_archive_pipeline_worker(
+    events: queue.Queue[tuple[str, object]],
+    *,
+    archive_root: Path,
+    source_bundle: Path | None,
+    legacy_root: Path = ROOT,
+) -> None:
+    """Run the synchronous archive library on a worker thread.
+
+    This function deliberately knows nothing about Tk widgets.  Progress and
+    completion are transferred through ``events`` so the Tk thread remains the
+    only thread that updates GUI state.
+    """
+
+    try:
+        archive_bundle(
+            archive_root=Path(archive_root),
+            source_bundle=Path(source_bundle) if source_bundle is not None else None,
+            legacy_root=Path(legacy_root),
+            progress=lambda message: _queued_progress(events, message),
+        )
+    except Exception as error:  # Worker boundary: surface every failure to the GUI log.
+        _queued_progress(events, f"\nERROR: {error}")
+        events.put(("done", 1))
+        return
+
+    events.put(("done", 0))
+
+
 class ArchiveRunDialog(tk.Toplevel):
-    """Run archive_chats.py without blocking Tk and stream its output."""
+    """Run the archive library on a worker thread without blocking Tk."""
 
     def __init__(
         self,
         parent: tk.Misc,
         *,
+        archive_root: Path,
+        source_bundle: Path | None = None,
         on_success=None,
         log_directory: Path | None = None,
         auto_close_ms: int = 1000,
@@ -139,12 +176,14 @@ class ArchiveRunDialog(tk.Toplevel):
         self.minsize(700, 420)
         self.transient(parent)
 
+        self.archive_root = Path(archive_root)
+        self.source_bundle = Path(source_bundle) if source_bundle is not None else None
         self.on_success = on_success
         self.auto_close_ms = auto_close_ms
         self.log_directory = Path(log_directory) if log_directory is not None else None
         self.log_path: Path | None = None
         self._log_handle = None
-        self.process: subprocess.Popen[str] | None = None
+        self.worker: threading.Thread | None = None
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.finished = False
         self.status_var = tk.StringVar(value="Starting archive workflow…")
@@ -172,7 +211,7 @@ class ArchiveRunDialog(tk.Toplevel):
 
         self.protocol("WM_DELETE_WINDOW", self._close_requested)
         self._open_persistent_log()
-        self.after(50, self._start_process)
+        self.after(50, self._start_worker)
 
     def _append_log_widget(self, text: str) -> None:
         self.log_text.configure(state="normal")
@@ -224,37 +263,30 @@ class ArchiveRunDialog(tk.Toplevel):
         except OSError as error:
             self._append_log_widget(f"\nWARNING: Could not update latest workflow log: {error}\n")
 
-    def _start_process(self) -> None:
-        command = build_archive_command()
-        self._append_log(f"> {' '.join(command)}\n\n")
+    def _start_worker(self) -> None:
+        self._append_log("> in-process: gpt_exporter.pipeline.archive_bundle()\n")
+        self._append_log(f"> archive root: {self.archive_root}\n")
+        if self.source_bundle is not None:
+            self._append_log(f"> source bundle: {self.source_bundle}\n")
+        self._append_log("\n")
+
+        self.worker = threading.Thread(
+            target=run_archive_pipeline_worker,
+            kwargs={
+                "events": self.events,
+                "archive_root": self.archive_root,
+                "source_bundle": self.source_bundle,
+                "legacy_root": ROOT,
+            },
+            daemon=True,
+            name="gpt-exporter-archive-worker",
+        )
         try:
-            self.process = subprocess.Popen(
-                command,
-                cwd=ROOT,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-            )
-        except OSError as error:
+            self.worker.start()
+        except RuntimeError as error:
             self.events.put(("error", error))
-            self.after(50, self._drain_events)
-            return
 
-        threading.Thread(target=self._reader_thread, daemon=True).start()
         self.after(50, self._drain_events)
-
-    def _reader_thread(self) -> None:
-        assert self.process is not None
-        assert self.process.stdout is not None
-        try:
-            for line in self.process.stdout:
-                self.events.put(("line", line))
-        finally:
-            return_code = self.process.wait()
-            self.events.put(("done", return_code))
 
     def _drain_events(self) -> None:
         while True:
