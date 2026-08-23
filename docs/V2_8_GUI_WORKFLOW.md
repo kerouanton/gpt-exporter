@@ -17,7 +17,7 @@ Command-line scripts remain available as stable implementation layers and for di
 - Long-running archive work must not freeze the Tkinter user interface.
 - The GUI must expose enough progress and log output to diagnose failures without requiring a terminal.
 
-## Proposed Archive menu
+## Archive menu
 
 ```text
 Archive
@@ -28,8 +28,7 @@ Archive
 ├─ Process Downloaded Bundle…
 ├─ ─────────────────────────────
 ├─ Update Search Index
-├─ Open Archive Folder
-└─ Show Last Archive Log…
+└─ Open Archive Folder
 ```
 
 `Update Search Index` remains a manual maintenance command. A successful normal archive run updates the index automatically and refreshes the Browser.
@@ -43,8 +42,9 @@ The workflow dialog explains that collection runs inside the authenticated ChatG
 Actions:
 
 - **Open ChatGPT** opens `https://chatgpt.com/` in the default browser.
-- **Copy Collector JavaScript** reads `collect_chatgpt_archive.js` from the application directory and places its complete contents on the clipboard.
-- **Show Collector in Explorer** reveals the JavaScript file in the system file manager for users who prefer to work with the file directly.
+- Opening the guided workflow automatically reads `collect_chatgpt_archive.js` from the application directory and places its complete contents on the clipboard.
+- **Copy Again** is available as a lightweight fallback if the clipboard is overwritten before the collector is pasted.
+- **Show Collector JavaScript in Explorer** remains available from the Archive menu for users who prefer to work with the file directly, but it is intentionally omitted from the compact guided dialog.
 
 The GUI never stores or requests ChatGPT credentials.
 
@@ -58,16 +58,20 @@ The collector continues to create:
 chatgpt-archive-source.json
 ```
 
-### Step 3 — Detect the downloaded bundle
+### Step 3 — Detect the downloaded bundle and continue automatically
 
-The GUI checks the same Windows Downloads candidates already used by `archive_chats.py` and shows the newest valid `chatgpt-archive-source.json` when one appears.
+The GUI checks the same Windows Downloads candidates already used by `archive_chats.py`.
 
-The user can either:
+When the guided dialog opens, it records the signature of any already existing bundle. This protects against automatically reprocessing an old download.
 
-- continue with the automatically detected bundle; or
-- choose a bundle manually when required.
+The dialog then polls for a new or replaced non-empty `chatgpt-archive-source.json`. As soon as one appears:
 
-No archive data is modified at this stage.
+1. the bundle is reported as detected;
+2. the archive workflow starts automatically;
+3. the guided dialog closes;
+4. the archive progress/log dialog takes over.
+
+A previously downloaded bundle can still be processed explicitly with **Archive → Process Downloaded Bundle…**.
 
 ### Step 4 — Run the archive workflow
 
@@ -95,33 +99,35 @@ After a successful child process exit:
 4. refresh conversation results;
 5. report the updated conversation count.
 
-Failures leave the GUI open, preserve the log, and do not claim that the archive is current.
+Failures leave the GUI open, preserve the archive-run log, and do not claim that the archive is current.
 
 ## Interaction details
+
+### Guided dialog size
+
+The guided dialog is intentionally compact. Its default height is reduced compared with the first prototype, and the minimum height allows it to be resized vertically without forcing a large empty area.
 
 ### Clipboard
 
 Use Tkinter's own clipboard methods so no additional dependency is required.
 
-The complete collector source is copied verbatim from the repository file.
+The complete collector source is copied verbatim from the repository file as soon as the guided workflow opens.
 
 ### Explorer integration
 
-Reuse the existing platform file-reveal helper. On Windows this should select `collect_chatgpt_archive.js` in Explorer.
+Reuse the existing platform file-reveal helper. On Windows this selects `collect_chatgpt_archive.js` in Explorer. This remains a menu-level maintenance/helper action rather than part of the normal guided path.
 
 ### Long-running child process
 
-`archive_chats.py` must run without blocking Tk's event loop. The GUI should stream or periodically drain process output into a log widget while the process is running.
-
-The first implementation may use a background reader thread plus a queue, with all Tk widget updates performed through `after()` on the Tk thread.
+`archive_chats.py` runs without blocking Tk's event loop. The GUI drains child-process output into a log widget while the process is running.
 
 ### Manual bundle processing
 
-`Process Downloaded Bundle…` provides a direct entry point for users who already ran the collector. It should use the normal archive workflow and not create a second import implementation.
+`Process Downloaded Bundle…` provides a direct entry point for users who already ran the collector. It uses the normal archive workflow and does not create a second import implementation.
 
 ### Logs
 
-The guided workflow should retain the last run's text in memory and optionally write a derived log under the archive `reports` directory. Logs are diagnostic/derived data and are not canonical archive data.
+The archive execution window preserves output while the process is running and after completion so failures can be diagnosed without a terminal.
 
 ## Implementation stages
 
@@ -137,10 +143,12 @@ The guided workflow should retain the last run's text in memory and optionally w
 
 ### Stage 2 — Guided workflow and bundle detection
 
-- Add the workflow dialog.
-- Detect the newest valid bundle in Windows Downloads.
-- Allow manual bundle selection.
-- Make the collection instructions self-contained.
+- Add a compact workflow dialog.
+- Copy the collector to the clipboard automatically on opening.
+- Detect a newly downloaded bundle in Windows Downloads.
+- Avoid auto-processing a bundle that already existed when the dialog opened.
+- Start the archive automatically when a new bundle arrives.
+- Keep manual bundle processing available from the Archive menu.
 
 ### Stage 3 — Background archive execution
 
@@ -153,6 +161,8 @@ The guided workflow should retain the last run's text in memory and optionally w
 
 - Improve status/progress presentation.
 - Add last-run summary.
+- Make the archive directory configurable/persistent.
+- Clean internal citation/tool markers from preview display without altering archive/index data.
 - Update README and screenshots/documentation.
 - Complete end-to-end Windows smoke testing before tagging v2.8.
 
