@@ -1,11 +1,31 @@
 import argparse
+import contextlib
+import io
+import os
 import sqlite3
 import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
 
-import archive_browser as browser
+
+def _ensure_standard_streams() -> None:
+    """Provide harmless sinks when Windows windowed mode has no stdio streams."""
+
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+
+_ensure_standard_streams()
+
+# The historical browser remains directly executable and prints its filename
+# when imported.  GPT Exporter imports it as an implementation module, so keep
+# that compatibility diagnostic out of the application's own output surface.
+with contextlib.redirect_stdout(io.StringIO()):
+    import archive_browser as browser
+
 import archive_gui_workflow as workflow
 from gpt_exporter.index import IndexUpdateResult, update_index as update_archive_index
 from gpt_exporter.resources import read_release_history, read_user_guide
@@ -283,7 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--debug",
         action="store_true",
-        default=browser.DEBUG,
+        default=False,
         help="Enable verbose debug logging.",
     )
     return parser

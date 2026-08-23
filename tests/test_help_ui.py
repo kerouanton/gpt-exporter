@@ -12,7 +12,7 @@ from unittest.mock import patch
 import gpt_exporter_gui as gui
 from gpt_exporter.resources import read_release_history, read_user_guide
 from gpt_exporter.ui.markdown_viewer import markdown_segments
-from gpt_exporter.version import APP_NAME, __version__, display_version
+from gpt_exporter.version import APP_NAME, __version__, display_version, windows_version_tuple
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +23,7 @@ class HelpUiTests(unittest.TestCase):
         metadata = tomllib.loads((REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(metadata["project"]["version"], __version__)
         self.assertEqual(display_version(), "2.9.0-dev")
+        self.assertEqual(windows_version_tuple(), (2, 9, 0, 0))
 
     def test_packaged_help_and_history_are_readable(self) -> None:
         guide = read_user_guide()
@@ -59,7 +60,7 @@ sample
         self.assertTrue(any(segment.href == "https://example.com" for segment in segments))
         self.assertTrue(any("code_block" in segment.tags for segment in segments if "sample" in segment.text))
 
-    def test_gui_version_option_uses_central_version(self) -> None:
+    def test_gui_version_option_uses_central_version_without_import_noise(self) -> None:
         completed = subprocess.run(
             [sys.executable, str(REPOSITORY_ROOT / "gpt_exporter_gui.py"), "--version"],
             cwd=REPOSITORY_ROOT,
@@ -69,7 +70,40 @@ sample
         )
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn(f"{APP_NAME} {display_version()}", completed.stdout)
+        self.assertEqual(completed.stdout.strip(), f"{APP_NAME} {display_version()}")
+        self.assertEqual(completed.stderr, "")
+
+    def test_importing_gui_is_silent(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-c", "import gpt_exporter_gui"],
+            cwd=REPOSITORY_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout, "")
+        self.assertEqual(completed.stderr, "")
+
+    def test_gui_debug_logging_is_opt_in(self) -> None:
+        arguments = gui.build_parser().parse_args([])
+        self.assertFalse(arguments.debug)
+
+    def test_windowed_stream_guard_supplies_devnull_streams(self) -> None:
+        created_stdout = None
+        created_stderr = None
+        with patch.object(gui.sys, "stdout", None), patch.object(gui.sys, "stderr", None):
+            gui._ensure_standard_streams()
+            created_stdout = gui.sys.stdout
+            created_stderr = gui.sys.stderr
+            self.assertIsNotNone(created_stdout)
+            self.assertIsNotNone(created_stderr)
+            self.assertFalse(created_stdout.closed)
+            self.assertFalse(created_stderr.closed)
+
+        created_stdout.close()
+        created_stderr.close()
 
     def test_help_menu_exposes_guide_history_search_and_about(self) -> None:
         class FakeMenu:
