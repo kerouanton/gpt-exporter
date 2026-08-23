@@ -1,0 +1,85 @@
+name: Windows onedir build
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt
+
+      - name: Build Windows onedir application
+        run: python -m PyInstaller --noconfirm --clean packaging/gpt_exporter.spec
+
+      - name: Smoke-test executable version
+        shell: pwsh
+        run: |
+          $exe = ".\dist\GPT Exporter\GPT Exporter.exe"
+          if (-not (Test-Path $exe)) {
+              throw "Executable was not produced: $exe"
+          }
+
+          $expected = python -c "from gpt_exporter.version import APP_NAME, display_version; print(f'{APP_NAME} {display_version()}')"
+          $output = & $exe --version
+          if ($LASTEXITCODE -ne 0) {
+              throw "Executable --version failed with exit code $LASTEXITCODE"
+          }
+
+          $text = ($output -join "`n")
+          if ($text -notmatch [regex]::Escape($expected)) {
+              throw "Unexpected executable version output. Expected to find '$expected' in '$text'."
+          }
+
+          Write-Host "Executable version smoke test OK: $expected"
+
+      - name: Verify packaged resources
+        shell: pwsh
+        run: |
+          $resourceRoot = ".\dist\GPT Exporter\_internal\gpt_exporter\resources"
+          $required = @(
+              "HELP.md",
+              "HISTORY.md",
+              "collect_chatgpt_archive.js"
+          )
+
+          foreach ($name in $required) {
+              $path = Join-Path $resourceRoot $name
+              if (-not (Test-Path $path -PathType Leaf)) {
+                  throw "Required packaged resource is missing: $path"
+              }
+              if ((Get-Item $path).Length -le 0) {
+                  throw "Required packaged resource is empty: $path"
+              }
+          }
+
+          Write-Host "Packaged resources OK"
+
+      - name: Upload Windows onedir artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GPT-Exporter-Windows-onedir
+          path: dist/GPT Exporter/
+          if-no-files-found: error
+          retention-days: 14
