@@ -5,9 +5,12 @@ print(f"The filename of this script is: {file_name}")
 import argparse
 import lzma
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+
+from gpt_exporter.index import IndexUpdateResult, update_index as update_archive_index
 
 ROOT = Path(__file__).resolve().parent
 USER_PROFILE = Path(os.environ.get("USERPROFILE") or Path.home())
@@ -47,6 +50,25 @@ def run_step(label: str, script: str, arguments: list[str] | None = None) -> Non
         raise RuntimeError(
             f"Step failed with exit code {completed.returncode}: {label}"
         )
+
+
+def run_index_step() -> IndexUpdateResult:
+    """Update the archive index directly through the reusable library API."""
+    label = "5/5 - Update archive search index"
+    print()
+    print("=" * 72)
+    print(label)
+    print("=" * 72)
+
+    try:
+        return update_archive_index(
+            ARCHIVE_ROOT,
+            downloads_dir=DOWNLOADS_DIR,
+            database_path=ARCHIVE_ROOT / "conversations-index.sqlite",
+            progress=print,
+        )
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        raise RuntimeError(f"Step failed: {label}: {exc}") from exc
 
 
 def clear_generated_data() -> None:
@@ -110,7 +132,6 @@ def migrate_legacy_archive() -> None:
             "Automatic migration was stopped to avoid overwriting data.\n"
             f"{details}"
         )
-
 
 
 
@@ -303,8 +324,6 @@ def delete_consumed_source_bundle(path: Path) -> None:
 
 
 
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -391,19 +410,7 @@ def main() -> int:
                 export_arguments,
             )
 
-        run_step(
-            "5/5 - Update archive search index",
-            "index_chatgpt_archive.py",
-            [
-                "--archive-root",
-                str(ARCHIVE_ROOT),
-                "--downloads-dir",
-                str(DOWNLOADS_DIR),
-                "--database",
-                str(ARCHIVE_ROOT / "conversations-index.sqlite"),
-                "index",
-            ],
-        )
+        run_index_step()
 
     except (FileNotFoundError, RuntimeError) as exc:
         print(f"\nERROR: {exc}", file=sys.stderr)
