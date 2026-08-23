@@ -1,9 +1,11 @@
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
@@ -12,6 +14,7 @@ ROOT = Path(__file__).resolve().parent
 COLLECTOR_PATH = ROOT / "collect_chatgpt_archive.js"
 SOURCE_BUNDLE_NAME = "chatgpt-archive-source.json"
 CHATGPT_URL = "https://chatgpt.com/"
+LATEST_ARCHIVE_LOG_NAME = "archive-workflow-latest.log"
 
 
 def windows_download_directories() -> list[Path]:
@@ -92,10 +95,44 @@ def open_chatgpt() -> bool:
     return bool(webbrowser.open(CHATGPT_URL, new=2))
 
 
+def latest_archive_log_path(report_directory: Path) -> Path:
+    """Return the stable path used for the most recent archive-workflow log."""
+    return Path(report_directory) / LATEST_ARCHIVE_LOG_NAME
+
+
+def create_archive_log_path(
+    report_directory: Path,
+    *,
+    when: datetime | None = None,
+) -> Path:
+    """Create a unique timestamped path for one archive-workflow run."""
+    report_directory = Path(report_directory)
+    report_directory.mkdir(parents=True, exist_ok=True)
+    timestamp = (when or datetime.now()).strftime("%Y-%m-%d_%H-%M-%S")
+    candidate = report_directory / f"archive-workflow-{timestamp}.log"
+    suffix = 2
+    while candidate.exists():
+        candidate = report_directory / f"archive-workflow-{timestamp}-{suffix}.log"
+        suffix += 1
+    return candidate
+
+
+def should_auto_close_archive(return_code: int, refresh_succeeded: bool) -> bool:
+    """Only close automatically after both archive and Browser refresh succeeded."""
+    return return_code == 0 and refresh_succeeded
+
+
 class ArchiveRunDialog(tk.Toplevel):
     """Run archive_chats.py without blocking Tk and stream its output."""
 
-    def __init__(self, parent: tk.Misc, *, on_success=None) -> None:
+    def __init__(
+        self,
+        parent: tk.Misc,
+        *,
+        on_success=None,
+        log_directory: Path | None = None,
+        auto_close_ms: int = 1000,
+    ) -> None:
         super().__init__(parent)
         self.title("Archive Workflow")
         self.geometry("900x620")
@@ -103,6 +140,10 @@ class ArchiveRunDialog(tk.Toplevel):
         self.transient(parent)
 
         self.on_success = on_success
+        self.auto_close_ms = auto_close_ms
+        self.log_directory = Path(log_directory) if log_directory is not None else None
+        self.log_path: Path | None = None
+        self._log_handle = None
         self.process: subprocess.Popen[str] | None = None
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.finished = False
@@ -130,13 +171,58 @@ class ArchiveRunDialog(tk.Toplevel):
         self.close_button.pack(side="right")
 
         self.protocol("WM_DELETE_WINDOW", self._close_requested)
+        self._open_persistent_log()
         self.after(50, self._start_process)
 
-    def _append_log(self, text: str) -> None:
+    def _append_log_widget(self, text: str) -> None:
         self.log_text.configure(state="normal")
         self.log_text.insert("end", text)
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
+
+    def _append_log(self, text: str) -> None:
+        self._append_log_widget(text)
+        if self._log_handle is None:
+            return
+        try:
+            self._log_handle.write(text)
+            self._log_handle.flush()
+        except OSError as error:
+            try:
+                self._log_handle.close()
+            except OSError:
+                pass
+            self._log_handle = None
+            self._append_log_widget(f"\nWARNING: Persistent workflow log write failed: {error}\n")
+
+    def _open_persistent_log(self) -> None:
+        if self.log_directory is None:
+            return
+        try:
+            self.log_path = create_archive_log_path(self.log_directory)
+            self._log_handle = self.log_path.open("w", encoding="utf-8", newline="")
+        except OSError as error:
+            self.log_path = None
+            self._log_handle = None
+            self._append_log_widget(f"WARNING: Persistent workflow log unavailable: {error}\n\n")
+
+    def _finalize_persistent_log(self) -> None:
+        if self._log_handle is not None:
+            try:
+                self._log_handle.flush()
+                self._log_handle.close()
+            except OSError:
+                pass
+            self._log_handle = None
+
+        if self.log_path is None or self.log_directory is None:
+            return
+
+        latest_path = latest_archive_log_path(self.log_directory)
+        try:
+            shutil.copyfile(self.log_path, latest_path)
+        except OSError as error:
+            self._append_log_widget(f"\nWARNING: Could not update latest workflow log: {error}\n")
 
     def _start_process(self) -> None:
         command = build_archive_command()
@@ -183,20 +269,51 @@ class ArchiveRunDialog(tk.Toplevel):
                 self.finished = True
                 self.status_var.set("Archive workflow could not be started.")
                 self._append_log(f"\nERROR: {payload}\n")
+                self._finalize_persistent_log()
                 self.close_button.configure(state="normal")
             elif kind == "done":
                 self.finished = True
                 return_code = int(payload)
-                self.close_button.configure(state="normal")
+                refresh_succeeded = False
+
                 if return_code == 0:
-                    self.status_var.set("Archive workflow completed successfully.")
-                    if self.on_success is not None:
-                        self.on_success()
+                    self.status_var.set("Archive completed; refreshing Browser…")
+                    if self.on_success is None:
+                        refresh_succeeded = True
+                    else:
+                        try:
+                            refresh_succeeded = bool(self.on_success())
+                        except Exception as error:  # GUI callback boundary: keep diagnostics visible.
+                            self._append_log(f"\nERROR: Browser refresh callback failed: {error}\n")
+                            refresh_succeeded = False
+
+                    if refresh_succeeded:
+                        self.status_var.set("Archive workflow completed successfully. Closing…")
+                        self._append_log("\nGUI: Browser refresh completed successfully.\n")
+                    else:
+                        self.status_var.set("Archive completed, but Browser refresh failed.")
+                        self._append_log(
+                            "\nGUI: Browser refresh failed; keeping this window open for diagnosis.\n"
+                        )
                 else:
                     self.status_var.set(f"Archive workflow failed (exit code {return_code}).")
+                    self._append_log(f"\nGUI: Archive workflow failed with exit code {return_code}.\n")
+
+                self._finalize_persistent_log()
+                self.close_button.configure(state="normal")
+
+                if should_auto_close_archive(return_code, refresh_succeeded):
+                    self.after(self.auto_close_ms, self._auto_close_after_success)
 
         if not self.finished:
             self.after(100, self._drain_events)
+
+    def _auto_close_after_success(self) -> None:
+        try:
+            if self.winfo_exists():
+                self.destroy()
+        except tk.TclError:
+            pass
 
     def _close_requested(self) -> None:
         if self.finished:
