@@ -5,7 +5,6 @@ print(f"The filename of this script is: {file_name}")
 import json
 import lzma
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -39,6 +38,7 @@ class V28IndexMetadataCharacterizationTests(unittest.TestCase):
 
             write_xz_conversation(source, "conversation_base.json")
             indexer.build_index(downloads, archive_root, database)
+            first_mtime_ns = source.stat().st_mtime_ns
 
             indexer.add_work_project_to_conversation(
                 database,
@@ -56,12 +56,15 @@ class V28IndexMetadataCharacterizationTests(unittest.TestCase):
                 "characterization-tag",
             )
 
-            # Ensure a distinct source mtime even on filesystems with coarse timestamp
-            # resolution, then replace the source with a larger version of the same
-            # conversation and run the normal incremental index update.
-            time.sleep(0.02)
+            # Replace the source with a larger version of the same conversation and
+            # force a deterministic later mtime so the normal incremental path sees
+            # the source as changed on every supported test filesystem.
             write_xz_conversation(source, "conversation_extended.json")
-            os.utime(source, None)
+            current_stat = source.stat()
+            os.utime(
+                source,
+                ns=(current_stat.st_atime_ns, first_mtime_ns + 1_000_000_000),
+            )
             indexer.build_index(downloads, archive_root, database)
 
             with indexer.connect_database(database) as connection:
