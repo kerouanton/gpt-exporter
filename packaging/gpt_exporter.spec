@@ -3,7 +3,7 @@
 from pathlib import Path
 
 
-ROOT = Path(SPECPATH).parent.parent.resolve()
+ROOT = Path(SPECPATH).parent.resolve()
 RESOURCE_DIRECTORY = ROOT / "gpt_exporter" / "resources"
 RESOURCE_NAMES = (
     "HELP.md",
