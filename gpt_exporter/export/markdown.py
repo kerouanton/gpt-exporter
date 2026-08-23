@@ -1,16 +1,13 @@
 """Library API for exporting ChatGPT conversations to Markdown.
 
-This is the stable in-process boundary used by the v2.9 refactor.  The current
-v2.8 implementation still lives in the historical ``export_markdown.py``
-module; it is loaded lazily so importing this library module has no archive or
-console side effects.  Callers use explicit paths and receive a structured
-result instead of driving the legacy CLI through ``sys.argv``.
+This stable in-process boundary keeps callers independent from the historical
+repository-root CLI.  The v2.8 implementation is retained package-locally while
+its behavior is migrated behind the library API.
 """
 
 from __future__ import annotations
 
 import contextlib
-import importlib
 import io
 from dataclasses import dataclass
 from functools import lru_cache
@@ -41,16 +38,12 @@ class MarkdownExportResult:
 
 @lru_cache(maxsize=1)
 def _implementation() -> ModuleType:
-    """Load the v2.8 implementation lazily behind the library boundary.
-
-    The historical module prints its filename at import time.  Suppress only
-    that compatibility diagnostic so the public library call remains quiet.
-    The implementation itself is deliberately unchanged in this phase.
-    """
+    """Load the package-local v2.8 implementation without its diagnostic."""
 
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        return importlib.import_module("export_markdown")
+        from . import _legacy_markdown
+    return _legacy_markdown
 
 
 def export_markdown(

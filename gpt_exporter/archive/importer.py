@@ -1,9 +1,8 @@
 """In-process browser bundle import API for GPT Exporter.
 
-The v2.9 package boundary calls the historical importer implementation directly
-rather than launching ``import_browser_bundle.py`` in another Python process.
-The compatibility module is imported with its filename diagnostic suppressed;
-standalone CLI behavior remains unchanged when that script is executed itself.
+The reusable API owns an explicit archive-root boundary and delegates to the
+package-local compatibility implementation.  Repository-root scripts are no
+longer required by the library import graph.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ ProgressCallback = Callable[[str], None]
 
 
 class _ProgressStream(io.TextIOBase):
-    """Translate writes from the compatibility importer into progress lines."""
+    """Translate compatibility importer writes into progress lines."""
 
     def __init__(self, progress: ProgressCallback | None) -> None:
         super().__init__()
@@ -44,7 +43,7 @@ class _ProgressStream(io.TextIOBase):
 
 _import_capture = io.StringIO()
 with contextlib.redirect_stdout(_import_capture):
-    import import_browser_bundle as _legacy_importer
+    from . import _legacy_importer
 
 
 ImportBundleResult = _legacy_importer.ImportBundleResult
