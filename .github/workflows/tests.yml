@@ -38,4 +38,4 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Validate project metadata
-        run: python -c "import pathlib, tomllib; data=tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8')); p=data['project']; assert p['name']=='gpt-exporter'; assert p['version']=='2.8'; assert p['license']=='GPL-3.0-or-later'; print('pyproject metadata OK')"
+        run: python -c "import pathlib, tomllib; from gpt_exporter.version import __version__; data=tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8')); p=data['project']; assert p['name']=='gpt-exporter'; assert p['version']==__version__; assert p['license']=='GPL-3.0-or-later'; print('pyproject metadata OK')"
