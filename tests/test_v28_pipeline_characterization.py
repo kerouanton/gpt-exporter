@@ -8,7 +8,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
 import archive_chats
@@ -19,11 +18,7 @@ class V28PipelineCharacterizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             archive_root = Path(temporary) / "archive"
             with (
-                mock.patch.object(
-                    archive_chats,
-                    "default_archive_paths",
-                    return_value=SimpleNamespace(root=archive_root),
-                ),
+                mock.patch.object(archive_chats, "ARCHIVE_ROOT", archive_root),
                 mock.patch.object(archive_chats, "archive_bundle") as archive_bundle,
                 mock.patch.object(sys, "argv", ["archive_chats.py"]),
             ):
@@ -43,11 +38,7 @@ class V28PipelineCharacterizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             archive_root = Path(temporary) / "archive"
             with (
-                mock.patch.object(
-                    archive_chats,
-                    "default_archive_paths",
-                    return_value=SimpleNamespace(root=archive_root),
-                ),
+                mock.patch.object(archive_chats, "ARCHIVE_ROOT", archive_root),
                 mock.patch.object(archive_chats, "archive_bundle") as archive_bundle,
                 mock.patch.object(
                     sys,
