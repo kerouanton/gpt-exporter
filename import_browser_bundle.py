@@ -14,6 +14,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,31 @@ USER_AGENT = (
     "Gecko/20100101 Firefox/140.0"
 )
 MAX_EXTERNAL_IMAGE_BYTES = 30 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class ImportBundleResult:
+    """Structured result of one browser-bundle import."""
+
+    bundle_path: Path
+    archive_root: Path
+    downloads_dir: Path
+    assets_dir: Path
+    reports_dir: Path
+    written_conversations: int
+    preserved_conversations: int
+    current_batch: tuple[str, ...]
+    imported_assets: int
+    reused_assets: int
+    cached_failures: int
+    cache_mismatches: int
+    failed_attempts: int
+    external_images_downloaded: int
+    registry_entries: int
+
+    @property
+    def success(self) -> bool:
+        return self.cache_mismatches == 0
 
 
 def debug(message: str) -> None:
@@ -165,20 +191,21 @@ def load_asset_registry(path: Path) -> dict[str, dict[str, Any]]:
 def find_local_asset(
     file_id: str,
     prior: dict[str, Any] | None,
+    assets_root: Path = ASSETS_DIR,
 ) -> tuple[Path | None, str | None]:
     if isinstance(prior, dict):
         filename = prior.get("filename")
         if isinstance(filename, str) and filename:
-            candidate = ASSETS_DIR / filename
+            candidate = assets_root / filename
             if candidate.is_file():
                 return candidate, filename.replace("\\", "/")
 
-    attachment_dir = ASSETS_DIR / "attachment"
+    attachment_dir = assets_root / "attachment"
     matches = sorted(path for path in attachment_dir.glob(f"{file_id}*") if path.is_file())
     if not matches:
         return None, None
     candidate = matches[0]
-    return candidate, str(candidate.relative_to(ASSETS_DIR)).replace("\\", "/")
+    return candidate, str(candidate.relative_to(assets_root)).replace("\\", "/")
 
 
 def downloaded_record_from_local(
@@ -246,16 +273,14 @@ def download_external_image(asset: dict[str, Any]) -> tuple[bytes, str, str]:
     raise RuntimeError(" | ".join(errors) or "No usable external image URL")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Import a browser-generated ChatGPT archive source bundle."
-    )
-    parser.add_argument(
-        "bundle", nargs="?", type=Path, default=DEFAULT_BUNDLE
-    )
-    args = parser.parse_args()
+def import_bundle(
+    bundle_path: Path | str,
+    *,
+    archive_root: Path | str = ARCHIVE_ROOT,
+) -> ImportBundleResult:
+    """Import one browser-generated bundle into an explicit archive root."""
 
-    bundle_path = args.bundle.resolve()
+    bundle_path = Path(bundle_path).expanduser().resolve()
     if not bundle_path.is_file():
         raise FileNotFoundError(f"Browser bundle not found: {bundle_path}")
 
@@ -263,9 +288,11 @@ def main() -> int:
     if data.get("format") != "chatgpt-archive-source-v1":
         raise ValueError("Unsupported or invalid browser bundle format.")
 
-    downloads = DOWNLOADS_DIR
-    assets_dir = ASSETS_DIR / "attachment"
-    reports = REPORTS_DIR
+    resolved_root = Path(archive_root).expanduser().resolve()
+    downloads = resolved_root / "downloads"
+    assets_root = resolved_root / "assets"
+    assets_dir = assets_root / "attachment"
+    reports = resolved_root / "reports"
     downloads.mkdir(parents=True, exist_ok=True)
     assets_dir.mkdir(parents=True, exist_ok=True)
     reports.mkdir(parents=True, exist_ok=True)
@@ -355,7 +382,7 @@ def main() -> int:
         error: str | None = None
 
         if status == "cached_downloaded":
-            local_path, relative = find_local_asset(file_id, prior)
+            local_path, relative = find_local_asset(file_id, prior, assets_root)
             if local_path is not None and relative is not None:
                 record = downloaded_record_from_local(
                     file_id=file_id,
@@ -433,7 +460,7 @@ def main() -> int:
             "pending_external_download",
             "failed",
         }:
-            local_path, relative = find_local_asset(file_id, prior)
+            local_path, relative = find_local_asset(file_id, prior, assets_root)
             if prior and prior.get("status") == "downloaded" and local_path and relative:
                 record = downloaded_record_from_local(
                     file_id=file_id,
@@ -505,7 +532,7 @@ def main() -> int:
                 output.write_bytes(raw)
         else:
             output.write_bytes(raw)
-        relative = str(output.relative_to(ASSETS_DIR)).replace("\\", "/")
+        relative = str(output.relative_to(assets_root)).replace("\\", "/")
         attempt_count = int((prior or {}).get("attempt_count") or (1 if prior else 0)) + 1
         record = {
             "kind": kind,
@@ -574,8 +601,37 @@ def main() -> int:
             "for each reported ID (or clear the whole cache), regenerate the browser bundle, "
             "and run archive_chats.py again."
         )
-        return 2
-    return 0
+
+    return ImportBundleResult(
+        bundle_path=bundle_path,
+        archive_root=resolved_root,
+        downloads_dir=downloads,
+        assets_dir=assets_root,
+        reports_dir=reports,
+        written_conversations=written_conversations,
+        preserved_conversations=preserved_conversations,
+        current_batch=tuple(current_batch),
+        imported_assets=imported_assets,
+        reused_assets=reused_assets,
+        cached_failures=cached_failures,
+        cache_mismatches=cache_mismatches,
+        failed_attempts=failed_attempts,
+        external_images_downloaded=external_images_downloaded,
+        registry_entries=len(registry),
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Import a browser-generated ChatGPT archive source bundle."
+    )
+    parser.add_argument(
+        "bundle", nargs="?", type=Path, default=DEFAULT_BUNDLE
+    )
+    args = parser.parse_args()
+
+    result = import_bundle(args.bundle, archive_root=ARCHIVE_ROOT)
+    return 0 if result.success else 2
 
 
 if __name__ == "__main__":
