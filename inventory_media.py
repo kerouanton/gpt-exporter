@@ -17,6 +17,10 @@ JS = REPORTS_DIR / "inventory-media-report.json.xz"
 
 
 def main() -> int:
+    # Preserve the v2.8 CLI side effect: the reports directory existed before
+    # conversation parsing began, even when a malformed input later failed.
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
     result = inventory_media(
         INPUT,
         REPORTS_DIR,
