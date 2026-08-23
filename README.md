@@ -16,7 +16,7 @@ GPT Exporter combines four pieces into one workflow:
 - **Indexer** — maintains a rebuildable SQLite FTS5 search index with provenance and organizational metadata.
 - **GPT Exporter GUI** — searches, filters, organizes, opens, and updates the archive without requiring a normal PowerShell workflow.
 
-The v2.8 GUI can copy the browser collector to the clipboard, detect the browser download automatically, run the archive pipeline in the background, update the search index, refresh the Browser, and display progress/log output.
+The v2.8 GUI can copy the browser collector to the clipboard, detect the browser download automatically, run the archive pipeline in the background, update the search index, refresh the Browser, persist workflow logs, and display progress only while it is useful.
 
 ## Requirements
 
@@ -67,6 +67,7 @@ The guided workflow is intentionally simple:
 4. Wait for the browser to download `chatgpt-archive-source.json`.
 5. GPT Exporter detects the new bundle automatically and starts the archive workflow.
 6. The archive pipeline imports the bundle, preserves assets, regenerates changed exports, updates the SQLite index, and refreshes the GUI.
+7. When both the archive and Browser refresh succeed, the progress/log window closes automatically after a short delay.
 
 The collector uses the browser's existing authenticated session. GPT Exporter does not ask Python to store ChatGPT credentials.
 
@@ -77,6 +78,20 @@ Useful Archive-menu maintenance commands remain available:
 - **Process Downloaded Bundle…** — manually process an already downloaded bundle.
 - **Update Search Index** — run incremental indexing manually.
 - **Open Archive Folder** — open the active archive directory.
+- **Show Last Archive Log** — open the latest persistent archive-workflow log.
+
+## Persistent workflow logs
+
+Every archive run is logged under the active archive's `reports` directory:
+
+```text
+reports\archive-workflow-YYYY-MM-DD_HH-MM-SS.log
+reports\archive-workflow-latest.log
+```
+
+The timestamped file preserves the streamed archive output for that run. `archive-workflow-latest.log` is refreshed after every completed run, including failures.
+
+A successful run closes the progress window automatically only after the Browser has also refreshed successfully. Archive failures or Browser-refresh failures keep the window open so the diagnostic output remains visible.
 
 ## Search and organization
 
@@ -113,7 +128,7 @@ A successful run is cumulative and non-destructive. The temporary browser bundle
 The project deliberately follows conservative preservation rules:
 
 1. Canonical durable data is `downloads\*.json.xz + assets\*`.
-2. DOCX, Markdown, SQLite indexes, manifests, and reports are derived/rebuildable.
+2. DOCX, Markdown, SQLite indexes, manifests, reports, and workflow logs are derived/rebuildable.
 3. Normal archiving is cumulative and non-destructive.
 4. Existing conversations and assets are never pruned merely because a later browser bundle omits them.
 5. Asset collection is deliberately broad; over-collection is safer than silently losing recoverable files.
@@ -172,7 +187,7 @@ py archive_chats.py --fresh
 | File | Purpose |
 |---|---|
 | `gpt_exporter_gui.py` | Main v2.8 graphical application |
-| `archive_gui_workflow.py` | Guided collection/archive workflow and background process UI |
+| `archive_gui_workflow.py` | Guided collection/archive workflow, persistent logs, and background process UI |
 | `collect_chatgpt_archive.js` | Browser-side collector for conversations and browser-accessible assets |
 | `archive_chats.py` | Canonical cumulative archive orchestration workflow |
 | `import_browser_bundle.py` | Imports the temporary browser bundle into the persistent archive |
