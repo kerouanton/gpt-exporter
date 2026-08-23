@@ -97,6 +97,10 @@ A real Windows end-to-end smoke test validated the user-facing workflow:
 
 The persistent-log and auto-close behavior is also covered by focused helper tests: auto-close is permitted only when both the archive process and Browser refresh succeed.
 
+## Final release acceptance
+
+Immediately before tagging v2.8, the final Windows build was smoke-tested again with a fresh conversation. The new conversation appeared automatically in the Browser, the generated DOCX was current, the timestamped and latest workflow logs were created and accessible from the Archive menu, and the Archive Workflow window closed automatically after a successful run. This final acceptance test passed without requiring manual index refresh or a terminal-driven archive step.
+
 ## Compatibility and preservation
 
 v2.8 does not change the durable archive source-of-truth model documented by the frozen v2.7 baseline.

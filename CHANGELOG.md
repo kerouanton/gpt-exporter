@@ -1,11 +1,29 @@
 # Changelog
 
+## v2.8 — GUI-first archive workflow — 2026-08-23
+
+- Makes `gpt_exporter_gui.py` the normal day-to-day entry point while keeping the command-line tools available for diagnostics and advanced use.
+- Adds the **Archive** menu and guided **Archive New Conversations…** workflow.
+- Copies `collect_chatgpt_archive.js` to the clipboard automatically when the guided workflow opens.
+- Detects a newly downloaded `chatgpt-archive-source.json` automatically and ignores an already existing bundle to avoid accidental reprocessing.
+- Launches the canonical `archive_chats.py` pipeline automatically after bundle detection without duplicating archive/index logic in the GUI.
+- Streams archive progress without freezing Tkinter, then refreshes the Browser automatically after success.
+- Persists every archive run under `reports/` as `archive-workflow-YYYY-MM-DD_HH-MM-SS.log` and maintains `archive-workflow-latest.log`.
+- Adds **Archive → Show Last Archive Log**.
+- Closes the progress/log window automatically only after both the archive process and Browser refresh succeed; failures remain visible for diagnosis.
+- Preserves the v2.7 archive model: canonical data remains cumulative `downloads/*.json.xz + assets/*`; DOCX, Markdown, SQLite indexes, manifests, reports, and workflow logs remain derived/rebuildable.
+- Preserves Browser-managed projects, categories, and tags during incremental indexing.
+- Validated on Windows with GitHub Actions for Python 3.12 and 3.13 plus repeated real end-to-end GUI smoke tests, including automatic appearance of newly archived conversations, current DOCX output, persistent logs, and success-only auto-close behavior.
+- Known v2.8 limitation: the integrated archive workflow intentionally targets the default `%USERPROFILE%\Documents\ChatGPT Archive` location and refuses to write through a Browser instance opened on a different SQLite database.
+
+See `docs/RELEASE_NOTES_V2.8.md` for the complete release notes and validation record.
+
 
 ## v2.7 — FROZEN — 2026-08-17
 
 - Freezes the RC6 code as the v2.7 reference release after a complete Windows rebuild of all 80 archived conversations: 80 converted, 0 skipped, 0 failed.
 - Final cumulative audit on the target archive: 1,610 physical asset files, 1,530 unique local Asset IDs, 1,455 rendered Asset IDs, 120 local assets intentionally not rendered, 45 referenced-but-local-missing assets, 45 duplicate local Asset IDs, and 0 unidentified asset files.
-- All 45 duplicate Asset IDs are byte-identical: 28 `attachment_filename_variant`, 9 `dictation_mirror`, 8 `image_mirror`; 0 content conflicts and 0 unreadable duplicates.
+- All 45 duplicate Asset IDs are byte-identical: 28 `attachment_filename_variant`, 9 `dictation_mirror`, 8 `image_mirror`, 0 content conflicts and 0 unreadable duplicates.
 - Final unreferenced classification: 1 `dictation_source_inactive_or_hidden`, 13 `inactive_branch_only`, 72 `internal_image_inspection`, 34 `tool_source_or_internal`. No unexplained physical orphan remains.
 - The remaining 12 non-identical same-basename historical sandbox-link occurrences were reviewed against canonical conversation JSON. Provenance cannot identify one exact local target without guessing, so they deliberately remain non-clickable.
 - No canonical `.json.xz` format, asset layout, collection coverage, or deletion policy changed between RC6 and this frozen v2.7 package. The executable source code is byte-identical to RC6; only release documentation and source-hash manifests were finalized.
