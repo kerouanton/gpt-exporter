@@ -1,5 +1,5 @@
 import os
-import sys
+import queue
 import tempfile
 import time
 import unittest
@@ -64,12 +64,55 @@ class ArchiveGuiWorkflowTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 workflow.read_collector_source(path)
 
-    def test_build_archive_command_is_unbuffered_and_uses_current_python(self) -> None:
-        command = workflow.build_archive_command()
+    def test_archive_worker_calls_pipeline_in_process_and_queues_progress(self) -> None:
+        events: queue.Queue[tuple[str, object]] = queue.Queue()
+        archive_root = Path("C:/synthetic/archive")
+        source_bundle = Path("C:/synthetic/Downloads/chatgpt-archive-source.json")
 
-        self.assertEqual(command[0], sys.executable)
-        self.assertEqual(command[1], "-u")
-        self.assertEqual(Path(command[2]).name, "archive_chats.py")
+        def fake_archive_bundle(**kwargs):
+            kwargs["progress"]("synthetic progress")
+            return mock.sentinel.pipeline_result
+
+        with mock.patch.object(
+            workflow,
+            "archive_bundle",
+            side_effect=fake_archive_bundle,
+        ) as archive_bundle:
+            workflow.run_archive_pipeline_worker(
+                events,
+                archive_root=archive_root,
+                source_bundle=source_bundle,
+            )
+
+        archive_bundle.assert_called_once()
+        _, kwargs = archive_bundle.call_args
+        self.assertEqual(kwargs["archive_root"], archive_root)
+        self.assertEqual(kwargs["source_bundle"], source_bundle)
+        self.assertEqual(kwargs["legacy_root"], workflow.ROOT)
+        self.assertTrue(callable(kwargs["progress"]))
+        self.assertEqual(events.get_nowait(), ("line", "synthetic progress\n"))
+        self.assertEqual(events.get_nowait(), ("done", 0))
+        self.assertTrue(events.empty())
+
+    def test_archive_worker_reports_pipeline_failure_without_touching_tk(self) -> None:
+        events: queue.Queue[tuple[str, object]] = queue.Queue()
+
+        with mock.patch.object(
+            workflow,
+            "archive_bundle",
+            side_effect=RuntimeError("synthetic pipeline failure"),
+        ):
+            workflow.run_archive_pipeline_worker(
+                events,
+                archive_root=Path("C:/synthetic/archive"),
+                source_bundle=Path("C:/synthetic/bundle.json"),
+            )
+
+        kind, message = events.get_nowait()
+        self.assertEqual(kind, "line")
+        self.assertIn("ERROR: synthetic pipeline failure", str(message))
+        self.assertEqual(events.get_nowait(), ("done", 1))
+        self.assertTrue(events.empty())
 
     def test_windows_download_directories_are_unique(self) -> None:
         with mock.patch.dict(
