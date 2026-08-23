@@ -2,6 +2,7 @@ import os
 file_name = os.path.basename(__file__)
 print(f"The filename of this script is: {file_name}")
 
+import gc
 import json
 import lzma
 import tempfile
@@ -40,21 +41,47 @@ class V28IndexMetadataCharacterizationTests(unittest.TestCase):
             indexer.build_index(downloads, archive_root, database)
             first_mtime_ns = source.stat().st_mtime_ns
 
-            indexer.add_work_project_to_conversation(
-                database,
-                CONVERSATION_ID,
-                "Characterization Project",
-            )
-            indexer.add_category_to_conversation(
-                database,
-                CONVERSATION_ID,
-                "Characterization Category",
-            )
-            indexer.add_tag_to_conversation(
-                database,
-                CONVERSATION_ID,
-                "characterization-tag",
-            )
+            connection = indexer.connect_database(database)
+            try:
+                project = indexer.get_or_create_work_project(
+                    connection,
+                    "Characterization Project",
+                )
+                category = indexer.get_or_create_category(
+                    connection,
+                    "Characterization Category",
+                )
+                tag = indexer.get_or_create_tag(
+                    connection,
+                    "characterization-tag",
+                )
+                with connection:
+                    connection.execute(
+                        """
+                        INSERT INTO conversation_work_projects (
+                            conversation_id, project_id, assigned_at
+                        ) VALUES (?, ?, ?)
+                        """,
+                        (CONVERSATION_ID, project["project_id"], indexer.now_iso()),
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO conversation_categories (
+                            conversation_id, category_id, assigned_at
+                        ) VALUES (?, ?, ?)
+                        """,
+                        (CONVERSATION_ID, category["category_id"], indexer.now_iso()),
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO conversation_tags (
+                            conversation_id, tag_id, assigned_at
+                        ) VALUES (?, ?, ?)
+                        """,
+                        (CONVERSATION_ID, tag["tag_id"], indexer.now_iso()),
+                    )
+            finally:
+                connection.close()
 
             # Replace the source with a larger version of the same conversation and
             # force a deterministic later mtime so the normal incremental path sees
@@ -67,7 +94,8 @@ class V28IndexMetadataCharacterizationTests(unittest.TestCase):
             )
             indexer.build_index(downloads, archive_root, database)
 
-            with indexer.connect_database(database) as connection:
+            connection = indexer.connect_database(database)
+            try:
                 project_names = {
                     row["name"]
                     for row in connection.execute(
@@ -108,12 +136,19 @@ class V28IndexMetadataCharacterizationTests(unittest.TestCase):
                     "SELECT title, updated_at FROM conversations WHERE conversation_id = ?",
                     (CONVERSATION_ID,),
                 ).fetchone()
+            finally:
+                connection.close()
 
             self.assertEqual(project_names, {"Characterization Project"})
             self.assertEqual(category_names, {"Characterization Category"})
             self.assertEqual(tag_names, {"characterization-tag"})
             self.assertIsNotNone(conversation)
             self.assertEqual(conversation["title"], "Characterization Fixture")
+
+            # Current v2.8 index helpers use sqlite3.Connection as a context manager,
+            # which commits/rolls back but does not itself close the handle. Collect
+            # unreachable connections before TemporaryDirectory cleanup on Windows.
+            gc.collect()
 
 
 if __name__ == "__main__":
