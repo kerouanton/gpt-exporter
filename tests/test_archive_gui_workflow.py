@@ -31,6 +31,22 @@ class ArchiveGuiWorkflowTests(unittest.TestCase):
 
             self.assertIsNone(workflow.find_latest_source_bundle([directory]))
 
+    def test_source_bundle_signature_detects_replaced_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            path = Path(temp_name) / workflow.SOURCE_BUNDLE_NAME
+            path.write_text("old", encoding="utf-8")
+            old_signature = workflow.source_bundle_signature(path)
+
+            path.write_text("new and larger", encoding="utf-8")
+            new_signature = workflow.source_bundle_signature(path)
+
+            self.assertIsNotNone(old_signature)
+            self.assertIsNotNone(new_signature)
+            self.assertNotEqual(old_signature, new_signature)
+
+    def test_source_bundle_signature_accepts_missing_bundle(self) -> None:
+        self.assertIsNone(workflow.source_bundle_signature(None))
+
     def test_read_collector_source_returns_exact_text(self) -> None:
         with tempfile.TemporaryDirectory() as temp_name:
             path = Path(temp_name) / "collector.js"
