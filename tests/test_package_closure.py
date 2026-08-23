@@ -61,13 +61,18 @@ class PackageClosureTests(unittest.TestCase):
             self.assertEqual(completed.stdout, "")
 
     def test_packaged_collector_matches_source_collector(self) -> None:
-        source = (REPOSITORY_ROOT / "collect_chatgpt_archive.js").read_bytes()
+        # Compare text rather than raw checkout bytes. Git may materialize LF or
+        # CRLF differently depending on the local Windows configuration, while
+        # JavaScript semantics and packaged resource content remain identical.
+        source = (REPOSITORY_ROOT / "collect_chatgpt_archive.js").read_text(
+            encoding="utf-8"
+        )
         packaged = (
             REPOSITORY_ROOT
             / "gpt_exporter"
             / "resources"
             / "collect_chatgpt_archive.js"
-        ).read_bytes()
+        ).read_text(encoding="utf-8")
 
         self.assertEqual(packaged, source)
 
