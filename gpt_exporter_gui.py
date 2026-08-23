@@ -8,6 +8,9 @@ from tkinter import messagebox
 import archive_browser as browser
 import archive_gui_workflow as workflow
 from gpt_exporter.index import IndexUpdateResult, update_index as update_archive_index
+from gpt_exporter.resources import read_release_history, read_user_guide
+from gpt_exporter.ui import show_about_dialog, show_markdown_document
+from gpt_exporter.version import APP_NAME, display_version
 
 
 def update_browser_index(
@@ -85,10 +88,41 @@ class GPTExporterApp(browser.ArchiveBrowser):
         menu_bar.add_cascade(label="View", menu=view_menu)
 
         help_menu = tk.Menu(menu_bar, tearoff=False)
+        help_menu.add_command(label="User Guide…", command=self.show_user_guide)
+        help_menu.add_command(label="Release History…", command=self.show_release_history)
         help_menu.add_command(label="Search Syntax…", command=self.show_search_syntax)
+        help_menu.add_separator()
+        help_menu.add_command(label="About GPT Exporter…", command=self.show_about)
         menu_bar.add_cascade(label="Help", menu=help_menu)
 
         self.config(menu=menu_bar)
+
+    def show_user_guide(self) -> None:
+        """Open the packaged end-user guide."""
+
+        self._show_markdown_resource("GPT Exporter User Guide", read_user_guide)
+
+    def show_release_history(self) -> None:
+        """Open the packaged release history."""
+
+        self._show_markdown_resource("GPT Exporter Release History", read_release_history)
+
+    def _show_markdown_resource(self, title: str, reader) -> None:
+        try:
+            markdown = reader()
+        except (OSError, ValueError) as error:
+            messagebox.showerror(title, str(error), parent=self)
+            return
+        show_markdown_document(self, title=title, markdown=markdown)
+
+    def show_about(self) -> None:
+        """Open application identity, version, license and documentation shortcuts."""
+
+        show_about_dialog(
+            self,
+            on_user_guide=self.show_user_guide,
+            on_history=self.show_release_history,
+        )
 
     def archive_new_conversations(self) -> None:
         workflow.ArchiveWorkflowDialog(
@@ -235,6 +269,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="GPT Exporter graphical archive, index and browsing application"
     )
     parser.add_argument(
+        "--version",
+        action="version",
+        version=f"{APP_NAME} {display_version()}",
+        help="Show the application version and exit.",
+    )
+    parser.add_argument(
         "--database",
         type=Path,
         default=browser.DEFAULT_DATABASE_PATH,
@@ -259,11 +299,11 @@ def main() -> int:
     except (OSError, ValueError, sqlite3.Error) as error:
         root = tk.Tk()
         root.withdraw()
-        messagebox.showerror("GPT Exporter", str(error), parent=root)
+        messagebox.showerror(APP_NAME, str(error), parent=root)
         root.destroy()
         return 1
 
-    app.title("GPT Exporter")
+    app.title(APP_NAME)
     app.mainloop()
     return 0
 
