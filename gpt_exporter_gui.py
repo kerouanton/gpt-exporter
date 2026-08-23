@@ -7,6 +7,23 @@ from tkinter import messagebox
 
 import archive_browser as browser
 import archive_gui_workflow as workflow
+from gpt_exporter.index import IndexUpdateResult, update_index as update_archive_index
+
+
+def update_browser_index(
+    database_path: Path,
+    *,
+    progress=None,
+) -> IndexUpdateResult:
+    """Update the Browser's open archive database through the library API."""
+    database_path = Path(database_path).expanduser().resolve()
+    archive_root = database_path.parent
+    return update_archive_index(
+        archive_root,
+        downloads_dir=archive_root / "downloads",
+        database_path=database_path,
+        progress=progress,
+    )
 
 
 class GPTExporterApp(browser.ArchiveBrowser):
@@ -131,6 +148,37 @@ class GPTExporterApp(browser.ArchiveBrowser):
             browser.open_with_default_application(str(log_path))
         except OSError as error:
             messagebox.showerror("Show Last Archive Log", str(error), parent=self)
+
+    def update_index(self) -> None:
+        """Update the open Browser index directly through the reusable library."""
+        browser.LOGGER.info("Updating archive search index in-process")
+        self.status_var.set("Updating search index…")
+        self.update_idletasks()
+
+        try:
+            result = update_browser_index(
+                self.database_path,
+                progress=lambda message: browser.LOGGER.info("Indexer: %s", message),
+            )
+        except (OSError, ValueError, sqlite3.Error) as error:
+            browser.LOGGER.exception("Unable to update index: %s", error)
+            self.status_var.set("Index update failed.")
+            messagebox.showerror("Update Search Index", str(error), parent=self)
+            return
+
+        if result.failed:
+            browser.LOGGER.warning(
+                "Index update completed with %d source failure(s).",
+                result.failed,
+            )
+
+        self._validate_database()
+        self._refresh_all()
+        messagebox.showinfo(
+            "Update Search Index",
+            "Search index updated successfully.",
+            parent=self,
+        )
 
     def process_downloaded_bundle(self) -> bool:
         bundle = workflow.find_latest_source_bundle()

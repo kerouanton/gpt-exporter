@@ -19,7 +19,7 @@ class V28PipelineCharacterizationTests(unittest.TestCase):
         *,
         step_side_effect=None,
         batch_files: list[str] | None = None,
-    ) -> tuple[int, mock.Mock, mock.Mock]:
+    ) -> tuple[int, mock.Mock, mock.Mock, mock.Mock, list[str]]:
         downloads = archive_root / "downloads"
         assets = archive_root / "assets"
         reports = archive_root / "reports"
@@ -37,7 +37,18 @@ class V28PipelineCharacterizationTests(unittest.TestCase):
         source_bundle = archive_root / "chatgpt-archive-source.json"
         source_bundle.write_text("{}", encoding="utf-8")
 
-        run_step = mock.Mock(side_effect=step_side_effect)
+        events: list[str] = []
+
+        def record_step(label: str, script: str, arguments=None) -> None:
+            events.append(script)
+            if step_side_effect is not None:
+                step_side_effect(label, script, arguments)
+
+        def record_index() -> None:
+            events.append("index-library")
+
+        run_step = mock.Mock(side_effect=record_step)
+        run_index_step = mock.Mock(side_effect=record_index)
         delete_bundle = mock.Mock()
 
         with (
@@ -64,30 +75,32 @@ class V28PipelineCharacterizationTests(unittest.TestCase):
                 delete_bundle,
             ),
             mock.patch.object(archive_chats, "run_step", run_step),
+            mock.patch.object(archive_chats, "run_index_step", run_index_step),
             mock.patch.object(sys, "argv", ["archive_chats.py"]),
         ):
             result = archive_chats.main()
 
-        return result, run_step, delete_bundle
+        return result, run_step, run_index_step, delete_bundle, events
 
     def test_pipeline_step_order_is_stable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            result, run_step, delete_bundle = self.run_pipeline(
+            result, run_step, run_index_step, delete_bundle, events = self.run_pipeline(
                 Path(temporary_directory),
                 batch_files=["conversation.json.xz"],
             )
 
         self.assertEqual(result, 0)
         self.assertEqual(
-            [call.args[1] for call in run_step.call_args_list],
+            events,
             [
                 "import_browser_bundle.py",
                 "inventory_media.py",
                 "build_asset_manifest.py",
                 "export_all.py",
-                "index_chatgpt_archive.py",
+                "index-library",
             ],
         )
+        run_index_step.assert_called_once_with()
         delete_bundle.assert_called_once()
 
     def test_source_bundle_is_not_deleted_when_a_step_fails(self) -> None:
@@ -96,7 +109,7 @@ class V28PipelineCharacterizationTests(unittest.TestCase):
                 raise RuntimeError("synthetic inventory failure")
 
         with tempfile.TemporaryDirectory() as temporary_directory:
-            result, run_step, delete_bundle = self.run_pipeline(
+            result, run_step, run_index_step, delete_bundle, events = self.run_pipeline(
                 Path(temporary_directory),
                 step_side_effect=fail_inventory,
                 batch_files=["conversation.json.xz"],
@@ -104,30 +117,31 @@ class V28PipelineCharacterizationTests(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertEqual(
-            [call.args[1] for call in run_step.call_args_list],
+            events,
             ["import_browser_bundle.py", "inventory_media.py"],
         )
+        run_index_step.assert_not_called()
         delete_bundle.assert_not_called()
 
     def test_empty_current_batch_skips_export_but_still_updates_index(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            result, run_step, delete_bundle = self.run_pipeline(
+            result, run_step, run_index_step, delete_bundle, events = self.run_pipeline(
                 Path(temporary_directory),
                 batch_files=[],
             )
 
         self.assertEqual(result, 0)
-        scripts = [call.args[1] for call in run_step.call_args_list]
         self.assertEqual(
-            scripts,
+            events,
             [
                 "import_browser_bundle.py",
                 "inventory_media.py",
                 "build_asset_manifest.py",
-                "index_chatgpt_archive.py",
+                "index-library",
             ],
         )
-        self.assertNotIn("export_all.py", scripts)
+        self.assertNotIn("export_all.py", events)
+        run_index_step.assert_called_once_with()
         delete_bundle.assert_called_once()
 
 
