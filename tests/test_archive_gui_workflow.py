@@ -3,6 +3,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -84,6 +85,30 @@ class ArchiveGuiWorkflowTests(unittest.TestCase):
 
         normalized = [os.path.normcase(os.path.abspath(str(path))) for path in directories]
         self.assertEqual(len(normalized), len(set(normalized)))
+
+    def test_create_archive_log_path_is_timestamped_and_unique(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            reports = Path(temp_name) / "reports"
+            when = datetime(2026, 8, 23, 11, 52, 14)
+
+            first = workflow.create_archive_log_path(reports, when=when)
+            self.assertEqual(first.name, "archive-workflow-2026-08-23_11-52-14.log")
+            first.write_text("first", encoding="utf-8")
+
+            second = workflow.create_archive_log_path(reports, when=when)
+            self.assertEqual(second.name, "archive-workflow-2026-08-23_11-52-14-2.log")
+
+    def test_latest_archive_log_path_uses_stable_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            reports = Path(temp_name) / "reports"
+            path = workflow.latest_archive_log_path(reports)
+
+            self.assertEqual(path, reports / "archive-workflow-latest.log")
+
+    def test_auto_close_requires_archive_and_refresh_success(self) -> None:
+        self.assertTrue(workflow.should_auto_close_archive(0, True))
+        self.assertFalse(workflow.should_auto_close_archive(0, False))
+        self.assertFalse(workflow.should_auto_close_archive(1, True))
 
 
 if __name__ == "__main__":
