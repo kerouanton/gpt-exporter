@@ -1,0 +1,31 @@
+{
+  "conversation_id": "conv-characterization-001",
+  "title": "Characterization Fixture",
+  "create_time": 1700000000,
+  "update_time": 1700000000,
+  "current_node": "node-user-1",
+  "mapping": {
+    "node-root": {
+      "id": "node-root",
+      "parent": null,
+      "children": ["node-user-1"],
+      "message": null
+    },
+    "node-user-1": {
+      "id": "node-user-1",
+      "parent": "node-root",
+      "children": [],
+      "message": {
+        "id": "msg-user-1",
+        "author": {"role": "user"},
+        "create_time": 1700000000,
+        "update_time": 1700000000,
+        "content": {
+          "content_type": "text",
+          "parts": ["Short"]
+        },
+        "metadata": {}
+      }
+    }
+  }
+}
