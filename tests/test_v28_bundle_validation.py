@@ -2,7 +2,6 @@ import os
 file_name = os.path.basename(__file__)
 print(f"The filename of this script is: {file_name}")
 
-import os
 import subprocess
 import sys
 import tempfile
