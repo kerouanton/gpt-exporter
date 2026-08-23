@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from gpt_exporter.index import update_index
@@ -108,7 +109,7 @@ class IndexLibraryTests(unittest.TestCase):
             database_path = archive_root / "conversations-index.sqlite"
             update_index(archive_root)
 
-            with sqlite3.connect(database_path) as connection:
+            with closing(sqlite3.connect(database_path)) as connection:
                 connection.execute("PRAGMA foreign_keys = ON")
                 connection.execute(
                     "INSERT INTO categories(name, description, created_at) VALUES (?, NULL, ?)",
@@ -156,7 +157,7 @@ class IndexLibraryTests(unittest.TestCase):
             result = update_index(archive_root)
             self.assertEqual(result.updated, 1)
 
-            with sqlite3.connect(database_path) as connection:
+            with closing(sqlite3.connect(database_path)) as connection:
                 category_count = connection.execute(
                     "SELECT COUNT(*) FROM conversation_categories WHERE conversation_id = ?",
                     ("conv-index-library-001",),
