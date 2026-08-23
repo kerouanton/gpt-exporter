@@ -48,9 +48,13 @@ def find_archived_conversation(user_profile: Path) -> Path:
     return matches[0]
 
 
+def read_archived_bytes(path: Path) -> bytes:
+    with lzma.open(path, "rb") as handle:
+        return handle.read()
+
+
 def read_archived_conversation(path: Path) -> dict:
-    with lzma.open(path, "rt", encoding="utf-8") as handle:
-        return json.load(handle)
+    return json.loads(read_archived_bytes(path).decode("utf-8"))
 
 
 class V28ImportCharacterizationTests(unittest.TestCase):
@@ -63,7 +67,7 @@ class V28ImportCharacterizationTests(unittest.TestCase):
             first = run_import(profile, bundle)
             self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
             archived_path = find_archived_conversation(profile)
-            base_size = archived_path.stat().st_size
+            base_uncompressed_size = len(read_archived_bytes(archived_path))
 
             write_bundle(bundle, "conversation_extended.json")
             second = run_import(profile, bundle)
@@ -72,7 +76,7 @@ class V28ImportCharacterizationTests(unittest.TestCase):
             updated_path = find_archived_conversation(profile)
             stored = read_archived_conversation(updated_path)
             self.assertEqual(stored["current_node"], "node-assistant-2")
-            self.assertGreater(updated_path.stat().st_size, base_size)
+            self.assertGreater(len(read_archived_bytes(updated_path)), base_uncompressed_size)
             self.assertIn("Imported conversation:", second.stdout)
 
     def test_shorter_incoming_conversation_never_replaces_larger_snapshot(self) -> None:
@@ -118,24 +122,27 @@ class V28ImportCharacterizationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             profile = Path(temporary_directory)
             bundle = profile / "bundle.json"
-            reports = profile / "Documents" / "ChatGPT Archive" / "reports"
+            batch_path = (
+                profile
+                / "Documents"
+                / "ChatGPT Archive"
+                / "reports"
+                / "current-batch.json"
+            )
 
             write_bundle(bundle, "conversation_base.json")
             first = run_import(profile, bundle)
             self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
 
-            batch_files = sorted(reports.glob("*batch*.json"))
-            self.assertTrue(batch_files, f"No batch file found in {reports}")
-            first_batch = json.loads(batch_files[-1].read_text(encoding="utf-8"))
+            first_batch = json.loads(batch_path.read_text(encoding="utf-8"))
             self.assertEqual(len(first_batch.get("conversation_files", [])), 1)
+            self.assertTrue(first_batch["conversation_files"][0].endswith(f"_{CONVERSATION_ID}.json.xz"))
 
             write_bundle(bundle, "conversation_shorter.json")
             second = run_import(profile, bundle)
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
 
-            batch_files = sorted(reports.glob("*batch*.json"))
-            self.assertTrue(batch_files, f"No batch file found in {reports}")
-            second_batch = json.loads(batch_files[-1].read_text(encoding="utf-8"))
+            second_batch = json.loads(batch_path.read_text(encoding="utf-8"))
             self.assertEqual(second_batch.get("conversation_files", []), [])
 
 
