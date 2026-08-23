@@ -11,7 +11,9 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest import mock
 
+import gpt_exporter.index.engine as index_engine
 from gpt_exporter.index import update_index
 
 
@@ -193,6 +195,26 @@ class IndexLibraryTests(unittest.TestCase):
             self.assertEqual(result.failed, 1)
             self.assertFalse(result.success)
             self.assertEqual(result.failures[0].source_path, corrupt.resolve())
+
+    def test_structural_sqlite_failure_propagates_and_connection_is_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_root = Path(temporary) / "archive"
+            self._write_conversation(archive_root)
+            database_path = archive_root / "conversations-index.sqlite"
+            implementation = index_engine._implementation()
+
+            with mock.patch.object(
+                implementation,
+                "index_one",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ):
+                with self.assertRaises(sqlite3.OperationalError):
+                    update_index(archive_root)
+
+            moved = database_path.with_name("moved-after-failure.sqlite")
+            database_path.replace(moved)
+            moved.replace(database_path)
+            self.assertTrue(database_path.is_file())
 
     def test_library_import_has_no_console_or_archive_side_effects(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
