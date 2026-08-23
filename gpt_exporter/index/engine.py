@@ -1,9 +1,9 @@
 """In-process archive indexing API for GPT Exporter.
 
-The public v2.9 boundary keeps GUI/CLI callers independent from the historical
-``index_chatgpt_archive.py`` command line.  The current implementation is still
-loaded lazily from that compatibility module while the larger indexer is moved
-behind the package boundary incrementally.
+The public v2.9 boundary keeps GUI/CLI callers independent from repository-root
+scripts.  The v2.8 index implementation is retained package-locally while the
+adapter provides explicit paths, structured results, and deterministic resource
+cleanup.
 
 Unlike the historical ``with connect_database(...)`` pattern, this adapter
 closes the SQLite connection explicitly.  That matters for in-process GUI use
@@ -13,7 +13,6 @@ on Windows, where an unclosed handle can otherwise remain alive after indexing.
 from __future__ import annotations
 
 import contextlib
-import importlib
 import io
 import json
 import lzma
@@ -60,11 +59,12 @@ class IndexUpdateResult:
 
 @lru_cache(maxsize=1)
 def _implementation() -> ModuleType:
-    """Load the v2.8 index implementation without its import diagnostic."""
+    """Load the package-local v2.8 indexer without its import diagnostic."""
 
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured):
-        return importlib.import_module("index_chatgpt_archive")
+        from . import _legacy_indexer
+    return _legacy_indexer
 
 
 def _emit(progress: ProgressCallback | None, message: str) -> None:
