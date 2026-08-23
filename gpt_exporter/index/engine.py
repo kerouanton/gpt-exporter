@@ -17,7 +17,6 @@ import importlib
 import io
 import json
 import lzma
-import sqlite3
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -83,10 +82,10 @@ def update_index(
 ) -> IndexUpdateResult:
     """Create or incrementally update an archive SQLite index in-process.
 
-    Per-conversation decoding/indexing failures retain the historical behavior:
-    they are recorded and processing continues.  Structural failures such as a
-    missing downloads directory or an unusable database are raised to the
-    caller so GUI/CLI layers can decide how to present them.
+    Per-conversation source decoding/validation failures retain the historical
+    behavior: they are recorded and processing continues. Structural SQLite
+    failures are deliberately not caught here, matching the v2.8 indexer: they
+    propagate to the caller so archive/GUI layers take their failure paths.
     """
 
     implementation = _implementation()
@@ -147,7 +146,6 @@ def update_index(
                 ValueError,
                 json.JSONDecodeError,
                 lzma.LZMAError,
-                sqlite3.Error,
             ) as error:
                 failures.append(
                     IndexFailure(
