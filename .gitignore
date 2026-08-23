@@ -13,3 +13,7 @@ __pycache__/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+.venv-packaging/
+build/
+dist/
+/GPT Exporter.spec
