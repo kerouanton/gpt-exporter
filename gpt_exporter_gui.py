@@ -208,6 +208,8 @@ class GPTExporterApp(browser.ArchiveBrowser):
         self.status_var.set(f"Archive bundle ready: {bundle.name}")
         workflow.ArchiveRunDialog(
             self,
+            archive_root=self.database_path.parent,
+            source_bundle=bundle,
             on_success=self._archive_run_succeeded,
             log_directory=self.database_path.parent / "reports",
         )
