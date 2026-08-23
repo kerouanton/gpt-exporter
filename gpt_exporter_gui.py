@@ -46,6 +46,7 @@ class GPTExporterApp(browser.ArchiveBrowser):
         archive_menu.add_separator()
         archive_menu.add_command(label="Update Search Index", command=self.update_index)
         archive_menu.add_command(label="Open Archive Folder", command=self.open_archive_folder)
+        archive_menu.add_command(label="Show Last Archive Log", command=self.show_last_archive_log)
         menu_bar.add_cascade(label="Archive", menu=archive_menu)
 
         project_menu = tk.Menu(menu_bar, tearoff=False)
@@ -117,6 +118,20 @@ class GPTExporterApp(browser.ArchiveBrowser):
         except OSError as error:
             messagebox.showerror("Open Archive Folder", str(error), parent=self)
 
+    def show_last_archive_log(self) -> None:
+        log_path = workflow.latest_archive_log_path(self.database_path.parent / "reports")
+        if not log_path.is_file():
+            messagebox.showinfo(
+                "Show Last Archive Log",
+                "No persistent archive-workflow log is available yet.",
+                parent=self,
+            )
+            return
+        try:
+            browser.open_with_default_application(str(log_path))
+        except OSError as error:
+            messagebox.showerror("Show Last Archive Log", str(error), parent=self)
+
     def process_downloaded_bundle(self) -> bool:
         bundle = workflow.find_latest_source_bundle()
         if bundle is None:
@@ -143,10 +158,14 @@ class GPTExporterApp(browser.ArchiveBrowser):
             return False
 
         self.status_var.set(f"Archive bundle ready: {bundle.name}")
-        workflow.ArchiveRunDialog(self, on_success=self._archive_run_succeeded)
+        workflow.ArchiveRunDialog(
+            self,
+            on_success=self._archive_run_succeeded,
+            log_directory=self.database_path.parent / "reports",
+        )
         return True
 
-    def _archive_run_succeeded(self) -> None:
+    def _archive_run_succeeded(self) -> bool:
         try:
             self._validate_database()
             self._refresh_all()
@@ -156,8 +175,9 @@ class GPTExporterApp(browser.ArchiveBrowser):
                 f"The archive completed, but the Browser could not reload the updated index:\n\n{error}",
                 parent=self,
             )
-            return
+            return False
         self.status_var.set("Archive updated successfully and Browser refreshed.")
+        return True
 
 
 def build_parser() -> argparse.ArgumentParser:

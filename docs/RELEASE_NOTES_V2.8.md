@@ -23,6 +23,10 @@ The major v2.8 change is workflow integration. A normal archive/update cycle no 
 - Automatic launch of the canonical `archive_chats.py` pipeline as soon as the new bundle is detected.
 - Background process execution keeps the Tkinter GUI responsive.
 - Live archive output is shown in a dedicated progress/log window.
+- Every archive run is also persisted under `reports/` as a timestamped UTF-8 log, with `archive-workflow-latest.log` updated to the most recent run.
+- **Show Last Archive Log** opens the most recent persistent workflow log from the Archive menu.
+- After a completely successful archive and Browser refresh, the progress/log window closes automatically after a short delay.
+- Failed archive runs or Browser-refresh failures keep the progress/log window open for diagnosis.
 - Archive indexing remains the final canonical pipeline step.
 - The Browser validates and refreshes the SQLite index automatically after a successful archive run.
 - Manual **Update Search Index**, **Process Downloaded Bundle…**, **Open Archive Folder**, and collector utilities remain available for maintenance.
@@ -49,6 +53,20 @@ GUI refresh
 
 The Python application never requests or stores ChatGPT credentials. Collection continues to run inside the user's already authenticated browser session.
 
+## Persistent workflow logs
+
+The live Archive Workflow window is diagnostic output, but v2.8 also keeps a persistent copy under the active archive's `reports` directory:
+
+```text
+reports/
+├─ archive-workflow-YYYY-MM-DD_HH-MM-SS.log
+└─ archive-workflow-latest.log
+```
+
+The timestamped log preserves the complete streamed output for that run. `archive-workflow-latest.log` is refreshed after each completed run, including failures, and can be opened through **Archive → Show Last Archive Log**.
+
+Persistent logs are derived diagnostic data. They do not replace or modify canonical conversation JSON/XZ or archived assets.
+
 ## Search and organization
 
 v2.8 retains the Archive Browser features introduced during the v2.7 repository work:
@@ -74,7 +92,10 @@ A real Windows end-to-end smoke test validated the user-facing workflow:
 4. run the complete archive pipeline without manual command-line intervention;
 5. update the SQLite index;
 6. refresh the Browser;
-7. open the DOCX for the current conversation and verify that it contains the latest archived content.
+7. verify that a newly archived conversation appears in the GUI automatically;
+8. open the DOCX for the current conversation and verify that it contains the latest archived content.
+
+The persistent-log and auto-close behavior is also covered by focused helper tests: auto-close is permitted only when both the archive process and Browser refresh succeed.
 
 ## Compatibility and preservation
 
