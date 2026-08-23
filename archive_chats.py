@@ -13,6 +13,12 @@ from gpt_exporter.pipeline import archive_bundle
 
 
 ROOT = Path(__file__).resolve().parent
+PATHS = default_archive_paths()
+ARCHIVE_ROOT = PATHS.root
+DOWNLOADS_DIR = PATHS.downloads
+ASSETS_DIR = PATHS.assets
+REPORTS_DIR = PATHS.reports
+MARKDOWN_DIR = PATHS.markdown
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,7 +51,7 @@ def main() -> int:
 
     try:
         archive_bundle(
-            archive_root=default_archive_paths().root,
+            archive_root=ARCHIVE_ROOT,
             convert_only=arguments.convert_only,
             fresh=arguments.fresh,
             skip_assets=arguments.skip_assets,
