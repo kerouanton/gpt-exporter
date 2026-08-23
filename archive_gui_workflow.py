@@ -58,6 +58,22 @@ def find_latest_source_bundle(
     return max(matches, key=lambda path: path.stat().st_mtime)
 
 
+def source_bundle_signature(path: Path | None) -> tuple[str, int, int] | None:
+    """Return a stable signature used to distinguish a newly downloaded bundle."""
+    if path is None:
+        return None
+    path = Path(path)
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (
+        os.path.normcase(os.path.abspath(str(path))),
+        int(stat.st_mtime_ns),
+        int(stat.st_size),
+    )
+
+
 def read_collector_source(path: Path = COLLECTOR_PATH) -> str:
     """Read the browser collector exactly as stored in the application directory."""
     source = Path(path).read_text(encoding="utf-8")
@@ -201,21 +217,23 @@ class ArchiveWorkflowDialog(tk.Toplevel):
         *,
         on_open_chatgpt,
         on_copy_collector,
-        on_show_collector,
         on_run_archive,
     ) -> None:
         super().__init__(parent)
         self.title("Archive New Conversations")
-        self.geometry("760x500")
-        self.minsize(680, 440)
+        self.geometry("760x360")
+        self.minsize(640, 280)
+        self.resizable(True, True)
         self.transient(parent)
 
         self.on_open_chatgpt = on_open_chatgpt
         self.on_copy_collector = on_copy_collector
-        self.on_show_collector = on_show_collector
         self.on_run_archive = on_run_archive
-        self.bundle_var = tk.StringVar(value="Waiting for chatgpt-archive-source.json in Downloads…")
+        self.collector_var = tk.StringVar(value="Preparing collector JavaScript…")
+        self.bundle_var = tk.StringVar(value="Waiting for a new chatgpt-archive-source.json in Downloads…")
         self._poll_after_id: str | None = None
+        self._archive_started = False
+        self._initial_bundle_signature = source_bundle_signature(find_latest_source_bundle())
 
         body = ttk.Frame(self, padding=14)
         body.pack(fill="both", expand=True)
@@ -224,7 +242,7 @@ class ArchiveWorkflowDialog(tk.Toplevel):
             body,
             text="Archive New Conversations",
             font=("TkDefaultFont", 12, "bold"),
-        ).pack(anchor="w", pady=(0, 12))
+        ).pack(anchor="w", pady=(0, 10))
 
         self._step(
             body,
@@ -232,63 +250,60 @@ class ArchiveWorkflowDialog(tk.Toplevel):
             "Open ChatGPT in your normal browser and make sure you are signed in.",
         )
         ttk.Button(body, text="Open ChatGPT", command=self.on_open_chatgpt).pack(
-            anchor="w", pady=(0, 12)
+            anchor="w", pady=(0, 10)
         )
 
         self._step(
             body,
             "2. Run the collector",
-            "Open Developer Tools (F12), select Console, then paste and run the collector. "
-            "You can copy it directly or reveal the .js file in Explorer.",
+            "The collector JavaScript is copied to the clipboard automatically. "
+            "Open Developer Tools (F12), select Console, paste it and run it.",
         )
-        collector_buttons = ttk.Frame(body)
-        collector_buttons.pack(fill="x", pady=(0, 12))
+        collector_row = ttk.Frame(body)
+        collector_row.pack(fill="x", pady=(0, 10))
+        ttk.Label(collector_row, textvariable=self.collector_var).pack(side="left")
         ttk.Button(
-            collector_buttons,
-            text="Copy Collector JavaScript",
-            command=self.on_copy_collector,
-        ).pack(side="left")
-        ttk.Button(
-            collector_buttons,
-            text="Show Collector in Explorer",
-            command=self.on_show_collector,
-        ).pack(side="left", padx=(8, 0))
+            collector_row,
+            text="Copy Again",
+            command=self._copy_collector,
+        ).pack(side="right")
 
         self._step(
             body,
             "3. Wait for the browser download",
             "When the collector finishes, the browser downloads chatgpt-archive-source.json. "
-            "This dialog detects the newest non-empty bundle automatically.",
+            "As soon as a new non-empty bundle is detected, the archive workflow starts automatically.",
         )
         ttk.Label(body, textvariable=self.bundle_var, wraplength=700).pack(
             anchor="w", fill="x", pady=(0, 10)
         )
 
         action_row = ttk.Frame(body)
-        action_row.pack(fill="x", pady=(4, 0))
-        self.run_button = ttk.Button(
-            action_row,
-            text="Run Archive Workflow",
-            command=self._run_archive,
-            state="disabled",
-        )
-        self.run_button.pack(side="left")
-        ttk.Button(action_row, text="Check Downloads Now", command=self._check_bundle).pack(
-            side="left", padx=(8, 0)
-        )
+        action_row.pack(fill="x", pady=(2, 0))
         ttk.Button(action_row, text="Close", command=self.destroy).pack(side="right")
 
         self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.after_idle(self._copy_collector)
         self._check_bundle()
 
     @staticmethod
     def _step(parent: ttk.Frame, title: str, text: str) -> None:
         ttk.Label(parent, text=title, font=("TkDefaultFont", 10, "bold")).pack(anchor="w")
         ttk.Label(parent, text=text, wraplength=700, justify="left").pack(
-            anchor="w", fill="x", pady=(2, 6)
+            anchor="w", fill="x", pady=(2, 5)
         )
 
+    def _copy_collector(self) -> None:
+        copied = bool(self.on_copy_collector())
+        if copied:
+            self.collector_var.set("Collector JavaScript copied to the clipboard.")
+        else:
+            self.collector_var.set("Collector JavaScript could not be copied automatically.")
+
     def _check_bundle(self) -> None:
+        if self._archive_started:
+            return
+
         if self._poll_after_id is not None:
             try:
                 self.after_cancel(self._poll_after_id)
@@ -297,12 +312,18 @@ class ArchiveWorkflowDialog(tk.Toplevel):
             self._poll_after_id = None
 
         bundle = find_latest_source_bundle()
+        signature = source_bundle_signature(bundle)
         if bundle is None:
-            self.bundle_var.set("Waiting for chatgpt-archive-source.json in Downloads…")
-            self.run_button.configure(state="disabled")
+            self.bundle_var.set("Waiting for a new chatgpt-archive-source.json in Downloads…")
+        elif signature == self._initial_bundle_signature:
+            self.bundle_var.set(
+                "An existing bundle is present; waiting for a new browser download…"
+            )
         else:
-            self.bundle_var.set(f"Ready: {bundle}")
-            self.run_button.configure(state="normal")
+            self._archive_started = True
+            self.bundle_var.set(f"Detected: {bundle}. Starting archive workflow…")
+            self.after(150, self._run_archive)
+            return
 
         if self.winfo_exists():
             self._poll_after_id = self.after(self.POLL_MS, self._check_bundle)
@@ -310,7 +331,17 @@ class ArchiveWorkflowDialog(tk.Toplevel):
     def _run_archive(self) -> None:
         bundle = find_latest_source_bundle()
         if bundle is None:
-            self.bundle_var.set("No valid bundle is currently available in Downloads.")
-            self.run_button.configure(state="disabled")
+            self._archive_started = False
+            self.bundle_var.set("The detected bundle is no longer available; waiting again…")
+            self._poll_after_id = self.after(self.POLL_MS, self._check_bundle)
             return
-        self.on_run_archive()
+
+        started = bool(self.on_run_archive())
+        if started:
+            self.destroy()
+            return
+
+        self._archive_started = False
+        self._initial_bundle_signature = source_bundle_signature(bundle)
+        self.bundle_var.set("Archive workflow did not start; waiting for another new bundle…")
+        self._poll_after_id = self.after(self.POLL_MS, self._check_bundle)
