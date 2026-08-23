@@ -15,7 +15,7 @@ Command-line scripts remain available as stable implementation layers and for di
 - Normal archive updates are cumulative and non-destructive.
 - Incremental indexing preserves Browser-managed projects, categories, and tags.
 - Long-running archive work must not freeze the Tkinter user interface.
-- The GUI must expose enough progress and log output to diagnose failures without requiring a terminal.
+- The GUI must expose enough progress and persistent log output to diagnose failures without requiring a terminal.
 
 ## Archive menu
 
@@ -28,7 +28,8 @@ Archive
 ├─ Process Downloaded Bundle…
 ├─ ─────────────────────────────
 ├─ Update Search Index
-└─ Open Archive Folder
+├─ Open Archive Folder
+└─ Show Last Archive Log
 ```
 
 `Update Search Index` remains a manual maintenance command. A successful normal archive run updates the index automatically and refreshes the Browser.
@@ -89,7 +90,17 @@ The canonical workflow remains:
 
 The GUI must not duplicate these operations internally.
 
-### Step 5 — Refresh Browser
+Every run is also written to a persistent UTF-8 log under the active archive's `reports` directory:
+
+```text
+reports/
+├─ archive-workflow-YYYY-MM-DD_HH-MM-SS.log
+└─ archive-workflow-latest.log
+```
+
+The timestamped file preserves the complete streamed output for that run. The stable `archive-workflow-latest.log` path is refreshed after every completed run, including failures.
+
+### Step 5 — Refresh Browser and close on success
 
 After a successful child process exit:
 
@@ -99,7 +110,9 @@ After a successful child process exit:
 4. refresh conversation results;
 5. report the updated conversation count.
 
-Failures leave the GUI open, preserve the archive-run log, and do not claim that the archive is current.
+Only when both the archive process and Browser refresh succeed does the progress/log window close automatically, after a short delay. If the archive fails or the Browser cannot refresh the updated index, the window remains open for diagnosis.
+
+The most recent persistent log remains available through **Archive → Show Last Archive Log** even after an automatic close.
 
 ## Interaction details
 
@@ -119,7 +132,7 @@ Reuse the existing platform file-reveal helper. On Windows this selects `collect
 
 ### Long-running child process
 
-`archive_chats.py` runs without blocking Tk's event loop. The GUI drains child-process output into a log widget while the process is running.
+`archive_chats.py` runs without blocking Tk's event loop. The GUI drains child-process output into a log widget while the process is running and mirrors the same output to the persistent timestamped log.
 
 ### Manual bundle processing
 
@@ -127,7 +140,9 @@ Reuse the existing platform file-reveal helper. On Windows this selects `collect
 
 ### Logs
 
-The archive execution window preserves output while the process is running and after completion so failures can be diagnosed without a terminal.
+Persistent workflow logs are diagnostic/derived data. They do not modify or replace canonical conversation JSON/XZ or archived assets.
+
+The progress window remains open after failures so the user can inspect the immediate output. After success it closes automatically because the timestamped log and `archive-workflow-latest.log` retain the diagnostic record.
 
 ## Implementation stages
 
@@ -154,13 +169,14 @@ The archive execution window preserves output while the process is running and a
 
 - Launch `archive_chats.py` from the GUI.
 - Stream progress/log output without freezing the GUI.
+- Persist each run under `reports/` and maintain `archive-workflow-latest.log`.
 - Refresh the Browser automatically after success.
-- Preserve useful error output after failure.
+- Close the progress window automatically only after archive and refresh both succeed.
+- Preserve useful error output and keep the window open after failure.
 
 ### Stage 4 — Polish
 
 - Improve status/progress presentation.
-- Add last-run summary.
 - Make the archive directory configurable/persistent.
 - Clean internal citation/tool markers from preview display without altering archive/index data.
 - Update README and screenshots/documentation.
