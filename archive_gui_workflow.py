@@ -9,9 +9,10 @@ import tkinter as tk
 from tkinter import ttk
 
 from gpt_exporter.pipeline import archive_bundle
+from gpt_exporter.resources import collector_path
 
 ROOT = Path(__file__).resolve().parent
-COLLECTOR_PATH = ROOT / "collect_chatgpt_archive.js"
+COLLECTOR_PATH = collector_path()
 SOURCE_BUNDLE_NAME = "chatgpt-archive-source.json"
 CHATGPT_URL = "https://chatgpt.com/"
 LATEST_ARCHIVE_LOG_NAME = "archive-workflow-latest.log"
@@ -78,7 +79,7 @@ def source_bundle_signature(path: Path | None) -> tuple[str, int, int] | None:
 
 
 def read_collector_source(path: Path = COLLECTOR_PATH) -> str:
-    """Read the browser collector exactly as stored in the application directory."""
+    """Read the browser collector exactly as stored in the packaged resources."""
     source = Path(path).read_text(encoding="utf-8")
     if not source.strip():
         raise ValueError(f"Collector JavaScript is empty: {path}")
