@@ -33,26 +33,42 @@ jobs:
       - name: Build Windows onedir application
         run: python -m PyInstaller --noconfirm --clean packaging/gpt_exporter.spec
 
-      - name: Smoke-test executable version
+      - name: Verify windowed executable metadata
         shell: pwsh
         run: |
           $exe = ".\dist\GPT Exporter\GPT Exporter.exe"
-          if (-not (Test-Path $exe)) {
+          if (-not (Test-Path $exe -PathType Leaf)) {
               throw "Executable was not produced: $exe"
           }
 
-          $expected = python -c "from gpt_exporter.version import APP_NAME, display_version; print(f'{APP_NAME} {display_version()}')"
-          $output = & $exe --version
-          if ($LASTEXITCODE -ne 0) {
-              throw "Executable --version failed with exit code $LASTEXITCODE"
+          $expectedName = python -c "from gpt_exporter.version import APP_NAME; print(APP_NAME)"
+          $expectedVersion = python -c "from gpt_exporter.version import display_version; print(display_version())"
+          $expectedNumeric = python -c "from gpt_exporter.version import windows_version_tuple; print('.'.join(map(str, windows_version_tuple())))"
+          $info = (Get-Item $exe).VersionInfo
+
+          if ($info.ProductName -ne $expectedName) {
+              throw "Unexpected ProductName: '$($info.ProductName)'"
+          }
+          if ($info.FileDescription -ne $expectedName) {
+              throw "Unexpected FileDescription: '$($info.FileDescription)'"
+          }
+          if ($info.ProductVersion -ne $expectedVersion) {
+              throw "Unexpected ProductVersion: '$($info.ProductVersion)'"
+          }
+          if ($info.FileVersion -ne $expectedVersion) {
+              throw "Unexpected FileVersion string: '$($info.FileVersion)'"
+          }
+          if ($info.OriginalFilename -ne "$expectedName.exe") {
+              throw "Unexpected OriginalFilename: '$($info.OriginalFilename)'"
           }
 
-          $text = ($output -join "`n")
-          if ($text -notmatch [regex]::Escape($expected)) {
-              throw "Unexpected executable version output. Expected to find '$expected' in '$text'."
+          $actualNumeric = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
+          if ($actualNumeric -ne $expectedNumeric) {
+              throw "Unexpected fixed file version: '$actualNumeric' (expected '$expectedNumeric')"
           }
 
-          Write-Host "Executable version smoke test OK: $expected"
+          python -c "import pefile; p=pefile.PE(r'dist\GPT Exporter\GPT Exporter.exe', fast_load=True); assert p.OPTIONAL_HEADER.Subsystem == 2, f'Expected Windows GUI subsystem (2), got {p.OPTIONAL_HEADER.Subsystem}'; print('Windowed PE subsystem OK')"
+          Write-Host "Windows version metadata OK: $expectedName $expectedVersion"
 
       - name: Verify packaged resources
         shell: pwsh
