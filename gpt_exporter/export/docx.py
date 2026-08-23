@@ -1,16 +1,13 @@
 """Library API for converting GPT Exporter Markdown to DOCX.
 
-The stable v2.9 API keeps CLI concerns out of callers.  The current v2.8 DOCX
-implementation remains in the historical ``export_docx.py`` module for now and
-is loaded lazily behind this boundary.  The adapter captures the legacy
-progress prints and forwards them only when a callback is supplied, so library
-calls are otherwise quiet and do not depend on console output.
+The stable v2.9 API keeps CLI concerns out of callers.  The v2.8 converter is
+retained package-locally so the library no longer depends on a repository-root
+script being importable at runtime.
 """
 
 from __future__ import annotations
 
 import contextlib
-import importlib
 import io
 from dataclasses import dataclass
 from functools import lru_cache
@@ -33,11 +30,12 @@ class DocxExportResult:
 
 @lru_cache(maxsize=1)
 def _implementation() -> ModuleType:
-    """Load the unchanged v2.8 converter lazily and suppress import diagnostics."""
+    """Load the package-local v2.8 converter without its diagnostic."""
 
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        return importlib.import_module("export_docx")
+        from . import _legacy_docx
+    return _legacy_docx
 
 
 def _forward_progress(buffer: io.StringIO, progress: ProgressCallback | None) -> None:
