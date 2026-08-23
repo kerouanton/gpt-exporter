@@ -77,7 +77,6 @@ class GPTExporterApp(browser.ArchiveBrowser):
             self,
             on_open_chatgpt=self.open_chatgpt,
             on_copy_collector=self.copy_collector_javascript,
-            on_show_collector=self.show_collector_in_explorer,
             on_run_archive=self.process_downloaded_bundle,
         )
 
@@ -94,7 +93,7 @@ class GPTExporterApp(browser.ArchiveBrowser):
                 parent=self,
             )
 
-    def copy_collector_javascript(self) -> None:
+    def copy_collector_javascript(self) -> bool:
         try:
             source = workflow.read_collector_source()
             self.clipboard_clear()
@@ -102,8 +101,9 @@ class GPTExporterApp(browser.ArchiveBrowser):
             self.update_idletasks()
         except (OSError, ValueError, tk.TclError) as error:
             messagebox.showerror("Copy Collector JavaScript", str(error), parent=self)
-            return
+            return False
         self.status_var.set("Collector JavaScript copied to the clipboard.")
+        return True
 
     def show_collector_in_explorer(self) -> None:
         try:
@@ -117,7 +117,7 @@ class GPTExporterApp(browser.ArchiveBrowser):
         except OSError as error:
             messagebox.showerror("Open Archive Folder", str(error), parent=self)
 
-    def process_downloaded_bundle(self) -> None:
+    def process_downloaded_bundle(self) -> bool:
         bundle = workflow.find_latest_source_bundle()
         if bundle is None:
             messagebox.showinfo(
@@ -126,7 +126,7 @@ class GPTExporterApp(browser.ArchiveBrowser):
                 "Run the collector in ChatGPT first, or use Archive → Archive New Conversations… for guided instructions.",
                 parent=self,
             )
-            return
+            return False
 
         expected_database = browser.DEFAULT_DATABASE_PATH.resolve()
         try:
@@ -140,10 +140,11 @@ class GPTExporterApp(browser.ArchiveBrowser):
                 "This Browser instance is using a different SQLite database, so the workflow was not started.",
                 parent=self,
             )
-            return
+            return False
 
         self.status_var.set(f"Archive bundle ready: {bundle.name}")
         workflow.ArchiveRunDialog(self, on_success=self._archive_run_succeeded)
+        return True
 
     def _archive_run_succeeded(self) -> None:
         try:
