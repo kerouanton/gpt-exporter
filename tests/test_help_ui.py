@@ -22,7 +22,7 @@ class HelpUiTests(unittest.TestCase):
     def test_version_metadata_is_consistent(self) -> None:
         metadata = tomllib.loads((REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(metadata["project"]["version"], __version__)
-        self.assertEqual(display_version(), "2.9.0-dev")
+        self.assertEqual(display_version(), "2.9.0")
         self.assertEqual(windows_version_tuple(), (2, 9, 0, 0))
 
     def test_packaged_help_and_history_are_readable(self) -> None:
@@ -32,7 +32,7 @@ class HelpUiTests(unittest.TestCase):
         self.assertIn("# GPT Exporter User Guide", guide)
         self.assertIn("Archive → Archive New Conversations", guide)
         self.assertIn("# GPT Exporter Release History", history)
-        self.assertIn("v2.9 development line", history)
+        self.assertIn("v2.9", history)
         self.assertIn("v2.8", history)
 
     def test_markdown_render_model_preserves_common_document_semantics(self) -> None:
