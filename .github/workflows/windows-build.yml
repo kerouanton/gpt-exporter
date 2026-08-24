@@ -90,7 +90,15 @@ jobs:
               }
           }
 
-          Write-Host "Packaged resources OK"
+          $license = ".\dist\GPT Exporter\LICENSE"
+          if (-not (Test-Path $license -PathType Leaf)) {
+              throw "Required distribution license is missing: $license"
+          }
+          if ((Get-Item $license).Length -le 0) {
+              throw "Required distribution license is empty: $license"
+          }
+
+          Write-Host "Packaged resources and license OK"
 
       - name: Upload Windows onedir artifact
         uses: actions/upload-artifact@v4
