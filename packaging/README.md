@@ -33,7 +33,7 @@ The packaged non-Python resources are expected under:
 dist\GPT Exporter\_internal\gpt_exporter\resources\
 ```
 
-and include `HELP.md`, `HISTORY.md`, and `collect_chatgpt_archive.js`. The distribution root also includes `LICENSE`.
+and include `HELP.md`, `HISTORY.md`, and `collect_chatgpt_archive.js`.
 
 ## Diagnostic console build
 
@@ -55,13 +55,13 @@ The normal windowed build has no console by design; use `Help → About GPT Expo
 
 ## CI build artifact
 
-The `Windows onedir build` GitHub Actions workflow builds the windowed spec with Python 3.13, verifies the PE GUI subsystem, Windows product/file version metadata, packaged resources, and the bundled license, then uploads the complete `dist\GPT Exporter` directory as the `GPT-Exporter-Windows-onedir` CI artifact.
+The `Windows onedir build` GitHub Actions workflow builds the windowed spec with Python 3.13, verifies the PE GUI subsystem, Windows product/file version metadata and packaged resources, then uploads the complete `dist\GPT Exporter` directory as the `GPT-Exporter-Windows-onedir` CI artifact.
 
 ## GitHub release
 
 The `Windows release` workflow publishes final non-development versions from `main`. It runs the unit tests, builds the same windowed `onedir` application, verifies executable metadata and packaged resources, creates a versioned ZIP plus SHA-256 checksum, and publishes both as GitHub Release assets.
 
-For v2.9.0 the release assets are:
+The release ZIP contains the complete `GPT Exporter` application directory plus the repository `LICENSE` at the archive root. For v2.9.0 the release assets are:
 
 ```text
 GPT-Exporter-2.9.0-Windows-x64.zip
