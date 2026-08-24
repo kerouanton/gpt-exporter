@@ -144,7 +144,15 @@ jobs:
 
           gh release view $tag --repo $repo *> $null
           if ($LASTEXITCODE -eq 0) {
-              Write-Host "Release $tag already exists; replacing binary assets."
+              $tagSha = gh api "repos/$repo/git/ref/tags/$tag" --jq ".object.sha"
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Unable to resolve existing tag $tag"
+              }
+              if ($tagSha.Trim() -ne $env:GITHUB_SHA) {
+                  throw "Refusing to replace $tag assets: tag points to $tagSha but this workflow is building $env:GITHUB_SHA"
+              }
+
+              Write-Host "Release $tag already exists for this commit; replacing binary assets."
               gh release upload $tag $zip $checksum --repo $repo --clobber
               if ($LASTEXITCODE -ne 0) {
                   throw "Unable to upload release assets for $tag"
