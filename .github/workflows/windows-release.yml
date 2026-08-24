@@ -101,12 +101,11 @@ jobs:
               }
           }
 
-          $license = ".\dist\GPT Exporter\LICENSE"
-          if (-not (Test-Path $license -PathType Leaf)) {
-              throw "Required distribution license is missing: $license"
+          if (-not (Test-Path ".\LICENSE" -PathType Leaf)) {
+              throw "Repository LICENSE is missing."
           }
-          if ((Get-Item $license).Length -le 0) {
-              throw "Required distribution license is empty: $license"
+          if ((Get-Item ".\LICENSE").Length -le 0) {
+              throw "Repository LICENSE is empty."
           }
 
           Write-Host "Release build verified: $expectedName $expectedVersion"
@@ -121,7 +120,7 @@ jobs:
           $checksum = "$zip.sha256"
 
           Remove-Item $zip, $checksum -Force -ErrorAction SilentlyContinue
-          Compress-Archive -Path ".\dist\GPT Exporter" -DestinationPath $zip -CompressionLevel Optimal
+          Compress-Archive -Path ".\dist\GPT Exporter", ".\LICENSE" -DestinationPath $zip -CompressionLevel Optimal
 
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $zip" | Set-Content -Path $checksum -Encoding ascii
