@@ -1,6 +1,6 @@
 [project]
 name = "gpt-exporter"
-version = "2.9.0.dev0"
+version = "2.9.0"
 description = "GUI-first local archiver, exporter, indexer, and browser for ChatGPT conversations"
 readme = "README.md"
 requires-python = ">=3.12"

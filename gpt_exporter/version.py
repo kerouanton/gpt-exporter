@@ -6,7 +6,7 @@ import re
 
 
 APP_NAME = "GPT Exporter"
-__version__ = "2.9.0.dev0"
+__version__ = "2.9.0"
 LICENSE_ID = "GPL-3.0-or-later"
 REPOSITORY_URL = "https://github.com/kerouanton/gpt-exporter"
 

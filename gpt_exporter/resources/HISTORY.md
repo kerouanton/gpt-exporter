@@ -1,34 +1,26 @@
 # GPT Exporter Release History
 
-## v2.9 development line
+## v2.9 — Windows executable distribution — 2026-08-24
 
-The v2.9 line focuses on turning the proven v2.8 Python application into a clean, package-oriented Windows application that can be distributed as an executable without requiring the user to install Python.
+GPT Exporter v2.9 turns the proven v2.8 Python application into a package-oriented Windows application that can be distributed as a self-contained executable without requiring the user to install Python.
 
-### Architecture work completed before packaging
+Highlights:
 
 - Added v2.8 characterization fixtures and regression tests before refactoring.
 - Introduced the reusable `gpt_exporter` package and explicit `ArchivePaths` configuration.
-- Moved media inventory, asset manifest, and asset audit logic behind import-safe library APIs.
-- Added explicit Markdown and DOCX export APIs while preserving v2.8 output semantics.
+- Moved media inventory, asset manifest, asset audit, Markdown export, DOCX export, incremental indexing, browser-bundle import, and complete archive orchestration behind import-safe library APIs.
 - Replaced dynamic script loading and temporary `sys.argv` mutation in the batch exporter with direct library calls.
-- Moved incremental SQLite indexing behind a reusable API with explicit database lifetime management.
-- Preserved work-project, category, and tag assignments across incremental re-indexing.
-- Moved browser-bundle import and the complete archive pipeline behind in-process APIs.
-- Replaced the GUI-to-archive Python subprocess with a worker thread and queue-based Tkinter progress handling.
+- Replaced the GUI-to-archive Python subprocess with an in-process worker thread and queue-based Tkinter progress handling.
 - Closed the reusable core inside `gpt_exporter/` so it no longer depends on repository-root implementation modules.
-- Converted the historical importer, Markdown exporter, DOCX exporter, and indexer scripts into thin compatibility wrappers.
-- Packaged the browser collector JavaScript as an application resource.
-- Added local and CI coverage for package closure, wrapper compatibility, and Windows newline materialization.
+- Converted historical command-line implementations into thin compatibility wrappers.
+- Packaged the collector JavaScript, user guide, and release history as application resources.
+- Added central application version metadata, `--version`, a Markdown documentation viewer, and an About dialog.
+- Added reproducible PyInstaller `onedir` packaging for Windows with Python 3.13.
+- Added a true Windows GUI/windowed executable with PE File/Product version metadata generated from the central version source.
+- Added GitHub Actions validation for Python 3.12 and 3.13 plus a dedicated Windows packaging workflow.
+- Added CI verification of the Windows GUI subsystem, version metadata, packaged resources, and release artifact contents.
 
-### Current development UI work
-
-- Central application version metadata.
-- `--version` support on the graphical entry point.
-- Help-menu access to a packaged user guide and release history.
-- Reusable Markdown documentation viewer.
-- About dialog with version, license identifier, documentation shortcuts, and repository access.
-
-The durable archive model and v2.8 user-visible archive semantics remain intentionally unchanged while this work proceeds.
+The durable archive model and v2.8 user-visible archive semantics remain intentionally unchanged. Canonical archive data is still cumulative `downloads/*.json.xz + assets/*`; DOCX, Markdown, SQLite indexes, manifests, reports, and logs remain derived/rebuildable.
 
 ## v2.8 — GUI-first archive workflow — 2026-08-23
 
