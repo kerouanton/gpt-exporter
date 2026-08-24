@@ -65,6 +65,7 @@ datas = [
     (str(RESOURCE_DIRECTORY / name), "gpt_exporter/resources")
     for name in RESOURCE_NAMES
 ]
+datas.append((str(ROOT / "LICENSE"), "."))
 
 
 a = Analysis(
