@@ -105,12 +105,14 @@ The GUI is driven by `current_workspace`. Selecting a workspace changes the
 active provider, archive root, SQLite database, search/project/tag/category
 context, collector, source-bundle name, website action, reports, and derived
 outputs together. Provider-specific labels such as `Archive -> Open ChatGPT`
-are rendered from `current_workspace.provider` rather than hard-coded strings.
+are rendered from the current workspace provider rather than hard-coded strings.
 
-`WorkspaceWorkflow` is the non-GUI operating-context object. It binds one
-workspace to its provider workflow and archive root so acquisition/archive
-operations cannot accidentally mix one provider with another workspace's paths.
-Compatibility singletons remain only while legacy callers are migrated.
+`WorkspaceWorkflow` is the non-GUI operating-context object and the main GUI's
+single runtime workflow context. It owns the selected workspace's provider,
+archive root, database, acquisition actions, archive execution, and CORE index
+update. This prevents an action from accidentally mixing one provider with
+another workspace's paths. `ProviderWorkflow` and compatibility singletons remain
+only as lower-level or legacy seams for callers that still require them.
 
 Provider archives are physically separate. Shared behavior lives in the code and
 UI, not in a combined data directory.
@@ -165,17 +167,52 @@ forcing both outputs through one lossy message list.
 Native provenance is normalized too. CORE receives provider-neutral
 `ConversationOrigin` records plus compatibility index metadata; it does not walk
 ChatGPT-native JSON to discover projects, Custom GPTs, templates, or model data.
-The shadow validator compares these provenance outputs against the production
-SQLite database before the normalized writer can become authoritative.
+The normalized SQLite writer is now authoritative for the production ChatGPT
+index. Explicit shadow/legacy validation remains available as a diagnostic oracle
+rather than running on every daily archive update.
 
 Provider-native source data remains preserved separately. The normalized model
 is rebuildable and must never silently replace or destructively rewrite native
 canonical data.
 
+## Production and validation paths
+
+The normal ChatGPT archive path now uses CORE for both derived-output stages:
+
+```text
+current-batch native JSON
+        |
+        +--> provider normalization --> CORE Markdown --> common DOCX converter
+        |
+        +--> provider normalization --> CORE SQLite/FTS index
+```
+
+The expensive cumulative asset-reference audit and the full CORE/legacy shadow
+oracle are deliberately opt-in diagnostics. They are not part of the normal
+daily archive path because both scan or rebuild substantially more data than an
+incremental update requires.
+
+The normalized index also performs its unchanged-source check before provider
+normalization. A source at the same path with the same stored mtime is skipped
+immediately. Modified, renamed, moved, or forced sources still pass through full
+normalization.
+
+Explicit compatibility validation can compare:
+
+- production CORE SQLite versus a shadow CORE SQLite database;
+- production CORE SQLite versus the historical ChatGPT indexer;
+- CORE Markdown versus historical Markdown exactly;
+- production DOCX versus an historical DOCX oracle semantically.
+
+DOCX package comparison ignores volatile core properties and resolves local
+OOXML hyperlink relationship targets before comparing them. This prevents a
+false mismatch when production and oracle DOCX files live in different
+directories but their links resolve to the same archived asset.
+
 ## Provider registry
 
 `ProviderRegistry` is owned by exporter core. Built-in providers are registered
-once and surfaced through the common GUI. The first management surface is
+once and surfaced through the common GUI. The management surface is
 `Providers -> Manage Providers...`, which lists provider identity, default
 archive, collector, and website.
 
@@ -189,7 +226,8 @@ compatibility and retention rules. Normalized data and derived outputs must not
 silently replace or destructively rewrite provider-native canonical data.
 
 For ChatGPT, the existing cumulative/non-destructive preservation invariants
-remain authoritative until explicitly migrated with compatibility tests.
+remain authoritative. Production CORE stages preserve the same `current-batch`,
+archive layout, and incremental source retention behavior.
 
 ## Current provider boundary
 
@@ -197,8 +235,10 @@ remain authoritative until explicitly migrated with compatibility tests.
 `CHATGPT_PROVIDER` keeps the existing ChatGPT collector/importer behavior behind
 that boundary and declares its normalizer into the common model.
 
-Discord remains paused until ChatGPT operates through the common core, so the
-abstraction is driven by real implementations rather than speculation.
+The ChatGPT production path now exercises the common Markdown/DOCX and
+SQLite/FTS stages. Discord remains intentionally paused until the final explicit
+ChatGPT equivalence check is complete, so the second provider tests the proven
+boundary rather than defining it speculatively.
 
 ## Migration progress
 
@@ -214,15 +254,19 @@ abstraction is driven by real implementations rather than speculation.
 10. Workspace abstraction and visible current-workspace selector: done.
 11. Workspace-derived provider labels, collector, bundle name, archive root, and archive runner: done.
 12. Persistent `Manage Workspaces` configuration and startup reload: done.
-13. `WorkspaceWorkflow` context binding provider operations to one archive root: done at CORE API level; GUI migration in progress.
+13. `WorkspaceWorkflow` as the main GUI runtime context, including archive execution and CORE `Update Search Index`: done.
 14. Provider-aware GUI workflow and compatibility pipeline bridge: done.
-15. Non-destructive shadow validation against the production index: done.
-16. Reach zero unexplained shadow differences for ChatGPT message/title semantics: done on real appended conversations; continue characterization coverage.
-17. Normalize/write/compare ChatGPT native provenance and origin fields: implemented; real-archive validation pending.
-18. Switch primary ChatGPT index/export stages behind compatibility guards.
-19. Move remaining ChatGPT-specific asset-reference rules behind the provider.
-20. Verify GPT Exporter behavior against characterization and real-archive tests.
-21. Integrate Discord as the second provider using the same core, workspace UI, and GUI.
+15. Non-destructive CORE/legacy validation framework: done and now explicit/opt-in.
+16. Zero unexplained ChatGPT message/title/index differences on real appended conversations: done.
+17. ChatGPT provenance/origin normalization and real-archive equivalence validation: done.
+18. Primary ChatGPT production SQLite/FTS index switched to CORE: done and real-archive validated.
+19. Primary ChatGPT production Markdown/DOCX export switched to CORE: done; exact Markdown equivalence established.
+20. ChatGPT asset-index/local-fallback merge semantics moved behind the provider projection: done.
+21. Incremental index fast path and removal of expensive diagnostics from the daily archive path: done.
+22. DOCX semantic oracle comparison for equivalent local relationship targets: done in automated tests.
+23. Final explicit real-archive CORE/legacy equivalence run after the DOCX comparator fix: pending.
+24. Refresh migration documentation and PR status: done on this branch.
+25. Integrate Discord as the second provider using the same core, workspace UI, and GUI: next after final ChatGPT equivalence.
 
 ## Architectural acceptance test
 
