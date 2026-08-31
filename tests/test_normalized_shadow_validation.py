@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from gpt_exporter.index.normalized import index_normalized_file
-from gpt_exporter.model import ContentBlock, Conversation, Message
+from gpt_exporter.model import ContentBlock, Conversation, ConversationOrigin, Message
 from gpt_exporter.providers.base import ExporterProvider
 from gpt_exporter.validation import run_normalized_shadow_validation
 
@@ -31,6 +31,17 @@ class NormalizedShadowValidationTests(unittest.TestCase):
             provider_key="chatgpt",
             conversation_id="conv-shadow-1",
             title="Shadow validation",
+            origins=(
+                ConversationOrigin(
+                    origin_id="g-p-shadow",
+                    origin_type="project",
+                    source="message.metadata.gizmo_id",
+                ),
+            ),
+            index_metadata={
+                "conversation_template_id": "g-p-shadow",
+                "default_model_slug": "gpt-test",
+            },
             messages=(
                 Message(
                     message_id="m1",
@@ -78,6 +89,9 @@ class NormalizedShadowValidationTests(unittest.TestCase):
             self.assertEqual(result.failed, 0)
             self.assertTrue(result.report_path.is_file())
             self.assertTrue(result.shadow_database.is_file())
+            self.assertTrue(result.conversations[0].provenance_matches)
+            self.assertTrue(result.conversations[0].origins_match)
+            self.assertIsNone(result.conversations[0].provenance_difference)
             self.assertTrue(
                 (archive / "reports" / "provider-validation" / "chatgpt" / "markdown" / "conv-shadow-1.md").is_file()
             )
