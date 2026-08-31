@@ -1,7 +1,7 @@
 # Architecture
 
 GPT Exporter is a provider-driven archive application built around one common
-CORE. The ChatGPT provider is the reference implementation validated on
+CORE. The ChatGPT provider is the reference implementation formally validated on
 2026-08-31; additional providers must reuse the same CORE rather than duplicate
 the application.
 
@@ -107,26 +107,41 @@ main GUI migrated fully to `WorkspaceWorkflow` and the package UI.
 
 ## Validation status
 
-The implementation/current-batch ChatGPT CORE gate is closed. The real-archive
-validation on 2026-08-31 compared production CORE, shadow CORE, legacy index,
-legacy Markdown and legacy DOCX for the current batch and produced:
-
-```text
-Checked     : 2
-Matched     : 2
-Mismatched  : 0
-Failed      : 0
-```
-
-The **formal Git milestone tag is still gated on**:
+The ChatGPT exporter CORE milestone is formally validated on the complete real
+archive. On 2026-08-31 the command:
 
 ```text
 py -m gpt_exporter.validation_cli --all
 ```
 
-The full archive must satisfy `Matched == Checked`, `Mismatched == 0` and
-`Failed == 0`, after which the result is recorded and the exact tag-target commit
-must again pass Python 3.12/3.13 tests and the Windows onedir build.
+ran against 146 archived conversations and produced:
+
+```text
+Checked     : 146
+Matched     : 146
+Mismatched  : 0
+Failed      : 0
+```
+
+The validation covered production CORE versus shadow CORE and the historical
+legacy oracles, including message content, provenance/origins, Markdown and
+semantic DOCX comparison.
+
+During the full gate, the validator was corrected to regenerate both CORE and
+legacy DOCX in its disposable validation tree, and the ChatGPT normalizer was
+corrected so visible legacy roles take precedence over native internal tool names
+for presentation. A `--mismatched` mode now supports targeted retesting without
+rerunning the complete archive.
+
+The milestone tag is:
+
+```text
+exporter-core-chatgpt-validated-2026-08-31
+```
+
+The exact tag-target commit must have green Python 3.12/3.13 tests and Windows
+onedir build CI. The PR remains draft and unmerged until a separate merge decision
+is made.
 
 See `EXPORTER_CORE_CHATGPT_VALIDATION.md` for the formal freeze/tag record and
 `EXPORTER_CORE_ARCHITECTURE.md` for the detailed provider/workspace contract.
