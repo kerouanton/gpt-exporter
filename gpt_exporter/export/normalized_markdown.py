@@ -13,14 +13,10 @@ def _format_timestamp(value: datetime | None) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
-def _display_author(message: Message, conversation: Conversation) -> str:
+def _display_author(message: Message) -> str:
     if message.author_name.strip():
         return message.author_name.strip()
     role = message.author_role.strip()
-    if role == "assistant" and conversation.provider_key == "chatgpt":
-        return "ChatGPT"
-    if role == "user" and conversation.provider_key == "chatgpt":
-        return "Bruno"
     if role:
         return role.capitalize()
     return "Unknown"
@@ -48,7 +44,7 @@ def render_conversation_markdown(
     ]
 
     for message in conversation.messages:
-        lines.append(f"## {_display_author(message, conversation)}")
+        lines.append(f"## {_display_author(message)}")
         lines.append("")
         if include_timestamps:
             lines.append(f"*{_format_timestamp(message.created_at)}*")
