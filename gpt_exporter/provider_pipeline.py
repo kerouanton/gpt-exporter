@@ -233,6 +233,7 @@ def archive_provider_bundle(
                     validation_sources,
                     archive_root=paths.root,
                     production_database=paths.database,
+                    compare_with_legacy_oracle=True,
                     progress=progress,
                 )
             except Exception as error:  # Validation must never invalidate a successful archive.
