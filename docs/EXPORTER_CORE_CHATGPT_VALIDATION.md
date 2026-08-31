@@ -1,26 +1,26 @@
 # Exporter CORE — ChatGPT formal validation record
 
-Status: **VALIDATED / FROZEN MILESTONE**  
+Status: **CANDIDATE FOR FORMAL TAG — FULL-ARCHIVE GATE PENDING**  
 Validation date: **2026-08-31**  
 Branch: `architecture/exporter-core`  
 Pull request: `#25`  
 Planned milestone tag: `exporter-core-chatgpt-validated-2026-08-31`
 
-This record closes the ChatGPT phase of the exporter-core refactor. It is not a
-new public application release and does not change the existing `2.9.0` product
-version. Its purpose is to provide a stable, reviewable Git milestone before a
-second provider is integrated.
+This record closes the implementation/cleanup phase of the ChatGPT exporter-core
+refactor and defines the final gate required before the milestone tag is created.
+It is not a new public application release and does not change the existing
+`2.9.0` product version.
 
 ## Acceptance rule
 
-The refactor was accepted only under the rule:
+The refactor is accepted only under the rule:
 
 > New architecture, same ChatGPT results.
 
 For the same preserved native ChatGPT source, unexplained differences in
 canonical preservation, `current-batch`, message selection/order, searchable
 text, Markdown, DOCX, provenance, Projects/Tags/Categories, archive layout, or
-incremental behavior were treated as regressions.
+incremental behavior are regressions.
 
 ## Production path at the milestone
 
@@ -44,24 +44,24 @@ archive execution and search-index update together.
 ChatGPT production step 4/5 (Markdown/DOCX) and step 5/5 (SQLite/FTS) both run
 through the normalized CORE path.
 
-## Real-archive validation evidence
+## Real-archive validation already completed
 
-The final explicit compatibility run was executed on the existing Windows
-ChatGPT archive with:
+The explicit current-batch compatibility run was executed on the existing
+Windows ChatGPT archive with:
 
 ```text
 py -m gpt_exporter.validation_cli
 ```
 
-It used `reports/current-batch.json` and compared:
+It compared:
 
-- the production CORE SQLite database;
-- a separate shadow CORE SQLite database;
-- the historical ChatGPT indexer as a legacy oracle;
-- CORE Markdown against historical Markdown;
-- production DOCX against a historical DOCX oracle.
+- production CORE SQLite;
+- separate shadow CORE SQLite;
+- historical ChatGPT indexer as legacy oracle;
+- CORE Markdown versus historical Markdown;
+- production DOCX versus historical DOCX oracle.
 
-Final result:
+Result:
 
 ```text
 Provider    : ChatGPT
@@ -72,15 +72,31 @@ Mismatched  : 0
 Failed      : 0
 ```
 
-The behavioral validation was performed on branch commit
-`ee2062ad1570563b628e8aafbe5b56bfa9af4cac` before the final dead-code and
-documentation cleanup. The cleanup is constrained to obsolete workflow seams and
-documentation and must itself have a fully green test/build CI before the
-milestone tag is created.
+That behavioral run was performed on commit
+`ee2062ad1570563b628e8aafbe5b56bfa9af4cac` before final dead-code/documentation
+cleanup.
 
-Earlier real-archive validation during the same refactor also established zero
-differences for normalized message/title/index content and native ChatGPT
-provenance/origins.
+## Final full-archive gate
+
+A formal Git tag requires one final real-data run over the entire preserved
+ChatGPT archive after the cleanup branch is pulled:
+
+```text
+py -m gpt_exporter.validation_cli --all
+```
+
+The tag gate is:
+
+```text
+Checked == total archived conversations
+Matched == Checked
+Mismatched == 0
+Failed == 0
+```
+
+The final full-archive result must be recorded in this document before the tag is
+created. This deliberately makes the tag stronger than the previous
+`current-batch` validation.
 
 ## DOCX comparison rule
 
@@ -90,34 +106,33 @@ resolved against each DOCX location before comparison, so two relative paths
 that resolve to the same archived asset are equal. Tests also verify that
 relationships resolving to different assets remain mismatches.
 
-This removes the false mismatch caused when the production DOCX lives at the
-archive root while the legacy oracle DOCX lives below
-`reports/provider-validation/...`.
-
 ## Performance acceptance
 
-Two expensive diagnostics were intentionally removed from the normal archive
-path after real timing tests:
+Two expensive diagnostics are intentionally outside the normal archive path:
 
 - cumulative asset-reference audit;
 - full CORE/shadow/legacy compatibility validation.
 
-Both remain available explicitly. The normal incremental index also checks the
-stored source path and mtime before provider normalization, so unchanged
-conversations are skipped without reconstructing their full normalized model.
+Both remain explicit diagnostics. The normal incremental index checks stored
+source path + mtime before provider normalization, so unchanged conversations are
+skipped without reconstructing their full normalized model.
 
-This preserves the diagnostic capability without charging its full-archive cost
-on every daily archive update.
-
-## Cleanup performed for the milestone
+## Cleanup performed
 
 The obsolete root `archive_gui_workflow.py` implementation was removed after the
-main GUI had fully migrated to `gpt_exporter.ui.WorkspaceArchiveRunDialog` and
-`WorkspaceWorkflow`. Its dedicated tests were removed with it. The now-unused
-`CHATGPT_WORKFLOW` singleton was also removed.
+main GUI fully migrated to `gpt_exporter.ui.WorkspaceArchiveRunDialog` and
+`WorkspaceWorkflow`. Its dedicated tests were removed. A remaining collector test
+was rebound to `WorkspaceWorkflow`, proving the old module was no longer a hidden
+dependency. The unused `CHATGPT_WORKFLOW` singleton was also removed.
+
+The cleanup candidate passed:
+
+- Python 3.12 tests: success;
+- Python 3.13 tests: success;
+- Windows onedir build: success.
 
 The following compatibility seams are deliberately retained and are **not dead
-code** at this milestone:
+code**:
 
 - root command-line wrappers such as `archive_chats.py`, `export_all.py`,
   `export_markdown.py`, `export_docx.py`, and `index_chatgpt_archive.py`;
@@ -129,12 +144,10 @@ code** at this milestone:
   unimplemented provider from modifying an archive before its complete pipeline
   semantics exist.
 
-Removing any of these merely because its name contains `legacy` would weaken the
+Removing these merely because their names contain `legacy` would weaken the
 compatibility contract rather than clean the architecture.
 
 ## Canonical preservation invariants
-
-The milestone does not alter the established archive authority model:
 
 ```text
 downloads/*.json.xz + assets/*   canonical durable source
@@ -144,24 +157,23 @@ reports / manifests / caches    diagnostics or optimizations
 ```
 
 Normal updates remain cumulative and non-destructive. A later bundle does not
-implicitly delete an older conversation or asset. Ambiguous local links are not
+implicitly delete older conversations/assets. Ambiguous local links are not
 guessed. Browser-managed Projects, Tags and Categories survive incremental
 indexing.
 
 ## CI gate for the tag
 
-The milestone tag may point only at a commit for which both pull-request
-workflows complete successfully:
+After the full-archive result is recorded, the exact tag-target commit must again
+have both pull-request workflows green:
 
 - `Tests` — Python 3.12 and 3.13;
 - `Windows onedir build`.
 
-The PR must remain unmerged until a separate merge decision is made.
+The PR remains unmerged unless a separate merge decision is made.
 
 ## Scope boundary
 
-This validation freezes only the **ChatGPT provider on exporter CORE**. It does
-not claim that Discord is integrated or validated. Discord is intentionally the
-next architecture test: its provider must reuse the same workspace UI, GUI,
-search/organization, normalized model, Markdown/DOCX path and SQLite/FTS core
-instead of recreating a second application.
+This tag validates only **ChatGPT on exporter CORE**. It makes no claim about
+Discord integration. Discord remains the next architecture test and must reuse
+the same workspace UI, GUI, search/organization, normalized model,
+Markdown/DOCX path and SQLite/FTS CORE.
