@@ -2,45 +2,31 @@ import os
 import queue
 import shutil
 import threading
-import webbrowser
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
 
-from gpt_exporter.pipeline import archive_bundle
-from gpt_exporter.resources import collector_path
+from gpt_exporter.acquisition import windows_download_directories as _windows_download_directories
+from gpt_exporter.providers import CHATGPT_PROVIDER
+from gpt_exporter.workflow import CHATGPT_WORKFLOW
 
 ROOT = Path(__file__).resolve().parent
-COLLECTOR_PATH = collector_path()
-SOURCE_BUNDLE_NAME = "chatgpt-archive-source.json"
-CHATGPT_URL = "https://chatgpt.com/"
+COLLECTOR_PATH = CHATGPT_PROVIDER.collector_path
+SOURCE_BUNDLE_NAME = CHATGPT_PROVIDER.source_bundle_name
+CHATGPT_URL = CHATGPT_PROVIDER.website_url
 LATEST_ARCHIVE_LOG_NAME = "archive-workflow-latest.log"
+
+
+# Compatibility facade: existing callers/tests may still patch ``archive_bundle``.
+# The implementation now routes through the provider-aware core workflow.
+def archive_bundle(**kwargs):
+    return CHATGPT_WORKFLOW.run_archive(**kwargs)
 
 
 def windows_download_directories() -> list[Path]:
     """Return likely Windows Downloads locations in deterministic order."""
-    candidates: list[Path] = []
-
-    user_profile = os.environ.get("USERPROFILE")
-    if user_profile:
-        candidates.append(Path(user_profile) / "Downloads")
-
-    home_drive = os.environ.get("HOMEDRIVE")
-    home_path = os.environ.get("HOMEPATH")
-    if home_drive and home_path:
-        candidates.append(Path(f"{home_drive}{home_path}") / "Downloads")
-
-    candidates.append(Path.home() / "Downloads")
-
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        key = os.path.normcase(os.path.abspath(str(candidate)))
-        if key not in seen:
-            seen.add(key)
-            unique.append(candidate)
-    return unique
+    return _windows_download_directories()
 
 
 def find_latest_source_bundle(
@@ -49,6 +35,10 @@ def find_latest_source_bundle(
     name: str = SOURCE_BUNDLE_NAME,
 ) -> Path | None:
     """Return the newest non-empty collector bundle in the supplied directories."""
+    if name == SOURCE_BUNDLE_NAME:
+        return CHATGPT_WORKFLOW.find_source_bundle(download_directories=directories)
+
+    # Compatibility for callers that supply an explicit alternate filename.
     matches: list[Path] = []
     for directory in directories or windows_download_directories():
         candidate = Path(directory) / name
@@ -80,6 +70,8 @@ def source_bundle_signature(path: Path | None) -> tuple[str, int, int] | None:
 
 def read_collector_source(path: Path = COLLECTOR_PATH) -> str:
     """Read the browser collector exactly as stored in the packaged resources."""
+    if Path(path) == COLLECTOR_PATH:
+        return CHATGPT_WORKFLOW.read_collector_source()
     source = Path(path).read_text(encoding="utf-8")
     if not source.strip():
         raise ValueError(f"Collector JavaScript is empty: {path}")
@@ -87,8 +79,8 @@ def read_collector_source(path: Path = COLLECTOR_PATH) -> str:
 
 
 def open_chatgpt() -> bool:
-    """Open ChatGPT in the user's default browser."""
-    return bool(webbrowser.open(CHATGPT_URL, new=2))
+    """Open ChatGPT in the user's default browser through its provider workflow."""
+    return CHATGPT_WORKFLOW.open_website()
 
 
 def latest_archive_log_path(report_directory: Path) -> Path:
@@ -136,12 +128,7 @@ def run_archive_pipeline_worker(
     source_bundle: Path | None,
     legacy_root: Path = ROOT,
 ) -> None:
-    """Run the synchronous archive library on a worker thread.
-
-    This function deliberately knows nothing about Tk widgets.  Progress and
-    completion are transferred through ``events`` so the Tk thread remains the
-    only thread that updates GUI state.
-    """
+    """Run the provider-aware archive library on a worker thread."""
 
     try:
         archive_bundle(
@@ -265,7 +252,8 @@ class ArchiveRunDialog(tk.Toplevel):
             self._append_log_widget(f"\nWARNING: Could not update latest workflow log: {error}\n")
 
     def _start_worker(self) -> None:
-        self._append_log("> in-process: gpt_exporter.pipeline.archive_bundle()\n")
+        self._append_log("> in-process: gpt_exporter.workflow.CHATGPT_WORKFLOW.run_archive()\n")
+        self._append_log(f"> provider: {CHATGPT_PROVIDER.key}\n")
         self._append_log(f"> archive root: {self.archive_root}\n")
         if self.source_bundle is not None:
             self._append_log(f"> source bundle: {self.source_bundle}\n")
@@ -316,7 +304,7 @@ class ArchiveRunDialog(tk.Toplevel):
                     else:
                         try:
                             refresh_succeeded = bool(self.on_success())
-                        except Exception as error:  # GUI callback boundary: keep diagnostics visible.
+                        except Exception as error:
                             self._append_log(f"\nERROR: Browser refresh callback failed: {error}\n")
                             refresh_succeeded = False
 
@@ -380,7 +368,9 @@ class ArchiveWorkflowDialog(tk.Toplevel):
         self.on_copy_collector = on_copy_collector
         self.on_run_archive = on_run_archive
         self.collector_var = tk.StringVar(value="Preparing collector JavaScript…")
-        self.bundle_var = tk.StringVar(value="Waiting for a new chatgpt-archive-source.json in Downloads…")
+        self.bundle_var = tk.StringVar(
+            value=f"Waiting for a new {SOURCE_BUNDLE_NAME} in Downloads…"
+        )
         self._poll_after_id: str | None = None
         self._archive_started = False
         self._initial_bundle_signature = source_bundle_signature(find_latest_source_bundle())
@@ -396,12 +386,14 @@ class ArchiveWorkflowDialog(tk.Toplevel):
 
         self._step(
             body,
-            "1. Open ChatGPT",
-            "Open ChatGPT in your normal browser and make sure you are signed in.",
+            f"1. Open {CHATGPT_PROVIDER.display_name}",
+            f"Open {CHATGPT_PROVIDER.display_name} in your normal browser and make sure you are signed in.",
         )
-        ttk.Button(body, text="Open ChatGPT", command=self.on_open_chatgpt).pack(
-            anchor="w", pady=(0, 10)
-        )
+        ttk.Button(
+            body,
+            text=f"Open {CHATGPT_PROVIDER.display_name}",
+            command=self.on_open_chatgpt,
+        ).pack(anchor="w", pady=(0, 10))
 
         self._step(
             body,
@@ -421,7 +413,7 @@ class ArchiveWorkflowDialog(tk.Toplevel):
         self._step(
             body,
             "3. Wait for the browser download",
-            "When the collector finishes, the browser downloads chatgpt-archive-source.json. "
+            f"When the collector finishes, the browser downloads {SOURCE_BUNDLE_NAME}. "
             "As soon as a new non-empty bundle is detected, the archive workflow starts automatically.",
         )
         ttk.Label(body, textvariable=self.bundle_var, wraplength=700).pack(
@@ -464,7 +456,7 @@ class ArchiveWorkflowDialog(tk.Toplevel):
         bundle = find_latest_source_bundle()
         signature = source_bundle_signature(bundle)
         if bundle is None:
-            self.bundle_var.set("Waiting for a new chatgpt-archive-source.json in Downloads…")
+            self.bundle_var.set(f"Waiting for a new {SOURCE_BUNDLE_NAME} in Downloads…")
         elif signature == self._initial_bundle_signature:
             self.bundle_var.set(
                 "An existing bundle is present; waiting for a new browser download…"
