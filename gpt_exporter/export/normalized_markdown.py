@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from gpt_exporter.model import Conversation, Message
 
@@ -10,7 +10,7 @@ from gpt_exporter.model import Conversation, Message
 def _format_timestamp(value: datetime | None) -> str:
     if value is None:
         return "unknown"
-    return value.astimezone().isoformat(timespec="seconds")
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
 def _display_author(message: Message, conversation: Conversation) -> str:
