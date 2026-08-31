@@ -55,25 +55,27 @@ class ProviderPipelineTests(unittest.TestCase):
                 mock.patch("gpt_exporter.provider_pipeline.render_manifest_summary", return_value="manifest"),
                 mock.patch("gpt_exporter.provider_pipeline.export_normalized_batch", return_value=export_result) as export_batch,
                 mock.patch("gpt_exporter.provider_pipeline.update_normalized_index", return_value=index_result) as update_index,
+                mock.patch("gpt_exporter.provider_pipeline.run_normalized_shadow_validation") as validation,
             ):
                 result = archive_provider_bundle(
                     provider,
                     archive_root=root,
                     source_bundle=source,
                     delete_source=False,
-                    validate_normalized=False,
                 )
 
             provider.importer.assert_called_once()
             export_batch.assert_called_once()
             export_args, export_kwargs = export_batch.call_args
             self.assertIs(export_args[0], provider)
+            self.assertFalse(export_kwargs["run_asset_audit"])
             self.assertTrue(
                 os.path.samefile(
                     export_kwargs["batch_file"],
                     root / "reports" / "current-batch.json",
                 )
             )
+            validation.assert_not_called()
             update_index.assert_called_once()
             index_args, index_kwargs = update_index.call_args
             self.assertIs(index_args[0], provider)
@@ -86,6 +88,50 @@ class ProviderPipelineTests(unittest.TestCase):
             self.assertFalse(result.export_skipped)
             self.assertIs(result.export_result, export_result)
             self.assertIs(result.index_result, index_result)
+
+    def test_explicit_diagnostics_remain_available(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            root = Path(temp_name) / "archive"
+            source = Path(temp_name) / "synthetic-source.json"
+            source.write_text("{}", encoding="utf-8")
+
+            def importer(bundle_path, *, archive_root, progress=None):
+                archive = Path(archive_root)
+                (archive / "downloads").mkdir(parents=True, exist_ok=True)
+                (archive / "reports").mkdir(parents=True, exist_ok=True)
+                conversation = archive / "downloads" / "conv.json.xz"
+                conversation.write_bytes(b"synthetic")
+                (archive / "reports" / "current-batch.json").write_text(
+                    json.dumps({"conversation_files": [conversation.name]}),
+                    encoding="utf-8",
+                )
+                return SimpleNamespace(success=True)
+
+            provider = self._provider(importer)
+            export_result = SimpleNamespace(success=True)
+            index_result = SimpleNamespace()
+
+            with (
+                mock.patch("gpt_exporter.provider_pipeline.inventory_media", return_value=SimpleNamespace()),
+                mock.patch("gpt_exporter.provider_pipeline.render_inventory_summary", return_value="inventory"),
+                mock.patch("gpt_exporter.provider_pipeline.build_asset_manifest", return_value=SimpleNamespace()),
+                mock.patch("gpt_exporter.provider_pipeline.render_manifest_summary", return_value="manifest"),
+                mock.patch("gpt_exporter.provider_pipeline.export_normalized_batch", return_value=export_result) as export_batch,
+                mock.patch("gpt_exporter.provider_pipeline.update_normalized_index", return_value=index_result),
+                mock.patch("gpt_exporter.provider_pipeline.run_normalized_shadow_validation") as validation,
+            ):
+                archive_provider_bundle(
+                    provider,
+                    archive_root=root,
+                    source_bundle=source,
+                    delete_source=False,
+                    run_asset_audit=True,
+                    validate_normalized=True,
+                )
+
+            self.assertTrue(export_batch.call_args.kwargs["run_asset_audit"])
+            validation.assert_called_once()
+            self.assertTrue(validation.call_args.kwargs["compare_with_legacy_oracle"])
 
     def test_empty_current_batch_skips_export_but_updates_index(self) -> None:
         with tempfile.TemporaryDirectory() as temp_name:
@@ -120,7 +166,6 @@ class ProviderPipelineTests(unittest.TestCase):
                     archive_root=root,
                     source_bundle=source,
                     delete_source=False,
-                    validate_normalized=False,
                 )
 
             export_batch.assert_not_called()
