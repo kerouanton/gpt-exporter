@@ -28,9 +28,10 @@ Source-specific code belongs to the provider. Shared behavior belongs to CORE:
 - filters, previews and keyword cloud;
 - task progress/logging and common diagnostics.
 
-The ChatGPT production path has been validated against the historical exporter
-with zero differences on the final real-archive compatibility gate. See
-`docs/EXPORTER_CORE_CHATGPT_VALIDATION.md`.
+The ChatGPT production path has passed the current-batch real-archive
+compatibility gate with zero differences against the historical exporter. A
+formal milestone tag additionally requires one full-archive `--all` validation.
+See `docs/EXPORTER_CORE_CHATGPT_VALIDATION.md`.
 
 ## Requirements
 
@@ -163,13 +164,13 @@ Expensive whole-archive diagnostics are intentionally **opt-in** rather than run
 on every daily update. This includes the cumulative asset-reference audit and the
 full CORE/legacy compatibility oracle.
 
-Run the formal current-batch compatibility validator explicitly with:
+Run the current-batch compatibility validator explicitly with:
 
 ```text
 py -m gpt_exporter.validation_cli
 ```
 
-Run it over the complete archive only when deliberately required:
+Run the formal full-archive gate with:
 
 ```text
 py -m gpt_exporter.validation_cli --all
@@ -251,7 +252,7 @@ GitHub Actions validates Python 3.12 and 3.13 on Windows and builds the Windows
 
 ## Formal ChatGPT CORE milestone
 
-The final real-archive compatibility run on 2026-08-31 reported:
+The current-batch real-archive compatibility run on 2026-08-31 reported:
 
 ```text
 Sources     : 2
@@ -260,6 +261,10 @@ Matched     : 2
 Mismatched  : 0
 Failed      : 0
 ```
+
+The formal tag is created only after the same zero-difference condition is met
+for `validation_cli --all` and the exact tag-target commit has green Tests and
+Windows build CI.
 
 The formal milestone record, retained compatibility seams and tag gate are in
 `docs/EXPORTER_CORE_CHATGPT_VALIDATION.md`.
