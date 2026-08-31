@@ -15,7 +15,7 @@ from gpt_exporter.acquisition import find_source_bundle, require_source_bundle
 from gpt_exporter.index import IndexUpdateResult, update_normalized_index
 from gpt_exporter.pipeline import ArchivePipelineResult
 from gpt_exporter.provider_pipeline import archive_provider_bundle
-from gpt_exporter.providers import CHATGPT_PROVIDER, ExporterProvider
+from gpt_exporter.providers import ExporterProvider
 from gpt_exporter.providers.base import ProgressCallback
 from gpt_exporter.workspaces import Workspace
 
@@ -192,9 +192,4 @@ class WorkspaceWorkflow:
         )
 
 
-# Compatibility singleton retained for older callers while the application path
-# migrates to WorkspaceWorkflow.
-CHATGPT_WORKFLOW = ProviderWorkflow(CHATGPT_PROVIDER)
-
-
-__all__ = ["CHATGPT_WORKFLOW", "ProviderWorkflow", "WorkspaceWorkflow"]
+__all__ = ["ProviderWorkflow", "WorkspaceWorkflow"]
