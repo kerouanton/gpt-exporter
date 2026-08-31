@@ -10,8 +10,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
 
-from gpt_exporter.workflow import ProviderWorkflow
-from gpt_exporter.workspaces import Workspace
+from gpt_exporter.workflow import WorkspaceWorkflow
 
 
 LATEST_ARCHIVE_LOG_NAME = "archive-workflow-latest.log"
@@ -43,14 +42,12 @@ def _queued_progress(events: queue.Queue[tuple[str, object]], message: str) -> N
 def _run_worker(
     events: queue.Queue[tuple[str, object]],
     *,
-    provider_workflow: ProviderWorkflow,
-    archive_root: Path,
+    workspace_workflow: WorkspaceWorkflow,
     source_bundle: Path | None,
     legacy_root: Path,
 ) -> None:
     try:
-        provider_workflow.run_archive(
-            archive_root=archive_root,
+        workspace_workflow.run_archive(
             source_bundle=source_bundle,
             legacy_root=legacy_root,
             progress=lambda message: _queued_progress(events, message),
@@ -67,29 +64,28 @@ class WorkspaceArchiveRunDialog(tk.Toplevel):
         self,
         parent: tk.Misc,
         *,
-        workspace: Workspace,
-        provider_workflow: ProviderWorkflow,
+        workspace_workflow: WorkspaceWorkflow,
         source_bundle: Path | None = None,
         legacy_root: Path | str = Path.cwd(),
         on_success=None,
         auto_close_ms: int = 1000,
     ) -> None:
         super().__init__(parent)
-        self.workspace = workspace
-        self.provider_workflow = provider_workflow
-        self.archive_root = workspace.archive_root
+        self.workspace_workflow = workspace_workflow
+        self.workspace = workspace_workflow.workspace
+        self.archive_root = workspace_workflow.archive_root
         self.source_bundle = Path(source_bundle) if source_bundle is not None else None
         self.legacy_root = Path(legacy_root)
         self.on_success = on_success
         self.auto_close_ms = auto_close_ms
-        self.log_directory = workspace.paths.reports
+        self.log_directory = workspace_workflow.paths.reports
         self.log_path: Path | None = None
         self._log_handle = None
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.worker: threading.Thread | None = None
         self.finished = False
 
-        self.title(f"Archive Workflow — {workspace.display_name}")
+        self.title(f"Archive Workflow — {self.workspace.display_name}")
         self.geometry("900x620")
         self.minsize(700, 420)
         self.transient(parent)
@@ -155,7 +151,7 @@ class WorkspaceArchiveRunDialog(tk.Toplevel):
 
     def _start_worker(self) -> None:
         self._append_log(f"> workspace: {self.workspace.display_name}\n")
-        self._append_log(f"> provider: {self.workspace.provider.key}\n")
+        self._append_log(f"> provider: {self.workspace_workflow.provider.key}\n")
         self._append_log(f"> archive root: {self.archive_root}\n")
         if self.source_bundle is not None:
             self._append_log(f"> source bundle: {self.source_bundle}\n")
@@ -164,13 +160,12 @@ class WorkspaceArchiveRunDialog(tk.Toplevel):
             target=_run_worker,
             kwargs={
                 "events": self.events,
-                "provider_workflow": self.provider_workflow,
-                "archive_root": self.archive_root,
+                "workspace_workflow": self.workspace_workflow,
                 "source_bundle": self.source_bundle,
                 "legacy_root": self.legacy_root,
             },
             daemon=True,
-            name=f"exporter-{self.workspace.provider.key}-archive-worker",
+            name=f"exporter-{self.workspace_workflow.provider.key}-archive-worker",
         )
         try:
             self.worker.start()
