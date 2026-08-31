@@ -9,7 +9,8 @@ from unittest import mock
 
 from gpt_exporter.providers import CHATGPT_PROVIDER
 from gpt_exporter.providers.base import ExporterProvider
-from gpt_exporter.workflow import ProviderWorkflow
+from gpt_exporter.workflow import ProviderWorkflow, WorkspaceWorkflow
+from gpt_exporter.workspaces import Workspace
 
 
 class ProviderWorkflowTests(unittest.TestCase):
@@ -41,6 +42,40 @@ class ProviderWorkflowTests(unittest.TestCase):
         self.assertEqual(kwargs["source_bundle"], source)
         self.assertFalse(kwargs["delete_source"])
         self.assertIs(result, mock.sentinel.result)
+
+    def test_workspace_workflow_always_uses_workspace_provider_and_archive_root(self) -> None:
+        workspace = Workspace(
+            key="chatgpt-test",
+            display_name="ChatGPT Test",
+            provider=CHATGPT_PROVIDER,
+            archive_root=Path("C:/synthetic/ChatGPT Test Archive"),
+        )
+        workflow = WorkspaceWorkflow(workspace)
+        source = Path("C:/synthetic/Downloads/chatgpt-archive-source.json")
+
+        with mock.patch("gpt_exporter.workflow.archive_bundle", return_value=mock.sentinel.result) as archive:
+            result = workflow.run_archive(source_bundle=source, delete_source=False)
+
+        archive.assert_called_once()
+        args, kwargs = archive.call_args
+        self.assertIs(args[0], CHATGPT_PROVIDER)
+        self.assertEqual(kwargs["archive_root"], workspace.archive_root)
+        self.assertEqual(kwargs["source_bundle"], source)
+        self.assertFalse(kwargs["delete_source"])
+        self.assertIs(result, mock.sentinel.result)
+
+    def test_workspace_workflow_exposes_workspace_paths(self) -> None:
+        workspace = Workspace(
+            key="chatgpt-test",
+            display_name="ChatGPT Test",
+            provider=CHATGPT_PROVIDER,
+            archive_root=Path("C:/synthetic/ChatGPT Test Archive"),
+        )
+        workflow = WorkspaceWorkflow(workspace)
+
+        self.assertIs(workflow.provider, CHATGPT_PROVIDER)
+        self.assertEqual(workflow.archive_root, workspace.archive_root)
+        self.assertEqual(workflow.paths.database, workspace.database_path)
 
     def test_unconnected_provider_is_rejected_explicitly(self) -> None:
         synthetic = ExporterProvider(
