@@ -55,7 +55,8 @@ class ValidationCliTests(unittest.TestCase):
             args, kwargs = validate.call_args
             self.assertEqual(args[1], [source.resolve()])
             self.assertTrue(kwargs["compare_with_legacy_oracle"])
-            self.assertEqual(kwargs["production_database"], paths.database)
+            self.assertEqual(Path(kwargs["production_database"]).name, "conversations-index.sqlite")
+            self.assertEqual(Path(kwargs["production_database"]).parent.name, "archive")
 
 
 if __name__ == "__main__":
