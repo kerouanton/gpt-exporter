@@ -53,7 +53,7 @@ class ProviderPipelineTests(unittest.TestCase):
                 mock.patch("gpt_exporter.provider_pipeline.render_inventory_summary", return_value="inventory"),
                 mock.patch("gpt_exporter.provider_pipeline.build_asset_manifest", return_value=SimpleNamespace()),
                 mock.patch("gpt_exporter.provider_pipeline.render_manifest_summary", return_value="manifest"),
-                mock.patch("gpt_exporter.provider_pipeline.export_batch", return_value=export_result) as export_batch,
+                mock.patch("gpt_exporter.provider_pipeline.export_normalized_batch", return_value=export_result) as export_batch,
                 mock.patch("gpt_exporter.provider_pipeline.update_normalized_index", return_value=index_result) as update_index,
             ):
                 result = archive_provider_bundle(
@@ -66,7 +66,8 @@ class ProviderPipelineTests(unittest.TestCase):
 
             provider.importer.assert_called_once()
             export_batch.assert_called_once()
-            _, export_kwargs = export_batch.call_args
+            export_args, export_kwargs = export_batch.call_args
+            self.assertIs(export_args[0], provider)
             self.assertTrue(
                 os.path.samefile(
                     export_kwargs["batch_file"],
@@ -111,7 +112,7 @@ class ProviderPipelineTests(unittest.TestCase):
                 mock.patch("gpt_exporter.provider_pipeline.render_inventory_summary", return_value="inventory"),
                 mock.patch("gpt_exporter.provider_pipeline.build_asset_manifest", return_value=SimpleNamespace()),
                 mock.patch("gpt_exporter.provider_pipeline.render_manifest_summary", return_value="manifest"),
-                mock.patch("gpt_exporter.provider_pipeline.export_batch") as export_batch,
+                mock.patch("gpt_exporter.provider_pipeline.export_normalized_batch") as export_batch,
                 mock.patch("gpt_exporter.provider_pipeline.update_normalized_index", return_value=index_result) as update_index,
             ):
                 result = archive_provider_bundle(
