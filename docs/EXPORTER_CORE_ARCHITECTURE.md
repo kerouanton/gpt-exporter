@@ -19,6 +19,7 @@ core.
 The exporter core owns:
 
 - the Tk application shell and archive browser;
+- the provider registry and `Manage Providers` UI;
 - project, category, and tag management;
 - SQLite/FTS search and message previews;
 - the keyword cloud;
@@ -59,8 +60,43 @@ A provider owns only source-specific behavior:
 - optional source-specific actions that cannot be expressed by the core.
 
 Providers must not implement their own archive browser, project tree, search
-engine, keyword cloud, generic DOCX renderer, generic logging UI, or archive
-filesystem layout.
+engine, keyword cloud, generic DOCX renderer, generic logging UI, provider
+manager, or archive filesystem layout.
+
+## Normalized data flow
+
+```text
+provider-native source
+        |
+        v
+provider importer / preservation
+        |
+        v
+provider normalizer
+        |
+        v
+common Conversation model
+        |
+        +--> common Markdown renderer --> DOCX renderer
+        |
+        +--> common SQLite / FTS index writer
+        |
+        +--> Browser / search / projects / tags / keyword cloud
+```
+
+Provider-native source data remains preserved separately. The normalized model
+is rebuildable and must never silently replace or destructively rewrite native
+canonical data.
+
+## Provider registry
+
+`ProviderRegistry` is owned by exporter core. Built-in providers are registered
+once and surfaced through the common GUI. The first management surface is
+`Providers -> Manage Providers...`, which lists provider identity, default
+archive, collector, and website.
+
+The registry is intentionally compatible with future external/installable
+providers; those providers must not need to implement their own application UI.
 
 ## Preservation rule
 
@@ -71,36 +107,32 @@ silently replace or destructively rewrite provider-native canonical data.
 For ChatGPT, the existing cumulative/non-destructive preservation invariants
 remain authoritative until explicitly migrated with compatibility tests.
 
-## Initial provider boundary
+## Current provider boundary
 
-`gpt_exporter.providers.ExporterProvider` is the first explicit provider
-contract. The initial `CHATGPT_PROVIDER` keeps the existing ChatGPT importer and
-collector unchanged behind that boundary.
+`gpt_exporter.providers.ExporterProvider` is the explicit provider contract. The
+`CHATGPT_PROVIDER` keeps the existing ChatGPT collector/importer behavior behind
+that boundary and declares its normalizer into the common model.
 
-The contract will grow only when a second real provider requires a capability.
-Discord is intentionally kept paused until ChatGPT operates through the common
-core, so the abstraction is driven by two real implementations rather than by
-speculation.
+Discord remains paused until ChatGPT operates through the common core, so the
+abstraction is driven by real implementations rather than speculation.
 
-## Migration strategy
+## Migration progress
 
-The refactor is incremental. Repository-root compatibility wrappers and frozen
-ChatGPT behavior remain available while responsibilities move behind library
-APIs.
-
-Recommended order:
-
-1. Introduce provider identity and source-acquisition metadata.
-2. Make archive paths and application identity provider-neutral.
-3. Make GUI/browser naming provider-neutral while preserving behavior.
-4. Separate generic workflow/task/logging infrastructure from ChatGPT-specific
-   acquisition instructions.
-5. Route source import through the provider boundary.
-6. Introduce the normalized conversation model.
-7. Split ChatGPT-native parsing from common Markdown/index generation.
-8. Move ChatGPT-specific asset-reference rules behind the provider.
-9. Verify GPT Exporter behavior against characterization tests.
-10. Integrate Discord as the second provider using the same core and GUI.
+1. Provider identity and source-acquisition metadata: done.
+2. Provider-neutral archive paths: done.
+3. Common acquisition helpers: done.
+4. Provider-driven ingestion API: done.
+5. Provider-neutral conversation model: done.
+6. ChatGPT normalizer reusing frozen visibility/active-path rules: done.
+7. Common Markdown/DOCX export path from normalized conversations: done.
+8. Common normalized SQLite/FTS writer preserving project assignments: done.
+9. Provider registry and `Manage Providers` UI: done.
+10. Neutralize remaining ChatGPT-specific GUI/workflow naming and orchestration.
+11. Route the main ChatGPT pipeline through normalized export/index paths while
+    preserving native provenance and characterization behavior.
+12. Move remaining ChatGPT-specific asset-reference rules behind the provider.
+13. Verify GPT Exporter behavior against characterization tests.
+14. Integrate Discord as the second provider using the same core and GUI.
 
 ## Architectural acceptance test
 
@@ -108,6 +140,7 @@ If the ChatGPT provider is removed, the core should still know how to:
 
 - represent an archive;
 - launch its GUI;
+- list/manage installed providers;
 - browse/index normalized conversations;
 - search and organize them;
 - render keyword clouds and derived exports;
@@ -117,5 +150,5 @@ It should no longer know how to collect, parse, or interpret ChatGPT-native
 data.
 
 Conversely, the ChatGPT provider must contain no duplicate GUI, search engine,
-project-management implementation, keyword-cloud implementation, or generic
-DOCX renderer.
+project-management implementation, keyword-cloud implementation, provider
+manager, or generic DOCX renderer.
