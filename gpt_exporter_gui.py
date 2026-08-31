@@ -6,7 +6,7 @@ import sqlite3
 import sys
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 
 def _ensure_standard_streams() -> None:
@@ -21,17 +21,29 @@ def _ensure_standard_streams() -> None:
 _ensure_standard_streams()
 
 # The historical browser remains directly executable and prints its filename
-# when imported.  GPT Exporter imports it as an implementation module, so keep
+# when imported. GPT Exporter imports it as an implementation module, so keep
 # that compatibility diagnostic out of the application's own output surface.
 with contextlib.redirect_stdout(io.StringIO()):
     import archive_browser as browser
 
-import archive_gui_workflow as workflow
+import archive_gui_workflow as legacy_workflow
 from gpt_exporter.index import IndexUpdateResult, update_index as update_archive_index
-from gpt_exporter.providers import BUILTIN_PROVIDERS
+from gpt_exporter.providers import BUILTIN_PROVIDERS, CHATGPT_PROVIDER
 from gpt_exporter.resources import read_release_history, read_user_guide
-from gpt_exporter.ui import show_about_dialog, show_markdown_document, show_provider_manager
+from gpt_exporter.ui import (
+    WorkspaceArchiveDialog,
+    WorkspaceArchiveRunDialog,
+    latest_archive_log_path,
+    show_about_dialog,
+    show_markdown_document,
+    show_provider_manager,
+)
 from gpt_exporter.version import APP_NAME, display_version
+from gpt_exporter.workflow import ProviderWorkflow
+from gpt_exporter.workspaces import BUILTIN_WORKSPACES, Workspace, WorkspaceRegistry
+
+
+ROOT = Path(__file__).resolve().parent
 
 
 def update_browser_index(
@@ -50,10 +62,45 @@ def update_browser_index(
     )
 
 
+def _workspace_for_database(
+    database_path: Path,
+    workspaces: WorkspaceRegistry,
+) -> Workspace:
+    """Resolve a configured workspace or preserve --database as a custom ChatGPT workspace."""
+    database = Path(database_path).expanduser().resolve()
+    for workspace in workspaces.all():
+        if workspace.database_path == database:
+            return workspace
+    return Workspace(
+        key="custom-chatgpt",
+        display_name="ChatGPT (Custom Archive)",
+        provider=CHATGPT_PROVIDER,
+        archive_root=database.parent,
+    )
+
+
 class GPTExporterApp(browser.ArchiveBrowser):
-    """Archive Browser extended with the v2.8 archive workflow."""
+    """Exporter-core browser operating on one selected workspace."""
+
+    def __init__(
+        self,
+        database_path: Path,
+        *,
+        debug: bool = False,
+        workspace_registry: WorkspaceRegistry = BUILTIN_WORKSPACES,
+    ) -> None:
+        self.workspace_registry = workspace_registry
+        self.current_workspace = _workspace_for_database(database_path, workspace_registry)
+        self.provider_workflow = ProviderWorkflow(self.current_workspace.provider)
+        self.available_workspaces = list(workspace_registry.all())
+        if all(item.key != self.current_workspace.key for item in self.available_workspaces):
+            self.available_workspaces.append(self.current_workspace)
+        super().__init__(self.current_workspace.database_path, debug=debug)
+        self._install_workspace_selector()
+        self._update_workspace_identity()
 
     def _build_menu(self) -> None:
+        provider = self.current_workspace.provider
         menu_bar = tk.Menu(self)
 
         file_menu = tk.Menu(menu_bar, tearoff=False)
@@ -75,7 +122,10 @@ class GPTExporterApp(browser.ArchiveBrowser):
             command=self.archive_new_conversations,
         )
         archive_menu.add_separator()
-        archive_menu.add_command(label="Open ChatGPT", command=self.open_chatgpt)
+        archive_menu.add_command(
+            label=f"Open {provider.display_name}",
+            command=self.open_provider,
+        )
         archive_menu.add_command(
             label="Copy Collector JavaScript",
             command=self.copy_collector_javascript,
@@ -122,18 +172,77 @@ class GPTExporterApp(browser.ArchiveBrowser):
 
         self.config(menu=menu_bar)
 
+    def _install_workspace_selector(self) -> None:
+        bar = ttk.Frame(self, padding=(8, 6, 8, 0))
+        children = self.winfo_children()
+        if children:
+            bar.pack(fill="x", before=children[0])
+        else:
+            bar.pack(fill="x")
+
+        ttk.Label(bar, text="Workspace:").pack(side="left")
+        self.workspace_var = tk.StringVar(value=self.current_workspace.display_name)
+        self.workspace_combo = ttk.Combobox(
+            bar,
+            textvariable=self.workspace_var,
+            values=[item.display_name for item in self.available_workspaces],
+            state="readonly",
+            width=30,
+        )
+        self.workspace_combo.pack(side="left", padx=(6, 10))
+        self.workspace_combo.bind("<<ComboboxSelected>>", self._workspace_selected)
+        self.workspace_path_var = tk.StringVar(value=str(self.current_workspace.archive_root))
+        ttk.Label(bar, textvariable=self.workspace_path_var).pack(side="left", fill="x", expand=True)
+
+    def _workspace_selected(self, _event=None) -> None:
+        selected_name = self.workspace_var.get()
+        target = next(
+            (item for item in self.available_workspaces if item.display_name == selected_name),
+            None,
+        )
+        if target is None or target.key == self.current_workspace.key:
+            return
+
+        old_workspace = self.current_workspace
+        old_database = self.database_path
+        self.current_workspace = target
+        self.provider_workflow = ProviderWorkflow(target.provider)
+        self.database_path = target.database_path
+        try:
+            self._validate_database()
+            self._clear_filters()
+            self._refresh_all()
+        except (OSError, ValueError, sqlite3.Error) as error:
+            self.current_workspace = old_workspace
+            self.provider_workflow = ProviderWorkflow(old_workspace.provider)
+            self.database_path = old_database
+            self.workspace_var.set(old_workspace.display_name)
+            messagebox.showerror(
+                "Switch Workspace",
+                f"The workspace could not be opened:\n\n{target.archive_root}\n\n{error}",
+                parent=self,
+            )
+            return
+
+        self._build_menu()
+        self._update_workspace_identity()
+        self.status_var.set(f"Workspace switched to {target.display_name}.")
+
+    def _update_workspace_identity(self) -> None:
+        if hasattr(self, "workspace_var"):
+            self.workspace_var.set(self.current_workspace.display_name)
+        if hasattr(self, "workspace_path_var"):
+            self.workspace_path_var.set(str(self.current_workspace.archive_root))
+        self.title(f"{APP_NAME} — {self.current_workspace.display_name}")
+
     def manage_providers(self) -> None:
         """Open the exporter-core provider registry UI."""
         show_provider_manager(self, BUILTIN_PROVIDERS)
 
     def show_user_guide(self) -> None:
-        """Open the packaged end-user guide."""
-
         self._show_markdown_resource("GPT Exporter User Guide", read_user_guide)
 
     def show_release_history(self) -> None:
-        """Open the packaged release history."""
-
         self._show_markdown_resource("GPT Exporter Release History", read_release_history)
 
     def _show_markdown_resource(self, title: str, reader) -> None:
@@ -145,8 +254,6 @@ class GPTExporterApp(browser.ArchiveBrowser):
         show_markdown_document(self, title=title, markdown=markdown)
 
     def show_about(self) -> None:
-        """Open application identity, version, license and documentation shortcuts."""
-
         show_about_dialog(
             self,
             on_user_guide=self.show_user_guide,
@@ -154,52 +261,63 @@ class GPTExporterApp(browser.ArchiveBrowser):
         )
 
     def archive_new_conversations(self) -> None:
-        workflow.ArchiveWorkflowDialog(
+        WorkspaceArchiveDialog(
             self,
-            on_open_chatgpt=self.open_chatgpt,
+            workspace=self.current_workspace,
+            find_source_bundle=lambda: self.provider_workflow.find_source_bundle(),
+            source_bundle_signature=legacy_workflow.source_bundle_signature,
+            on_open_provider=self.open_provider,
             on_copy_collector=self.copy_collector_javascript,
             on_run_archive=self.process_downloaded_bundle,
         )
 
-    def open_chatgpt(self) -> None:
+    def open_provider(self) -> None:
+        provider = self.current_workspace.provider
+        title = f"Open {provider.display_name}"
         try:
-            opened = workflow.open_chatgpt()
+            opened = self.provider_workflow.open_website()
         except OSError as error:
-            messagebox.showerror("Open ChatGPT", str(error), parent=self)
+            messagebox.showerror(title, str(error), parent=self)
             return
         if not opened:
             messagebox.showwarning(
-                "Open ChatGPT",
-                "The default browser did not report that it opened ChatGPT.",
+                title,
+                f"The default browser did not report that it opened {provider.display_name}.",
                 parent=self,
             )
 
+    def open_chatgpt(self) -> None:
+        """Compatibility wrapper retained for external callers during migration."""
+        self.open_provider()
+
     def copy_collector_javascript(self) -> bool:
         try:
-            source = workflow.read_collector_source()
+            source = self.provider_workflow.read_collector_source()
             self.clipboard_clear()
             self.clipboard_append(source)
             self.update_idletasks()
         except (OSError, ValueError, tk.TclError) as error:
             messagebox.showerror("Copy Collector JavaScript", str(error), parent=self)
             return False
-        self.status_var.set("Collector JavaScript copied to the clipboard.")
+        self.status_var.set(
+            f"{self.current_workspace.provider.display_name} collector JavaScript copied to the clipboard."
+        )
         return True
 
     def show_collector_in_explorer(self) -> None:
         try:
-            browser.reveal_in_file_manager(str(workflow.COLLECTOR_PATH))
+            browser.reveal_in_file_manager(str(self.current_workspace.provider.collector_path))
         except OSError as error:
             messagebox.showerror("Show Collector JavaScript", str(error), parent=self)
 
     def open_archive_folder(self) -> None:
         try:
-            browser.open_with_default_application(str(self.database_path.parent))
+            browser.open_with_default_application(str(self.current_workspace.archive_root))
         except OSError as error:
             messagebox.showerror("Open Archive Folder", str(error), parent=self)
 
     def show_last_archive_log(self) -> None:
-        log_path = workflow.latest_archive_log_path(self.database_path.parent / "reports")
+        log_path = latest_archive_log_path(self.current_workspace.paths.reports)
         if not log_path.is_file():
             messagebox.showinfo(
                 "Show Last Archive Log",
@@ -213,8 +331,11 @@ class GPTExporterApp(browser.ArchiveBrowser):
             messagebox.showerror("Show Last Archive Log", str(error), parent=self)
 
     def update_index(self) -> None:
-        """Update the open Browser index directly through the reusable library."""
-        browser.LOGGER.info("Updating archive search index in-process")
+        """Update the current workspace Browser index through the reusable library."""
+        browser.LOGGER.info(
+            "Updating archive search index in-process for workspace %s",
+            self.current_workspace.key,
+        )
         self.status_var.set("Updating search index…")
         self.update_idletasks()
 
@@ -244,37 +365,25 @@ class GPTExporterApp(browser.ArchiveBrowser):
         )
 
     def process_downloaded_bundle(self) -> bool:
-        bundle = workflow.find_latest_source_bundle()
+        provider = self.current_workspace.provider
+        bundle = self.provider_workflow.find_source_bundle()
         if bundle is None:
             messagebox.showinfo(
                 "Process Downloaded Bundle",
-                "No non-empty chatgpt-archive-source.json was found in the usual Downloads folders.\n\n"
-                "Run the collector in ChatGPT first, or use Archive → Archive New Conversations… for guided instructions.",
-                parent=self,
-            )
-            return False
-
-        expected_database = browser.DEFAULT_DATABASE_PATH.resolve()
-        try:
-            current_database = self.database_path.resolve()
-        except OSError:
-            current_database = self.database_path
-        if current_database != expected_database:
-            messagebox.showerror(
-                "Process Downloaded Bundle",
-                "The v2.8 archive workflow currently targets the default archive under Documents. "
-                "This Browser instance is using a different SQLite database, so the workflow was not started.",
+                f"No non-empty {provider.source_bundle_name} was found in the usual Downloads folders.\n\n"
+                f"Run the collector in {provider.display_name} first, or use Archive → Archive New Conversations… for guided instructions.",
                 parent=self,
             )
             return False
 
         self.status_var.set(f"Archive bundle ready: {bundle.name}")
-        workflow.ArchiveRunDialog(
+        WorkspaceArchiveRunDialog(
             self,
-            archive_root=self.database_path.parent,
+            workspace=self.current_workspace,
+            provider_workflow=self.provider_workflow,
             source_bundle=bundle,
+            legacy_root=ROOT,
             on_success=self._archive_run_succeeded,
-            log_directory=self.database_path.parent / "reports",
         )
         return True
 
@@ -289,7 +398,9 @@ class GPTExporterApp(browser.ArchiveBrowser):
                 parent=self,
             )
             return False
-        self.status_var.set("Archive updated successfully and Browser refreshed.")
+        self.status_var.set(
+            f"{self.current_workspace.display_name} archive updated successfully and Browser refreshed."
+        )
         return True
 
 
@@ -332,7 +443,6 @@ def main() -> int:
         root.destroy()
         return 1
 
-    app.title(APP_NAME)
     app.mainloop()
     return 0
 
