@@ -125,11 +125,16 @@ main GUI fully migrated to `gpt_exporter.ui.WorkspaceArchiveRunDialog` and
 was rebound to `WorkspaceWorkflow`, proving the old module was no longer a hidden
 dependency. The unused `CHATGPT_WORKFLOW` singleton was also removed.
 
-The cleanup candidate passed:
+The cleanup candidate commit `871dbaff17f4b2be7714bd4e2c558a0ce76b75d9`
+passed:
 
 - Python 3.12 tests: success;
 - Python 3.13 tests: success;
 - Windows onedir build: success.
+
+Subsequent commits before the full-archive gate are documentation-only alignment
+of the formal tag criteria. The exact final tag target will be subjected to the
+same CI gate after the full-archive result is recorded.
 
 The following compatibility seams are deliberately retained and are **not dead
 code**:
