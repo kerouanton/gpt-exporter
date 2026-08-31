@@ -12,12 +12,15 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import shutil
 import sqlite3
 import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import unquote, urlparse
+from xml.etree import ElementTree
 
 from gpt_exporter.export.docx import export_docx
 from gpt_exporter.export.markdown import export_markdown
@@ -239,15 +242,68 @@ def _text_difference(expected: str, actual: str) -> str | None:
     return f"line count differs: legacy={len(expected_lines)}; core={len(actual_lines)}"
 
 
+def _resolved_relationship_target(docx_path: Path, target: str, target_mode: str) -> str:
+    """Return a stable semantic target for one OOXML relationship.
+
+    The DOCX converter intentionally writes local hyperlinks relative to the
+    directory containing the output DOCX. Validation oracles live below
+    ``reports/provider-validation`` while production DOCX files live at the
+    archive root, so bytewise relationship XML comparison produces false
+    negatives even when both links resolve to the same archived asset.
+    """
+
+    if target_mode.casefold() != "external":
+        return target
+
+    parsed = urlparse(target)
+    if parsed.scheme.casefold() in {"http", "https", "mailto"}:
+        return target
+
+    if parsed.scheme.casefold() == "file":
+        raw_path = unquote(parsed.path)
+        if os.name == "nt" and raw_path.startswith("/") and len(raw_path) >= 3 and raw_path[2] == ":":
+            raw_path = raw_path[1:]
+        return str(Path(raw_path).resolve())
+
+    portable = unquote(target).replace("\\", os.sep).replace("/", os.sep)
+    return str((docx_path.parent / portable).resolve())
+
+
+def _relationship_fingerprint(path: Path, xml_bytes: bytes) -> str:
+    root = ElementTree.fromstring(xml_bytes)
+    relationships: list[tuple[str, str, str, str]] = []
+    for relationship in root:
+        relationship_id = relationship.attrib.get("Id", "")
+        relationship_type = relationship.attrib.get("Type", "")
+        target_mode = relationship.attrib.get("TargetMode", "")
+        target = relationship.attrib.get("Target", "")
+        relationships.append(
+            (
+                relationship_id,
+                relationship_type,
+                target_mode,
+                _resolved_relationship_target(path, target, target_mode),
+            )
+        )
+    relationships.sort()
+    return hashlib.sha256(repr(relationships).encode("utf-8")).hexdigest()
+
+
 def _docx_fingerprint(path: Path) -> tuple[tuple[str, str], ...]:
-    """Fingerprint semantic DOCX members while ignoring volatile core metadata."""
+    """Fingerprint semantic DOCX members while ignoring volatile metadata."""
+
     ignored = {"docProps/core.xml"}
+    semantic_relationships = {"word/_rels/document.xml.rels"}
     with zipfile.ZipFile(path, "r") as archive:
         members = []
         for name in sorted(archive.namelist()):
             if name in ignored or name.endswith("/"):
                 continue
-            digest = hashlib.sha256(archive.read(name)).hexdigest()
+            content = archive.read(name)
+            if name in semantic_relationships:
+                digest = _relationship_fingerprint(path, content)
+            else:
+                digest = hashlib.sha256(content).hexdigest()
             members.append((name, digest))
     return tuple(members)
 
