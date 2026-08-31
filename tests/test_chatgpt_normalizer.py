@@ -55,6 +55,62 @@ class ChatGPTNormalizerTests(unittest.TestCase):
             "text",
         )
 
+    def test_normalizer_exposes_legacy_origin_and_index_metadata_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            path = Path(temp_name) / "conversation.json"
+            data = {
+                "conversation_id": "conv-origin",
+                "title": "Origin fixture",
+                "current_node": "node-user",
+                "gizmo_id": "g-custom",
+                "gizmo_type": "custom",
+                "conversation_template_id": "g-p-project",
+                "conversation_origin": "native-origin",
+                "default_model_slug": "gpt-test",
+                "mapping": {
+                    "root": {
+                        "id": "root",
+                        "parent": None,
+                        "children": ["node-user"],
+                        "message": None,
+                    },
+                    "node-user": {
+                        "id": "node-user",
+                        "parent": "root",
+                        "children": [],
+                        "message": {
+                            "id": "message-user",
+                            "author": {"role": "user"},
+                            "content": {"content_type": "text", "parts": ["Hello"]},
+                            "metadata": {
+                                "nested": {"gizmo_id": "g-p-project"}
+                            },
+                        },
+                    },
+                },
+            }
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+            conversation = normalize_conversation_file(path)
+
+        self.assertEqual(
+            [(item.origin_id, item.origin_type) for item in conversation.origins],
+            [
+                ("g-p-project", "project"),
+                ("g-custom", "custom_gpt"),
+            ],
+        )
+        self.assertIn("top_level.conversation_template_id", conversation.origins[0].source)
+        self.assertIn("message.metadata.nested.gizmo_id", conversation.origins[0].source)
+        self.assertEqual(conversation.primary_origin.origin_id, "g-p-project")
+        self.assertEqual(conversation.index_metadata["gizmo_id"], "g-custom")
+        self.assertEqual(conversation.index_metadata["gizmo_type"], "custom")
+        self.assertEqual(
+            conversation.index_metadata["conversation_template_id"], "g-p-project"
+        )
+        self.assertEqual(conversation.index_metadata["conversation_origin"], "native-origin")
+        self.assertEqual(conversation.index_metadata["default_model_slug"], "gpt-test")
+
     def test_display_and_search_projections_preserve_distinct_chatgpt_semantics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_name:
             path = Path(temp_name) / "conversation.json"
