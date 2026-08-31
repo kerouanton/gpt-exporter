@@ -78,7 +78,10 @@ class ProviderPipelineTests(unittest.TestCase):
             self.assertIs(index_args[0], provider)
             self.assertTrue(os.path.samefile(index_args[1], root))
             self.assertTrue(os.path.samefile(index_kwargs["downloads_dir"], root / "downloads"))
-            self.assertTrue(os.path.samefile(index_kwargs["database_path"], root / "conversations-index.sqlite"))
+            self.assertEqual(
+                Path(index_kwargs["database_path"]).resolve(),
+                (root / "conversations-index.sqlite").resolve(),
+            )
             self.assertFalse(result.export_skipped)
             self.assertIs(result.export_result, export_result)
             self.assertIs(result.index_result, index_result)
