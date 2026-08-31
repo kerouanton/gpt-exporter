@@ -5,7 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from gpt_exporter.export.markdown import export_markdown
 from gpt_exporter.export.normalized_markdown import render_conversation_markdown
+from gpt_exporter.providers import CHATGPT_PROVIDER
 from gpt_exporter.providers.chatgpt_normalizer import normalize_conversation_file
 
 with contextlib.redirect_stdout(io.StringIO()):
@@ -118,6 +120,87 @@ class MarkdownCompatibilityTests(unittest.TestCase):
         self.assertEqual(actual, expected)
         self.assertIn("file-testimage", actual)
         self.assertIn("Archive path:", actual)
+
+    def test_provider_projection_matches_legacy_asset_index_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            root = Path(temp_name) / "archive"
+            downloads = root / "downloads"
+            assets = root / "assets"
+            reports = root / "reports"
+            markdown = root / "markdown"
+            for directory in (downloads, assets / "image", reports, markdown):
+                directory.mkdir(parents=True, exist_ok=True)
+
+            (assets / "image" / "renamed-image.png").write_bytes(b"indexed image")
+            (reports / "asset-download-index-v2.json").write_text(
+                json.dumps(
+                    {
+                        "results": [
+                            {
+                                "status": "downloaded",
+                                "file_id": "file-indexed",
+                                "filename": "image/renamed-image.png",
+                                "kind": "image",
+                                "content_type": "image/png",
+                                "size_bytes": 13,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            source = downloads / "indexed.json"
+            source.write_text(
+                json.dumps(
+                    {
+                        "conversation_id": "conv-indexed-asset",
+                        "title": "Indexed asset",
+                        "current_node": "node-user",
+                        "mapping": {
+                            "root": {"id": "root", "parent": None, "children": ["node-user"], "message": None},
+                            "node-user": {
+                                "id": "node-user",
+                                "parent": "root",
+                                "children": [],
+                                "message": {
+                                    "id": "message-user",
+                                    "author": {"role": "user"},
+                                    "content": {
+                                        "content_type": "multimodal_text",
+                                        "parts": [
+                                            "Indexed image",
+                                            {"content_type": "image_asset_pointer", "asset_pointer": "sediment://file-indexed"},
+                                        ],
+                                    },
+                                    "metadata": {},
+                                },
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            legacy_path = markdown / "legacy.md"
+            export_markdown(
+                source,
+                legacy_path,
+                asset_index_path=reports / "asset-download-index-v2.json.xz",
+                asset_directory=assets,
+            )
+            expected = legacy_path.read_text(encoding="utf-8")
+
+            normalized = CHATGPT_PROVIDER.normalize_conversation(
+                source,
+                asset_directory=assets,
+                markdown_directory=markdown,
+                asset_index_path=reports / "asset-download-index-v2.json.xz",
+            )
+            actual = render_conversation_markdown(normalized, include_timestamps=False)
+
+        self.assertEqual(actual, expected)
+        self.assertIn("renamed-image.png", actual)
+        self.assertNotIn("Unavailable asset", actual)
 
 
 if __name__ == "__main__":
