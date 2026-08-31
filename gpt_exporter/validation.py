@@ -21,6 +21,14 @@ from gpt_exporter.providers.base import ExporterProvider, ProgressCallback
 
 
 MessageSnapshot = tuple[str, str, str]
+ProvenanceSnapshot = tuple[str, str | None, str | None, str | None, str | None, str | None, str | None]
+OriginSnapshot = tuple[str, str, str, int]
+DatabaseSnapshot = tuple[
+    str,
+    tuple[MessageSnapshot, ...],
+    ProvenanceSnapshot,
+    tuple[OriginSnapshot, ...],
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,9 +40,12 @@ class ShadowConversationResult:
     message_content_matches: bool | None
     production_message_count: int | None
     normalized_message_count: int | None
+    provenance_matches: bool | None = None
+    origins_match: bool | None = None
     missing_message_ids: tuple[str, ...] = ()
     extra_message_ids: tuple[str, ...] = ()
     first_message_difference: str | None = None
+    provenance_difference: str | None = None
     error: str | None = None
 
 
@@ -58,13 +69,24 @@ def _emit(progress: ProgressCallback | None, message: str) -> None:
 def _database_snapshot(
     database_path: Path,
     conversation_id: str,
-) -> tuple[str, tuple[MessageSnapshot, ...]] | None:
+) -> DatabaseSnapshot | None:
     if not database_path.is_file():
         return None
     connection = sqlite3.connect(database_path)
     try:
         row = connection.execute(
-            "SELECT title FROM conversations WHERE conversation_id = ?",
+            """
+            SELECT title,
+                   primary_origin_type,
+                   primary_origin_id,
+                   gizmo_id,
+                   gizmo_type,
+                   conversation_template_id,
+                   conversation_origin,
+                   default_model_slug
+            FROM conversations
+            WHERE conversation_id = ?
+            """,
             (conversation_id,),
         ).fetchone()
         if row is None:
@@ -78,13 +100,43 @@ def _database_snapshot(
             """,
             (conversation_id,),
         ).fetchall()
+        origins = connection.execute(
+            """
+            SELECT co.origin_id, o.origin_type, co.source, co.is_primary
+            FROM conversation_origins AS co
+            JOIN origins AS o ON o.origin_id = co.origin_id
+            WHERE co.conversation_id = ?
+            ORDER BY o.origin_type, co.origin_id
+            """,
+            (conversation_id,),
+        ).fetchall()
     finally:
         connection.close()
+
+    provenance: ProvenanceSnapshot = (
+        str(row[1] or "standard"),
+        str(row[2]) if row[2] is not None else None,
+        str(row[3]) if row[3] is not None else None,
+        str(row[4]) if row[4] is not None else None,
+        str(row[5]) if row[5] is not None else None,
+        str(row[6]) if row[6] is not None else None,
+        str(row[7]) if row[7] is not None else None,
+    )
     return (
         str(row[0]),
         tuple(
             (str(message_id), str(role or ""), str(body or ""))
             for message_id, role, body in messages
+        ),
+        provenance,
+        tuple(
+            (
+                str(origin_id),
+                str(origin_type),
+                str(source or ""),
+                int(is_primary or 0),
+            )
+            for origin_id, origin_type, source, is_primary in origins
         ),
     )
 
@@ -114,6 +166,33 @@ def _message_diagnostics(
         )
 
     return missing, extra, first_difference
+
+
+def _provenance_difference(
+    production: ProvenanceSnapshot,
+    normalized: ProvenanceSnapshot,
+    production_origins: tuple[OriginSnapshot, ...],
+    normalized_origins: tuple[OriginSnapshot, ...],
+) -> str | None:
+    if production != normalized:
+        names = (
+            "primary_origin_type",
+            "primary_origin_id",
+            "gizmo_id",
+            "gizmo_type",
+            "conversation_template_id",
+            "conversation_origin",
+            "default_model_slug",
+        )
+        for name, expected, actual in zip(names, production, normalized):
+            if expected != actual:
+                return f"{name}: production={expected!r}; normalized={actual!r}"
+    if production_origins != normalized_origins:
+        return (
+            "conversation_origins differ: "
+            f"production={production_origins!r}; normalized={normalized_origins!r}"
+        )
+    return None
 
 
 def run_normalized_shadow_validation(
@@ -165,25 +244,52 @@ def run_normalized_shadow_validation(
                 title_matches = None
                 message_count_matches = None
                 message_content_matches = None
+                provenance_matches = None
+                origins_match = None
                 production_count = len(production[1]) if production is not None else None
                 normalized_count = len(normalized[1]) if normalized is not None else None
                 missing_ids: tuple[str, ...] = ()
                 extra_ids: tuple[str, ...] = ()
                 first_difference = "Conversation missing from production or shadow database."
+                provenance_difference = None
                 mismatched += 1
             else:
-                production_title, production_messages = production
-                normalized_title, normalized_messages = normalized
+                (
+                    production_title,
+                    production_messages,
+                    production_provenance,
+                    production_origins,
+                ) = production
+                (
+                    normalized_title,
+                    normalized_messages,
+                    normalized_provenance,
+                    normalized_origins,
+                ) = normalized
                 production_count = len(production_messages)
                 normalized_count = len(normalized_messages)
                 title_matches = production_title == normalized_title
                 message_count_matches = production_count == normalized_count
                 message_content_matches = production_messages == normalized_messages
+                provenance_matches = production_provenance == normalized_provenance
+                origins_match = production_origins == normalized_origins
                 missing_ids, extra_ids, first_difference = _message_diagnostics(
                     production_messages,
                     normalized_messages,
                 )
-                if title_matches and message_count_matches and message_content_matches:
+                provenance_difference = _provenance_difference(
+                    production_provenance,
+                    normalized_provenance,
+                    production_origins,
+                    normalized_origins,
+                )
+                if (
+                    title_matches
+                    and message_count_matches
+                    and message_content_matches
+                    and provenance_matches
+                    and origins_match
+                ):
                     matched += 1
                 else:
                     mismatched += 1
@@ -197,9 +303,12 @@ def run_normalized_shadow_validation(
                     message_content_matches=message_content_matches,
                     production_message_count=production_count,
                     normalized_message_count=normalized_count,
+                    provenance_matches=provenance_matches,
+                    origins_match=origins_match,
                     missing_message_ids=missing_ids,
                     extra_message_ids=extra_ids,
                     first_message_difference=first_difference,
+                    provenance_difference=provenance_difference,
                 )
             )
         except Exception as error:  # Diagnostic boundary: production already succeeded.
