@@ -22,6 +22,7 @@ class IngestionCoreTests(unittest.TestCase):
             source_bundle_name="synthetic.json",
             collector_path=collector,
             importer=importer,
+            normalizer=mock.Mock(),
         )
 
     def test_resolve_provider_archive_paths_uses_provider_default_directory(self) -> None:
