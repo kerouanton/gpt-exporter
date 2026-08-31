@@ -2,5 +2,13 @@
 
 from .base import ExporterProvider
 from .chatgpt import CHATGPT_PROVIDER
+from .registry import ProviderRegistry
 
-__all__ = ["CHATGPT_PROVIDER", "ExporterProvider"]
+BUILTIN_PROVIDERS = ProviderRegistry((CHATGPT_PROVIDER,))
+
+__all__ = [
+    "BUILTIN_PROVIDERS",
+    "CHATGPT_PROVIDER",
+    "ExporterProvider",
+    "ProviderRegistry",
+]
