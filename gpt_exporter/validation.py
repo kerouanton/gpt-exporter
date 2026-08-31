@@ -26,6 +26,7 @@ class ShadowConversationResult:
     conversation_id: str | None
     title_matches: bool | None
     message_count_matches: bool | None
+    message_content_matches: bool | None
     production_message_count: int | None
     normalized_message_count: int | None
     error: str | None = None
@@ -51,26 +52,32 @@ def _emit(progress: ProgressCallback | None, message: str) -> None:
 def _production_snapshot(
     database_path: Path,
     conversation_id: str,
-) -> tuple[str, int] | None:
+) -> tuple[str, tuple[tuple[str, str, str], ...]] | None:
     if not database_path.is_file():
         return None
     connection = sqlite3.connect(database_path)
     try:
         row = connection.execute(
-            """
-            SELECT c.title, COUNT(m.message_id)
-            FROM conversations AS c
-            LEFT JOIN messages AS m ON m.conversation_id = c.conversation_id
-            WHERE c.conversation_id = ?
-            GROUP BY c.conversation_id, c.title
-            """,
+            "SELECT title FROM conversations WHERE conversation_id = ?",
             (conversation_id,),
         ).fetchone()
+        if row is None:
+            return None
+        messages = connection.execute(
+            """
+            SELECT message_id, author_role, body
+            FROM messages
+            WHERE conversation_id = ?
+            ORDER BY message_order
+            """,
+            (conversation_id,),
+        ).fetchall()
     finally:
         connection.close()
-    if row is None:
-        return None
-    return str(row[0]), int(row[1])
+    return (
+        str(row[0]),
+        tuple((str(message_id), str(role or ""), str(body or "")) for message_id, role, body in messages),
+    )
 
 
 def run_normalized_shadow_validation(
@@ -116,16 +123,27 @@ def run_normalized_shadow_validation(
             )
 
             production = _production_snapshot(production_db, conversation.conversation_id)
+            normalized_messages = tuple(
+                (
+                    message.message_id,
+                    message.author_role or "",
+                    message.text or "",
+                )
+                for message in conversation.messages
+            )
             if production is None:
                 title_matches = None
                 message_count_matches = None
+                message_content_matches = None
                 production_count = None
                 mismatched += 1
             else:
-                production_title, production_count = production
+                production_title, production_messages = production
+                production_count = len(production_messages)
                 title_matches = production_title == (conversation.title or "Untitled conversation")
                 message_count_matches = production_count == conversation.message_count
-                if title_matches and message_count_matches:
+                message_content_matches = production_messages == normalized_messages
+                if title_matches and message_count_matches and message_content_matches:
                     matched += 1
                 else:
                     mismatched += 1
@@ -136,6 +154,7 @@ def run_normalized_shadow_validation(
                     conversation_id=conversation.conversation_id,
                     title_matches=title_matches,
                     message_count_matches=message_count_matches,
+                    message_content_matches=message_content_matches,
                     production_message_count=production_count,
                     normalized_message_count=conversation.message_count,
                 )
@@ -148,6 +167,7 @@ def run_normalized_shadow_validation(
                     conversation_id=None,
                     title_matches=None,
                     message_count_matches=None,
+                    message_content_matches=None,
                     production_message_count=None,
                     normalized_message_count=None,
                     error=str(error),
