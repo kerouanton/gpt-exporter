@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from gpt_exporter.acquisition import find_source_bundle, require_source_bundle
+from gpt_exporter.index import IndexUpdateResult, update_normalized_index
 from gpt_exporter.pipeline import ArchivePipelineResult
 from gpt_exporter.provider_pipeline import archive_provider_bundle
 from gpt_exporter.providers import CHATGPT_PROVIDER, ExporterProvider
@@ -94,9 +95,9 @@ class ProviderWorkflow:
 class WorkspaceWorkflow:
     """One coherent operating context for a selected workspace.
 
-    The workspace determines both the provider and archive root. Callers no
-    longer need to carry those independently, which prevents a provider action
-    from accidentally targeting another provider's archive.
+    The workspace determines provider, archive root and production database.
+    Callers no longer need to carry those independently, which prevents an
+    action from accidentally targeting another workspace's archive.
     """
 
     workspace: Workspace
@@ -116,6 +117,10 @@ class WorkspaceWorkflow:
     @property
     def paths(self):
         return self.workspace.paths
+
+    @property
+    def database_path(self) -> Path:
+        return self.workspace.database_path
 
     def open_website(self) -> bool:
         return self.provider_workflow.open_website()
@@ -142,6 +147,23 @@ class WorkspaceWorkflow:
     ) -> Path:
         return self.provider_workflow.require_source_bundle(
             download_directories=download_directories,
+            progress=progress,
+        )
+
+    def update_index(
+        self,
+        *,
+        force: bool = False,
+        progress: ProgressCallback | None = None,
+    ) -> IndexUpdateResult:
+        """Update this workspace's production search index through CORE."""
+
+        return update_normalized_index(
+            self.provider,
+            self.archive_root,
+            downloads_dir=self.paths.downloads,
+            database_path=self.database_path,
+            force=force,
             progress=progress,
         )
 
