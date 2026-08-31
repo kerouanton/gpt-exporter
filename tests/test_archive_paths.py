@@ -47,6 +47,26 @@ class ArchivePathsTests(unittest.TestCase):
         self.assertEqual(paths.downloads, indexer.DEFAULT_DOWNLOADS_DIR)
         self.assertEqual(paths.database, indexer.DEFAULT_DATABASE_PATH)
 
+    def test_default_archive_paths_accept_provider_directory_name(self) -> None:
+        paths = default_archive_paths(
+            {"USERPROFILE": "C:/Users/Synthetic"},
+            archive_directory_name="Discord Archive",
+        )
+
+        self.assertEqual(
+            paths.root,
+            Path("C:/Users/Synthetic") / "Documents" / "Discord Archive",
+        )
+        self.assertEqual(paths.downloads, paths.root / "downloads")
+        self.assertEqual(paths.assets, paths.root / "assets")
+        self.assertEqual(paths.reports, paths.root / "reports")
+        self.assertEqual(paths.markdown, paths.root / "markdown")
+        self.assertEqual(paths.database, paths.root / "conversations-index.sqlite")
+
+    def test_default_archive_paths_reject_empty_directory_name(self) -> None:
+        with self.assertRaises(ValueError):
+            default_archive_paths(archive_directory_name="   ")
+
     def test_archive_paths_are_immutable(self) -> None:
         paths = ArchivePaths.from_root(Path("C:/synthetic/archive"))
 
