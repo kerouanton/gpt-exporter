@@ -28,8 +28,9 @@ with contextlib.redirect_stdout(io.StringIO()):
 
 import archive_gui_workflow as workflow
 from gpt_exporter.index import IndexUpdateResult, update_index as update_archive_index
+from gpt_exporter.providers import BUILTIN_PROVIDERS
 from gpt_exporter.resources import read_release_history, read_user_guide
-from gpt_exporter.ui import show_about_dialog, show_markdown_document
+from gpt_exporter.ui import show_about_dialog, show_markdown_document, show_provider_manager
 from gpt_exporter.version import APP_NAME, display_version
 
 
@@ -63,6 +64,10 @@ class GPTExporterApp(browser.ArchiveBrowser):
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self._on_close)
         menu_bar.add_cascade(label="File", menu=file_menu)
+
+        providers_menu = tk.Menu(menu_bar, tearoff=False)
+        providers_menu.add_command(label="Manage Providers…", command=self.manage_providers)
+        menu_bar.add_cascade(label="Providers", menu=providers_menu)
 
         archive_menu = tk.Menu(menu_bar, tearoff=False)
         archive_menu.add_command(
@@ -116,6 +121,10 @@ class GPTExporterApp(browser.ArchiveBrowser):
         menu_bar.add_cascade(label="Help", menu=help_menu)
 
         self.config(menu=menu_bar)
+
+    def manage_providers(self) -> None:
+        """Open the exporter-core provider registry UI."""
+        show_provider_manager(self, BUILTIN_PROVIDERS)
 
     def show_user_guide(self) -> None:
         """Open the packaged end-user guide."""
