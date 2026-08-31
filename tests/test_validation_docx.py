@@ -2,8 +2,9 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
-from gpt_exporter.validation import _docx_fingerprint
+from gpt_exporter.validation import _compare_export_oracle, _docx_fingerprint
 
 
 _RELATIONSHIPS_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -59,6 +60,57 @@ class DocxValidationFingerprintTests(unittest.TestCase):
             self.assertNotEqual(
                 _docx_fingerprint(production),
                 _docx_fingerprint(oracle),
+            )
+
+    def test_export_oracle_generates_both_docx_sides_in_validation_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            root = Path(temp_name) / "archive"
+            oracle_root = root / "reports" / "provider-validation" / "chatgpt" / "export-oracle"
+            source = root / "downloads" / "conversation.json.xz"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"source")
+
+            provider = mock.Mock()
+            provider.normalize_conversation.return_value = mock.sentinel.conversation
+
+            def write_core(_conversation, output_path, *, overwrite=False):
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(output_path).write_text("same markdown\n", encoding="utf-8")
+
+            def write_legacy(_source, output_path, **_kwargs):
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(output_path).write_text("same markdown\n", encoding="utf-8")
+
+            generated_docx: list[Path] = []
+
+            def write_docx(_markdown_path, output_path, *, overwrite=False):
+                path = Path(output_path)
+                path.write_bytes(b"placeholder")
+                generated_docx.append(path)
+
+            with (
+                mock.patch("gpt_exporter.validation.export_normalized_conversation", side_effect=write_core),
+                mock.patch("gpt_exporter.validation.export_markdown", side_effect=write_legacy),
+                mock.patch("gpt_exporter.validation.export_docx", side_effect=write_docx),
+                mock.patch("gpt_exporter.validation._docx_fingerprint", return_value=(("same", "digest"),)),
+                mock.patch("gpt_exporter.validation.legacy_indexer.find_docx", side_effect=AssertionError("production DOCX must not be consulted")),
+            ):
+                markdown_matches, _, docx_matches, _ = _compare_export_oracle(
+                    provider,
+                    source,
+                    archive=root,
+                    oracle_root=oracle_root,
+                    conversation_id="conv-001",
+                )
+
+            self.assertTrue(markdown_matches)
+            self.assertTrue(docx_matches)
+            self.assertEqual(
+                generated_docx,
+                [
+                    oracle_root / "conv-001-core.docx",
+                    oracle_root / "conv-001-legacy.docx",
+                ],
             )
 
 
