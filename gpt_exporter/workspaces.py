@@ -183,8 +183,30 @@ def load_workspace_registry(
     return registry
 
 
-BUILTIN_WORKSPACES = build_default_workspaces()
-DEFAULT_WORKSPACE = BUILTIN_WORKSPACES.get("chatgpt")
+def load_startup_workspaces(
+    *,
+    providers: ProviderRegistry = BUILTIN_PROVIDERS,
+    path: Path | str = DEFAULT_WORKSPACE_CONFIG,
+) -> WorkspaceRegistry:
+    """Load persisted workspaces for the GUI, falling back safely to defaults.
+
+    A malformed or stale local configuration must never prevent the exporter
+    application from starting. The management UI can then be used to repair or
+    replace that configuration.
+    """
+
+    try:
+        return load_workspace_registry(path, providers=providers)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return build_default_workspaces(providers)
+
+
+BUILTIN_WORKSPACES = load_startup_workspaces()
+DEFAULT_WORKSPACE = (
+    BUILTIN_WORKSPACES.get("chatgpt")
+    if any(workspace.key.casefold() == "chatgpt" for workspace in BUILTIN_WORKSPACES.all())
+    else BUILTIN_WORKSPACES.all()[0]
+)
 
 
 __all__ = [
@@ -196,6 +218,7 @@ __all__ = [
     "WorkspaceRegistry",
     "build_default_workspaces",
     "default_documents_root",
+    "load_startup_workspaces",
     "load_workspace_registry",
     "save_workspace_registry",
 ]
