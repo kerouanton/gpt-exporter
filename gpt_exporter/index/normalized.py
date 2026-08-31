@@ -116,8 +116,9 @@ def index_normalized_conversation(
 
         legacy.delete_message_index_rows(connection, conversation_id)
 
-        for position, message in enumerate(conversation.messages, start=1):
+        for position, message in enumerate(conversation.indexable_messages, start=1):
             content_type = message.content[0].kind if message.content else None
+            body = message.search_text or message.text
             cursor = connection.execute(
                 """
                 INSERT INTO messages (
@@ -137,7 +138,7 @@ def index_normalized_conversation(
                     message.author_role or "unknown",
                     _iso(message.created_at),
                     content_type,
-                    message.text,
+                    body,
                 ),
             )
             connection.execute(
@@ -148,7 +149,7 @@ def index_normalized_conversation(
                 """,
                 (
                     cursor.lastrowid,
-                    message.text,
+                    body,
                     title,
                     conversation_id,
                     message.message_id,
