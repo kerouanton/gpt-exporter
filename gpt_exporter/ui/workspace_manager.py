@@ -6,6 +6,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+from gpt_exporter.index import initialize_normalized_database
 from gpt_exporter.providers import ProviderRegistry
 from gpt_exporter.workspaces import Workspace, WorkspaceRegistry, save_workspace_registry
 
@@ -133,6 +134,18 @@ class WorkspaceManagerDialog(tk.Toplevel):
             suffix += 1
         return key
 
+    def _prepare_workspace(self, workspace: Workspace) -> bool:
+        try:
+            initialize_normalized_database(workspace.database_path)
+        except (OSError, ValueError) as error:
+            messagebox.showerror(
+                "Manage Workspaces",
+                f"The workspace archive could not be initialized:\n\n{workspace.archive_root}\n\n{error}",
+                parent=self,
+            )
+            return False
+        return True
+
     def _persist(self) -> None:
         save_workspace_registry(self.workspaces)
         self._refresh()
@@ -141,7 +154,7 @@ class WorkspaceManagerDialog(tk.Toplevel):
 
     def _add(self) -> None:
         workspace = self._workspace_values()
-        if workspace is None:
+        if workspace is None or not self._prepare_workspace(workspace):
             return
         self.workspaces.register(workspace)
         self._persist()
@@ -152,7 +165,7 @@ class WorkspaceManagerDialog(tk.Toplevel):
         if existing is None:
             return
         workspace = self._workspace_values(existing)
-        if workspace is None:
+        if workspace is None or not self._prepare_workspace(workspace):
             return
         self.workspaces.replace(workspace)
         self._persist()
