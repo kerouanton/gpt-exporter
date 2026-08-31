@@ -27,7 +27,7 @@ def render_conversation_markdown(
     *,
     include_timestamps: bool = False,
 ) -> str:
-    """Render one normalized conversation without provider-native knowledge."""
+    """Render only the provider-defined visible projection of a conversation."""
 
     title = (conversation.title or "Untitled conversation").replace("\n", " ").strip()
     lines: list[str] = [
@@ -37,13 +37,13 @@ def render_conversation_markdown(
         f"- Conversation ID: `{conversation.conversation_id}`",
         f"- Created: {_format_timestamp(conversation.created_at)}",
         f"- Updated: {_format_timestamp(conversation.updated_at)}",
-        f"- Messages: {conversation.message_count}",
+        f"- Messages: {conversation.visible_message_count}",
         "",
         "---",
         "",
     ]
 
-    for message in conversation.messages:
+    for message in conversation.visible_messages:
         lines.append(f"## {_display_author(message)}")
         lines.append("")
         if include_timestamps:
