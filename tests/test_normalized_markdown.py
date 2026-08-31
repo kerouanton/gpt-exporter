@@ -46,6 +46,40 @@ class NormalizedMarkdownTests(unittest.TestCase):
         self.assertIn("Hi Alice", rendered)
         self.assertIn("2026-08-31T08:00:00+00:00", rendered)
 
+    def test_renderer_uses_visible_projection_and_display_order(self) -> None:
+        conversation = Conversation(
+            provider_key="synthetic",
+            conversation_id="conv-projection",
+            messages=(
+                Message(
+                    message_id="search-only",
+                    author_name="Hidden branch",
+                    text="Do not render",
+                    is_visible=False,
+                    is_indexable=True,
+                    search_order=1,
+                ),
+                Message(
+                    message_id="second",
+                    author_name="Second",
+                    text="Second visible",
+                    display_order=2,
+                ),
+                Message(
+                    message_id="first",
+                    author_name="First",
+                    text="First visible",
+                    display_order=1,
+                ),
+            ),
+        )
+
+        rendered = render_conversation_markdown(conversation)
+
+        self.assertIn("- Messages: 2", rendered)
+        self.assertNotIn("Do not render", rendered)
+        self.assertLess(rendered.index("First visible"), rendered.index("Second visible"))
+
     def test_renderer_does_not_invent_provider_specific_author_names(self) -> None:
         conversation = Conversation(
             provider_key="chatgpt",
