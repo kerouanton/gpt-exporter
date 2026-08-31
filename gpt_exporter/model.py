@@ -70,7 +70,7 @@ class MessageReference:
 
 @dataclass(frozen=True, slots=True)
 class Message:
-    """One normalized visible or semantically relevant message."""
+    """One normalized message with separate display and search semantics."""
 
     message_id: str
     author_id: str = ""
@@ -79,6 +79,9 @@ class Message:
     created_at: datetime | None = None
     edited_at: datetime | None = None
     text: str = ""
+    search_text: str = ""
+    is_visible: bool = True
+    is_indexable: bool = True
     content: tuple[ContentBlock, ...] = ()
     attachments: tuple[Attachment, ...] = ()
     reactions: tuple[Reaction, ...] = ()
@@ -102,6 +105,10 @@ class Conversation:
     @property
     def message_count(self) -> int:
         return len(self.messages)
+
+    @property
+    def indexable_message_count(self) -> int:
+        return sum(1 for message in self.messages if message.is_indexable)
 
 
 __all__ = [
