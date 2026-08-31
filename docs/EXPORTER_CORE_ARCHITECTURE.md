@@ -14,6 +14,28 @@ The GUI, archive browsing, search, organization, keyword cloud, filesystem
 layout, logging, derived exports, and common archive maintenance belong to the
 core.
 
+## Compatibility rule: architecture may change, results may not
+
+The `architecture/exporter-core` branch is a refactor, not a behavioral rewrite.
+For the ChatGPT provider, the pre-refactor GPT Exporter remains the behavioral
+oracle until equivalence is demonstrated.
+
+Given the same preserved native source, the refactored path must reproduce the
+same observable results, including:
+
+- preserved conversations and cumulative/non-destructive update semantics;
+- `current-batch` selection;
+- visible/exported message selection and order;
+- indexed message selection, order, roles, IDs, and searchable text;
+- Markdown/DOCX-derived content and asset references;
+- search results and FTS content;
+- Projects, Tags, Categories, and native-origin metadata;
+- archive filesystem layout and canonical-source preservation.
+
+Any unexplained difference is treated as a regression. A new common behavior is
+introduced only after compatibility is established and the behavior change is
+explicitly chosen rather than emerging accidentally from the refactor.
+
 ## Core responsibilities
 
 The exporter core owns:
@@ -77,12 +99,19 @@ provider normalizer
         v
 common Conversation model
         |
-        +--> common Markdown renderer --> DOCX renderer
+        +--> display projection --> common Markdown renderer --> DOCX renderer
         |
-        +--> common SQLite / FTS index writer
+        +--> search projection --> common SQLite / FTS index writer
         |
         +--> Browser / search / projects / tags / keyword cloud
 ```
+
+A provider may expose different display and search projections from the same
+native conversation. For ChatGPT this distinction is required for compatibility:
+DOCX/Markdown follows the active branch, while the historical SQLite index uses
+its established mapping-wide visibility/indexability rules. The common model
+therefore carries provider-defined display/search flags and ordering rather than
+forcing both outputs through one lossy message list.
 
 Provider-native source data remains preserved separately. The normalized model
 is rebuildable and must never silently replace or destructively rewrite native
@@ -123,16 +152,18 @@ abstraction is driven by real implementations rather than speculation.
 3. Common acquisition helpers: done.
 4. Provider-driven ingestion API: done.
 5. Provider-neutral conversation model: done.
-6. ChatGPT normalizer reusing frozen visibility/active-path rules: done.
+6. ChatGPT display/search projections preserving distinct legacy semantics: done.
 7. Common Markdown/DOCX export path from normalized conversations: done.
 8. Common normalized SQLite/FTS writer preserving project assignments: done.
 9. Provider registry and `Manage Providers` UI: done.
-10. Neutralize remaining ChatGPT-specific GUI/workflow naming and orchestration.
-11. Route the main ChatGPT pipeline through normalized export/index paths while
-    preserving native provenance and characterization behavior.
-12. Move remaining ChatGPT-specific asset-reference rules behind the provider.
-13. Verify GPT Exporter behavior against characterization tests.
-14. Integrate Discord as the second provider using the same core and GUI.
+10. Provider-aware GUI workflow and compatibility pipeline bridge: done.
+11. Non-destructive shadow validation against the production index: done.
+12. Reach zero unexplained shadow differences for ChatGPT message/title semantics.
+13. Preserve/compare remaining ChatGPT native provenance and organization fields.
+14. Switch primary ChatGPT index/export stages behind compatibility guards.
+15. Move remaining ChatGPT-specific asset-reference rules behind the provider.
+16. Verify GPT Exporter behavior against characterization and real-archive tests.
+17. Integrate Discord as the second provider using the same core and GUI.
 
 ## Architectural acceptance test
 
