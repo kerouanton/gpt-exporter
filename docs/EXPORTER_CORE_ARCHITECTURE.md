@@ -156,7 +156,7 @@ The normal production pipeline still exposes the historical five stages:
 5/5 - Update archive search index
 ```
 
-Stages 4 and 5 are now authoritative CORE stages:
+Stages 4 and 5 are authoritative CORE stages:
 
 - Markdown is rendered from the normalized display projection;
 - DOCX uses the common converter;
@@ -196,7 +196,9 @@ The following are intentionally retained:
 
 The obsolete root `archive_gui_workflow.py` and its dedicated tests were removed
 after the package UI and `WorkspaceWorkflow` fully replaced that implementation.
-The unused `CHATGPT_WORKFLOW` singleton was removed at the same cleanup milestone.
+A remaining packaged-collector test was rebound to `WorkspaceWorkflow`, proving
+there was no hidden runtime dependency on the deleted module. The unused
+`CHATGPT_WORKFLOW` singleton was removed at the same cleanup milestone.
 
 ## Preservation rule
 
@@ -214,18 +216,16 @@ assets missing from a later bundle are not deleted. Source assets are not
 rewritten merely for DOCX compatibility. Ambiguous historical links are not
 guessed. Missing visible attachments remain explicit.
 
-## Formal ChatGPT acceptance
+## ChatGPT validation and formal tag gate
 
-The ChatGPT CORE gate was closed on 2026-08-31.
-
-The final real-archive command was:
+The current-batch real-archive compatibility gate passed on 2026-08-31 with:
 
 ```text
 py -m gpt_exporter.validation_cli
 ```
 
 It compared production CORE, shadow CORE, historical index, historical Markdown
-and historical DOCX for the current batch and produced:
+and historical DOCX and produced:
 
 ```text
 Sources     : 2
@@ -235,11 +235,28 @@ Mismatched  : 0
 Failed      : 0
 ```
 
+This closes the implementation/current-batch equivalence gate. The **formal Git
+milestone tag is stricter** and requires one final run over the complete archive:
+
+```text
+py -m gpt_exporter.validation_cli --all
+```
+
+The tag is permitted only when the full archive satisfies:
+
+```text
+Matched == Checked
+Mismatched == 0
+Failed == 0
+```
+
+The result is then recorded in `EXPORTER_CORE_CHATGPT_VALIDATION.md`, and the
+exact tag-target commit must again have green Python 3.12/3.13 Tests and Windows
+onedir build CI.
+
 DOCX comparison is semantic: volatile package metadata is ignored and local
 OOXML relationship targets are resolved before comparison. Tests separately
 verify that relationships resolving to different assets remain mismatches.
-
-See `EXPORTER_CORE_CHATGPT_VALIDATION.md` for the formal freeze/tag record.
 
 ## Architectural acceptance test
 
@@ -262,6 +279,6 @@ selector or generic DOCX renderer.
 ## Next architecture test
 
 No Discord code is part of this ChatGPT milestone. Discord is the next provider
-only after this milestone is frozen/tagged. Its integration succeeds only if it
-reuses the same CORE/workspace UI/GUI and limits its implementation to genuinely
-source-specific behavior.
+only after the full-archive gate is recorded and the formal milestone is tagged.
+Its integration succeeds only if it reuses the same CORE/workspace UI/GUI and
+limits its implementation to genuinely source-specific behavior.
