@@ -1,3 +1,4 @@
+import lzma
 import os
 file_name = os.path.basename(__file__)
 print(f"The filename of this script is: {file_name}")
@@ -111,8 +112,9 @@ class NormalizedShadowValidationTests(unittest.TestCase):
             archive = Path(temp_name) / "archive"
             downloads = archive / "downloads"
             downloads.mkdir(parents=True)
-            source = downloads / "conversation_base.json"
-            source.write_bytes(FIXTURE.read_bytes())
+            source = downloads / "conversation_base.json.xz"
+            with lzma.open(source, "wb") as handle:
+                handle.write(FIXTURE.read_bytes())
             production_db = archive / "conversations-index.sqlite"
 
             index_normalized_file(
