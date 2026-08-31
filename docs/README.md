@@ -3,7 +3,7 @@
 Current architecture and validation:
 
 - `EXPORTER_CORE_ARCHITECTURE.md` — provider/workspace boundary, normalized data flow, cleanup policy, and architectural acceptance rules.
-- `EXPORTER_CORE_CHATGPT_VALIDATION.md` — formal 2026-08-31 ChatGPT-on-CORE validation record and full-archive milestone-tag gate.
+- `EXPORTER_CORE_CHATGPT_VALIDATION.md` — formal 2026-08-31 ChatGPT-on-CORE validation record; currently the candidate record for the full-archive milestone-tag gate.
 - `ARCHITECTURE.md` — concise current component/data-authority overview.
 
 Historical/release documentation:
