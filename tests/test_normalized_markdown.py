@@ -46,7 +46,7 @@ class NormalizedMarkdownTests(unittest.TestCase):
         self.assertIn("Hi Alice", rendered)
         self.assertIn("2026-08-31T08:00:00+00:00", rendered)
 
-    def test_chatgpt_role_names_preserve_current_display_labels(self) -> None:
+    def test_renderer_does_not_invent_provider_specific_author_names(self) -> None:
         conversation = Conversation(
             provider_key="chatgpt",
             conversation_id="conv-1",
@@ -58,8 +58,10 @@ class NormalizedMarkdownTests(unittest.TestCase):
 
         rendered = render_conversation_markdown(conversation)
 
-        self.assertIn("## Bruno", rendered)
-        self.assertIn("## ChatGPT", rendered)
+        self.assertIn("## User", rendered)
+        self.assertIn("## Assistant", rendered)
+        self.assertNotIn("## Bruno", rendered)
+        self.assertNotIn("## ChatGPT", rendered)
 
 
 if __name__ == "__main__":
