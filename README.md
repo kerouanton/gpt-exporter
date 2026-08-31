@@ -278,7 +278,7 @@ reuse this same CORE rather than recreate the application.
 - `docs/EXPORTER_CORE_CHATGPT_VALIDATION.md` — formal ChatGPT CORE validation/freeze record.
 - `docs/ARCHITECTURE.md` — concise current architecture/data-authority overview.
 - `docs/RELEASE_NOTES_V2.9.md` — historical public v2.9.0 packaging notes.
-- `CHANGELOG.md` — release lineage and architecture milestones.
+- `CHANGELOG.md` — historical release lineage.
 - `FROZEN_VERSION.md` — historical v2.7 preservation baseline.
 
 ## License
