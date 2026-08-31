@@ -37,10 +37,16 @@ from gpt_exporter.ui import (
     show_about_dialog,
     show_markdown_document,
     show_provider_manager,
+    show_workspace_manager,
 )
 from gpt_exporter.version import APP_NAME, display_version
 from gpt_exporter.workflow import ProviderWorkflow
-from gpt_exporter.workspaces import BUILTIN_WORKSPACES, Workspace, WorkspaceRegistry
+from gpt_exporter.workspaces import (
+    BUILTIN_WORKSPACES,
+    Workspace,
+    WorkspaceRegistry,
+    load_workspace_registry,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -92,12 +98,17 @@ class GPTExporterApp(browser.ArchiveBrowser):
         self.workspace_registry = workspace_registry
         self.current_workspace = _workspace_for_database(database_path, workspace_registry)
         self.provider_workflow = ProviderWorkflow(self.current_workspace.provider)
-        self.available_workspaces = list(workspace_registry.all())
-        if all(item.key != self.current_workspace.key for item in self.available_workspaces):
-            self.available_workspaces.append(self.current_workspace)
+        self.available_workspaces: list[Workspace] = []
+        self._reload_available_workspaces()
         super().__init__(self.current_workspace.database_path, debug=debug)
         self._install_workspace_selector()
         self._update_workspace_identity()
+
+    def _reload_available_workspaces(self) -> None:
+        self.available_workspaces = list(self.workspace_registry.all())
+        if all(item.key != self.current_workspace.key for item in self.available_workspaces):
+            self.available_workspaces.append(self.current_workspace)
+        self.available_workspaces.sort(key=lambda item: item.display_name.casefold())
 
     def _build_menu(self) -> None:
         provider = self.current_workspace.provider
@@ -111,6 +122,10 @@ class GPTExporterApp(browser.ArchiveBrowser):
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self._on_close)
         menu_bar.add_cascade(label="File", menu=file_menu)
+
+        workspace_menu = tk.Menu(menu_bar, tearoff=False)
+        workspace_menu.add_command(label="Manage Workspaces…", command=self.manage_workspaces)
+        menu_bar.add_cascade(label="Workspaces", menu=workspace_menu)
 
         providers_menu = tk.Menu(menu_bar, tearoff=False)
         providers_menu.add_command(label="Manage Providers…", command=self.manage_providers)
@@ -194,6 +209,14 @@ class GPTExporterApp(browser.ArchiveBrowser):
         self.workspace_path_var = tk.StringVar(value=str(self.current_workspace.archive_root))
         ttk.Label(bar, textvariable=self.workspace_path_var).pack(side="left", fill="x", expand=True)
 
+    def _workspace_registry_changed(self) -> None:
+        self._reload_available_workspaces()
+        if hasattr(self, "workspace_combo"):
+            self.workspace_combo.configure(
+                values=[item.display_name for item in self.available_workspaces]
+            )
+        self._update_workspace_identity()
+
     def _workspace_selected(self, _event=None) -> None:
         selected_name = self.workspace_var.get()
         target = next(
@@ -234,6 +257,15 @@ class GPTExporterApp(browser.ArchiveBrowser):
         if hasattr(self, "workspace_path_var"):
             self.workspace_path_var.set(str(self.current_workspace.archive_root))
         self.title(f"{APP_NAME} — {self.current_workspace.display_name}")
+
+    def manage_workspaces(self) -> None:
+        """Open workspace configuration for provider/archive-root bindings."""
+        show_workspace_manager(
+            self,
+            workspaces=self.workspace_registry,
+            providers=BUILTIN_PROVIDERS,
+            on_changed=self._workspace_registry_changed,
+        )
 
     def manage_providers(self) -> None:
         """Open the exporter-core provider registry UI."""
@@ -435,7 +467,17 @@ def main() -> int:
     browser.LOGGER.debug("GUI arguments: %s", arguments)
 
     try:
-        app = GPTExporterApp(arguments.database, debug=arguments.debug)
+        workspace_registry = load_workspace_registry()
+    except (OSError, ValueError, KeyError) as error:
+        browser.LOGGER.warning("Unable to load workspace configuration: %s", error)
+        workspace_registry = BUILTIN_WORKSPACES
+
+    try:
+        app = GPTExporterApp(
+            arguments.database,
+            debug=arguments.debug,
+            workspace_registry=workspace_registry,
+        )
     except (OSError, ValueError, sqlite3.Error) as error:
         root = tk.Tk()
         root.withdraw()
