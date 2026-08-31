@@ -107,9 +107,9 @@ main GUI migrated fully to `WorkspaceWorkflow` and the package UI.
 
 ## Validation status
 
-The ChatGPT CORE gate is formally closed. The final real-archive validation on
-2026-08-31 compared production CORE, shadow CORE, legacy index, legacy Markdown
-and legacy DOCX for the current batch and produced:
+The implementation/current-batch ChatGPT CORE gate is closed. The real-archive
+validation on 2026-08-31 compared production CORE, shadow CORE, legacy index,
+legacy Markdown and legacy DOCX for the current batch and produced:
 
 ```text
 Checked     : 2
@@ -118,9 +118,17 @@ Mismatched  : 0
 Failed      : 0
 ```
 
-See `EXPORTER_CORE_CHATGPT_VALIDATION.md` for the complete freeze record and tag
-gate, and `EXPORTER_CORE_ARCHITECTURE.md` for the detailed provider/workspace
-contract.
+The **formal Git milestone tag is still gated on**:
 
-The next provider must prove this boundary by reusing the same CORE. No Discord
-integration is included in the ChatGPT validation milestone.
+```text
+py -m gpt_exporter.validation_cli --all
+```
+
+The full archive must satisfy `Matched == Checked`, `Mismatched == 0` and
+`Failed == 0`, after which the result is recorded and the exact tag-target commit
+must again pass Python 3.12/3.13 tests and the Windows onedir build.
+
+See `EXPORTER_CORE_CHATGPT_VALIDATION.md` for the formal freeze/tag record and
+`EXPORTER_CORE_ARCHITECTURE.md` for the detailed provider/workspace contract.
+
+No Discord integration is included in the ChatGPT validation milestone.
