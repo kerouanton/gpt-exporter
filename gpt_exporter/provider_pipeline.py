@@ -90,15 +90,17 @@ def archive_provider_bundle(
     legacy_root: Path | str | None = None,
     download_directories: list[Path] | None = None,
     delete_source: bool = True,
-    validate_normalized: bool = True,
+    run_asset_audit: bool = False,
+    validate_normalized: bool = False,
     progress: ProgressCallback | None = None,
 ) -> ArchivePipelineResult:
-    """Run one provider archive while preserving current ChatGPT semantics.
+    """Run one provider archive while preserving user-visible ChatGPT semantics.
 
-    The source bundle is acquired and imported through ``provider``. The proven
-    ChatGPT asset stages remain in place for now. Production export and indexing
-    are provider-neutral and consume the normalized display/search projections.
-    A separate legacy oracle still validates the normalized result.
+    Production export and indexing consume the normalized display/search
+    projections. Expensive cumulative diagnostics are deliberately opt-in:
+    ``run_asset_audit`` scans the complete archive and ``validate_normalized``
+    builds CORE/legacy shadow outputs. Keeping both disabled restores the normal
+    incremental archive path while retaining them for explicit verification.
     """
 
     if provider.key != CHATGPT_PROVIDER.key:
@@ -199,6 +201,7 @@ def archive_provider_bundle(
                 archive_root=paths.root,
                 batch_file=None if convert_only else batch_file,
                 overwrite_all=True,
+                run_asset_audit=run_asset_audit,
                 progress=progress,
             ),
             progress=progress,
