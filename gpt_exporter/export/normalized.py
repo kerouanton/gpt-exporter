@@ -44,10 +44,12 @@ def export_normalized_conversation(
 
     docx_result: DocxExportResult | None = None
     if docx_path is not None:
+        # Historical batch export lets the Markdown H1 provide the document title.
+        # Passing document_title would add a second Word Title paragraph.
         docx_result = export_docx(
             markdown,
             Path(docx_path).expanduser().resolve(),
-            document_title=conversation.title or "Untitled conversation",
+            document_title=None,
             overwrite=overwrite,
             progress=progress,
         )
