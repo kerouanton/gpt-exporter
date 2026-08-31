@@ -54,7 +54,7 @@ def index_normalized_conversation(
     source = Path(source_path).expanduser().resolve()
     archive = Path(archive_root).expanduser().resolve()
     conversation_id = conversation.conversation_id
-    title = conversation.title or "Untitled conversation"
+    title = legacy.normalize_text(conversation.title) or "Untitled conversation"
     docx = legacy.find_docx(archive, conversation_id)
     indexed_at = legacy.now_iso()
 
