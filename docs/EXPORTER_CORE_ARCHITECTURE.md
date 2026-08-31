@@ -177,7 +177,8 @@ Two expensive diagnostics are deliberately not part of every daily archive run:
 - full CORE/shadow/legacy compatibility oracle.
 
 Both remain explicit diagnostics. `python -m gpt_exporter.validation_cli` checks
-`reports/current-batch.json`; `--all` performs a full-archive validation.
+`reports/current-batch.json`; `--all` performs a full-archive validation; and
+`--mismatched` retests only the mismatches from the previous report.
 
 ## Compatibility/oracle code intentionally retained
 
@@ -216,16 +217,9 @@ assets missing from a later bundle are not deleted. Source assets are not
 rewritten merely for DOCX compatibility. Ambiguous historical links are not
 guessed. Missing visible attachments remain explicit.
 
-## ChatGPT validation and formal tag gate
+## ChatGPT validation milestone
 
 The current-batch real-archive compatibility gate passed on 2026-08-31 with:
-
-```text
-py -m gpt_exporter.validation_cli
-```
-
-It compared production CORE, shadow CORE, historical index, historical Markdown
-and historical DOCX and produced:
 
 ```text
 Sources     : 2
@@ -235,24 +229,42 @@ Mismatched  : 0
 Failed      : 0
 ```
 
-This closes the implementation/current-batch equivalence gate. The **formal Git
-milestone tag is stricter** and requires one final run over the complete archive:
+The stricter complete-archive gate was then executed with:
 
 ```text
 py -m gpt_exporter.validation_cli --all
 ```
 
-The tag is permitted only when the full archive satisfies:
+on the complete preserved archive and produced:
 
 ```text
-Matched == Checked
-Mismatched == 0
-Failed == 0
+Sources     : 146
+Checked     : 146
+Matched     : 146
+Mismatched  : 0
+Failed      : 0
 ```
 
-The result is then recorded in `EXPORTER_CORE_CHATGPT_VALIDATION.md`, and the
-exact tag-target commit must again have green Python 3.12/3.13 Tests and Windows
-onedir build CI.
+That result closes the formal real-data compatibility gate. It validates
+production CORE against shadow CORE and the historical index/export oracles,
+including message content, provenance/origins, exact Markdown and semantic DOCX
+comparison.
+
+The full gate also improved the validator itself: both CORE and legacy DOCX are
+now regenerated under the disposable validation tree before semantic comparison,
+so stale historical production DOCX files cannot create false mismatches. The
+ChatGPT provider was also corrected so legacy-visible roles determine visible
+author labels while native internal tool names remain preserved in provider
+metadata.
+
+The milestone tag is:
+
+```text
+exporter-core-chatgpt-validated-2026-08-31
+```
+
+The exact commit containing the final validation record must have green Python
+3.12/3.13 Tests and Windows onedir build CI before that tag is created.
 
 DOCX comparison is semantic: volatile package metadata is ignored and local
 OOXML relationship targets are resolved before comparison. Tests separately
@@ -279,6 +291,6 @@ selector or generic DOCX renderer.
 ## Next architecture test
 
 No Discord code is part of this ChatGPT milestone. Discord is the next provider
-only after the full-archive gate is recorded and the formal milestone is tagged.
-Its integration succeeds only if it reuses the same CORE/workspace UI/GUI and
-limits its implementation to genuinely source-specific behavior.
+only after the formal milestone is tagged. Its integration succeeds only if it
+reuses the same CORE/workspace UI/GUI and limits its implementation to genuinely
+source-specific behavior.
