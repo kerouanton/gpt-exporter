@@ -11,7 +11,7 @@ from gpt_exporter.archive.importer import import_bundle
 from gpt_exporter.resources import collector_path
 
 from .base import ExporterProvider
-from .chatgpt_normalizer import normalize_conversation_file
+from .chatgpt_projection import normalize_chatgpt_conversation
 
 
 CHATGPT_PROVIDER = ExporterProvider(
@@ -22,7 +22,7 @@ CHATGPT_PROVIDER = ExporterProvider(
     source_bundle_name="chatgpt-archive-source.json",
     collector_path=collector_path(),
     importer=import_bundle,
-    normalizer=normalize_conversation_file,
+    normalizer=normalize_chatgpt_conversation,
 )
 
 
