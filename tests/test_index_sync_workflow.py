@@ -27,31 +27,30 @@ class IndexSyncWorkflowTests(unittest.TestCase):
                 progress=None,
             )
 
-    def test_gui_archive_dialog_receives_selected_bundle_and_archive_root(self) -> None:
+    def test_gui_archive_dialog_uses_current_workspace_and_provider_workflow(self) -> None:
         bundle = Path("C:/synthetic/Downloads/chatgpt-archive-source.json")
-        database_path = gui.browser.DEFAULT_DATABASE_PATH
+        workspace = gui.BUILTIN_WORKSPACES.get("chatgpt")
+        provider_workflow = mock.Mock()
+        provider_workflow.find_source_bundle.return_value = bundle
+
         app = mock.Mock()
-        app.database_path = database_path
+        app.current_workspace = workspace
+        app.provider_workflow = provider_workflow
         app.status_var = mock.Mock()
         app._archive_run_succeeded = mock.Mock(return_value=True)
 
-        with (
-            mock.patch.object(
-                gui.workflow,
-                "find_latest_source_bundle",
-                return_value=bundle,
-            ),
-            mock.patch.object(gui.workflow, "ArchiveRunDialog") as archive_dialog,
-        ):
+        with mock.patch.object(gui, "WorkspaceArchiveRunDialog") as archive_dialog:
             started = gui.GPTExporterApp.process_downloaded_bundle(app)
 
         self.assertTrue(started)
+        provider_workflow.find_source_bundle.assert_called_once_with()
         archive_dialog.assert_called_once_with(
             app,
-            archive_root=database_path.parent,
+            workspace=workspace,
+            provider_workflow=provider_workflow,
             source_bundle=bundle,
+            legacy_root=gui.ROOT,
             on_success=app._archive_run_succeeded,
-            log_directory=database_path.parent / "reports",
         )
         app.status_var.set.assert_called_once_with(
             f"Archive bundle ready: {bundle.name}"
