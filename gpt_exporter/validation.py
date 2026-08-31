@@ -2,22 +2,25 @@
 
 The validator never replaces canonical provider data or production outputs. It
 writes disposable diagnostics below ``reports/provider-validation``. During the
-migration it can also build a separate legacy SQLite oracle so production CORE
-results remain checked against the historical ChatGPT indexer after the CORE
-becomes authoritative.
+migration it can also build separate legacy SQLite/Markdown/DOCX oracles so
+production CORE results remain checked against historical ChatGPT behavior.
 """
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import shutil
 import sqlite3
+import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
+from gpt_exporter.export.docx import export_docx
+from gpt_exporter.export.markdown import export_markdown
 from gpt_exporter.export.normalized import export_normalized_conversation
 from gpt_exporter.index.normalized import index_normalized_file
 from gpt_exporter.providers.base import ExporterProvider, ProgressCallback
@@ -26,6 +29,7 @@ with contextlib.redirect_stdout(io.StringIO()):
     from gpt_exporter.index import _legacy_indexer as legacy_indexer
 
 
+ASSET_INDEX_NAME = "asset-download-index-v2.json.xz"
 MessageSnapshot = tuple[str, str, str]
 ProvenanceSnapshot = tuple[str, str | None, str | None, str | None, str | None, str | None, str | None]
 OriginSnapshot = tuple[str, str, str, int]
@@ -50,11 +54,15 @@ class ShadowConversationResult:
     origins_match: bool | None = None
     legacy_matches: bool | None = None
     legacy_message_count: int | None = None
+    markdown_legacy_matches: bool | None = None
+    docx_legacy_matches: bool | None = None
     missing_message_ids: tuple[str, ...] = ()
     extra_message_ids: tuple[str, ...] = ()
     first_message_difference: str | None = None
     provenance_difference: str | None = None
     legacy_difference: str | None = None
+    markdown_difference: str | None = None
+    docx_difference: str | None = None
     error: str | None = None
 
 
@@ -217,6 +225,86 @@ def _snapshot_difference(expected: DatabaseSnapshot, actual: DatabaseSnapshot) -
     return None
 
 
+def _text_difference(expected: str, actual: str) -> str | None:
+    if expected == actual:
+        return None
+    expected_lines = expected.splitlines()
+    actual_lines = actual.splitlines()
+    for line_number, (left, right) in enumerate(zip(expected_lines, actual_lines), start=1):
+        if left != right:
+            return (
+                f"line {line_number}: legacy_sha256={hashlib.sha256(left.encode()).hexdigest()[:16]}; "
+                f"core_sha256={hashlib.sha256(right.encode()).hexdigest()[:16]}"
+            )
+    return f"line count differs: legacy={len(expected_lines)}; core={len(actual_lines)}"
+
+
+def _docx_fingerprint(path: Path) -> tuple[tuple[str, str], ...]:
+    """Fingerprint semantic DOCX members while ignoring volatile core metadata."""
+    ignored = {"docProps/core.xml"}
+    with zipfile.ZipFile(path, "r") as archive:
+        members = []
+        for name in sorted(archive.namelist()):
+            if name in ignored or name.endswith("/"):
+                continue
+            digest = hashlib.sha256(archive.read(name)).hexdigest()
+            members.append((name, digest))
+    return tuple(members)
+
+
+def _compare_export_oracle(
+    provider: ExporterProvider,
+    source: Path,
+    *,
+    archive: Path,
+    oracle_root: Path,
+    conversation_id: str,
+) -> tuple[bool, str | None, bool | None, str | None]:
+    oracle_root.mkdir(parents=True, exist_ok=True)
+    core_markdown = oracle_root / f"{conversation_id}-core.md"
+    legacy_markdown = oracle_root / f"{conversation_id}-legacy.md"
+
+    conversation = provider.normalize_conversation(
+        source,
+        asset_directory=archive / "assets",
+        markdown_directory=oracle_root,
+        asset_index_path=archive / "reports" / ASSET_INDEX_NAME,
+    )
+    export_normalized_conversation(conversation, core_markdown, overwrite=True)
+    export_markdown(
+        source,
+        legacy_markdown,
+        asset_index_path=archive / "reports" / ASSET_INDEX_NAME,
+        asset_directory=archive / "assets",
+    )
+    core_text = core_markdown.read_text(encoding="utf-8")
+    legacy_text = legacy_markdown.read_text(encoding="utf-8")
+    markdown_difference = _text_difference(legacy_text, core_text)
+    markdown_matches = markdown_difference is None
+
+    production_docx = legacy_indexer.find_docx(archive, conversation_id)
+    if production_docx is None or not production_docx.is_file():
+        return markdown_matches, markdown_difference, None, None
+
+    legacy_docx = oracle_root / f"{conversation_id}-legacy.docx"
+    export_docx(legacy_markdown, legacy_docx, overwrite=True)
+    legacy_fingerprint = _docx_fingerprint(legacy_docx)
+    production_fingerprint = _docx_fingerprint(production_docx)
+    docx_matches = legacy_fingerprint == production_fingerprint
+    docx_difference = None
+    if not docx_matches:
+        legacy_members = dict(legacy_fingerprint)
+        production_members = dict(production_fingerprint)
+        names = sorted(set(legacy_members) | set(production_members))
+        for name in names:
+            if legacy_members.get(name) != production_members.get(name):
+                docx_difference = f"DOCX member differs: {name}"
+                break
+        if docx_difference is None:
+            docx_difference = "DOCX semantic fingerprints differ"
+    return markdown_matches, markdown_difference, docx_matches, docx_difference
+
+
 def run_normalized_shadow_validation(
     provider: ExporterProvider,
     source_files: Iterable[Path | str],
@@ -228,15 +316,16 @@ def run_normalized_shadow_validation(
 ) -> ShadowValidationResult:
     """Exercise CORE outputs without changing production outputs.
 
-    When ``compare_with_legacy_oracle`` is true, the historical indexer builds a
-    disposable oracle database from the same native files. ``matched`` then
-    requires both CORE shadow parity and legacy-oracle parity.
+    When ``compare_with_legacy_oracle`` is true, historical index/export paths
+    build disposable oracles from the same native files. ``matched`` then
+    requires CORE shadow parity plus legacy index and export parity.
     """
 
     archive = Path(archive_root).expanduser().resolve()
     production_db = Path(production_database).expanduser().resolve()
     validation_root = archive / "reports" / "provider-validation" / provider.key
     markdown_root = validation_root / "markdown"
+    export_oracle_root = validation_root / "export-oracle"
     shadow_db = validation_root / "conversations-index-shadow.sqlite"
     legacy_db = (
         validation_root / "conversations-index-legacy-oracle.sqlite"
@@ -289,6 +378,25 @@ def run_normalized_shadow_validation(
                     if legacy_db is not None
                     else None
                 )
+
+                if compare_with_legacy_oracle:
+                    (
+                        markdown_legacy_matches,
+                        markdown_difference,
+                        docx_legacy_matches,
+                        docx_difference,
+                    ) = _compare_export_oracle(
+                        provider,
+                        source,
+                        archive=archive,
+                        oracle_root=export_oracle_root,
+                        conversation_id=conversation.conversation_id,
+                    )
+                else:
+                    markdown_legacy_matches = None
+                    markdown_difference = None
+                    docx_legacy_matches = None
+                    docx_difference = None
 
                 if production is None or normalized is None:
                     title_matches = None
@@ -357,7 +465,11 @@ def run_normalized_shadow_validation(
                         and provenance_matches
                         and origins_match
                     )
-                    oracle_matches = legacy_matches is not False
+                    oracle_matches = (
+                        legacy_matches is not False
+                        and markdown_legacy_matches is not False
+                        and docx_legacy_matches is not False
+                    )
                     if core_matches and oracle_matches:
                         matched += 1
                     else:
@@ -376,11 +488,15 @@ def run_normalized_shadow_validation(
                         origins_match=origins_match,
                         legacy_matches=legacy_matches,
                         legacy_message_count=legacy_count,
+                        markdown_legacy_matches=markdown_legacy_matches,
+                        docx_legacy_matches=docx_legacy_matches,
                         missing_message_ids=missing_ids,
                         extra_message_ids=extra_ids,
                         first_message_difference=first_difference,
                         provenance_difference=provenance_difference,
                         legacy_difference=legacy_difference,
+                        markdown_difference=markdown_difference,
+                        docx_difference=docx_difference,
                     )
                 )
             except Exception as error:  # Diagnostic boundary: production already succeeded.
@@ -404,7 +520,7 @@ def run_normalized_shadow_validation(
     payload = {
         "provider_key": provider.key,
         "comparison_mode": (
-            "production-core+shadow-core+legacy-oracle"
+            "production-core+shadow-core+legacy-index+legacy-export"
             if compare_with_legacy_oracle
             else "production+shadow-core"
         ),
