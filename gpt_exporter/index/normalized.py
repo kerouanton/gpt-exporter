@@ -7,12 +7,15 @@ queries remain valid during the incremental migration.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import sqlite3
 from pathlib import Path
 
 from gpt_exporter.model import Conversation
 
-from . import _legacy_indexer as legacy
+with contextlib.redirect_stdout(io.StringIO()):
+    from . import _legacy_indexer as legacy
 
 
 def _iso(value) -> str | None:
