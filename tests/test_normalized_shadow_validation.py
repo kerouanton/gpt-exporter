@@ -1,0 +1,87 @@
+import os
+file_name = os.path.basename(__file__)
+print(f"The filename of this script is: {file_name}")
+
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from gpt_exporter.index.normalized import index_normalized_file
+from gpt_exporter.model import ContentBlock, Conversation, Message
+from gpt_exporter.providers.base import ExporterProvider
+from gpt_exporter.validation import run_normalized_shadow_validation
+
+
+class NormalizedShadowValidationTests(unittest.TestCase):
+    def _provider(self, conversation: Conversation) -> ExporterProvider:
+        return ExporterProvider(
+            key="chatgpt",
+            display_name="Synthetic ChatGPT",
+            archive_directory_name="Synthetic Archive",
+            website_url="https://example.invalid/",
+            source_bundle_name="synthetic.json",
+            collector_path=Path(__file__),
+            importer=mock.Mock(),
+            normalizer=mock.Mock(return_value=conversation),
+        )
+
+    def test_shadow_validation_matches_without_mutating_production_database(self) -> None:
+        conversation = Conversation(
+            provider_key="chatgpt",
+            conversation_id="conv-shadow-1",
+            title="Shadow validation",
+            messages=(
+                Message(
+                    message_id="m1",
+                    author_role="user",
+                    text="Hello",
+                    content=(ContentBlock(kind="text", text="Hello"),),
+                ),
+                Message(
+                    message_id="m2",
+                    author_role="assistant",
+                    text="Hi",
+                    content=(ContentBlock(kind="text", text="Hi"),),
+                ),
+            ),
+        )
+        provider = self._provider(conversation)
+
+        with tempfile.TemporaryDirectory() as temp_name:
+            archive = Path(temp_name) / "archive"
+            source = archive / "downloads" / "conv.json.xz"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes(b"synthetic")
+            production_db = archive / "conversations-index.sqlite"
+
+            index_normalized_file(
+                provider,
+                source,
+                archive_root=archive,
+                database_path=production_db,
+            )
+            before = production_db.read_bytes()
+
+            result = run_normalized_shadow_validation(
+                provider,
+                [source],
+                archive_root=archive,
+                production_database=production_db,
+            )
+
+            after = production_db.read_bytes()
+            self.assertEqual(before, after)
+            self.assertEqual(result.checked, 1)
+            self.assertEqual(result.matched, 1)
+            self.assertEqual(result.mismatched, 0)
+            self.assertEqual(result.failed, 0)
+            self.assertTrue(result.report_path.is_file())
+            self.assertTrue(result.shadow_database.is_file())
+            self.assertTrue(
+                (archive / "reports" / "provider-validation" / "chatgpt" / "markdown" / "conv-shadow-1.md").is_file()
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()
