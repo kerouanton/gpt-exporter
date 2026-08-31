@@ -18,6 +18,10 @@ from gpt_exporter.providers import CHATGPT_PROVIDER, ExporterProvider
 from gpt_exporter.providers.base import ProgressCallback
 
 
+# Compatibility seam for tests/extensions that patch the workflow backend.
+archive_bundle = archive_provider_bundle
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderWorkflow:
     """Bind one provider to generic acquisition and archive operations."""
@@ -71,7 +75,7 @@ class ProviderWorkflow:
     ) -> ArchivePipelineResult:
         """Run the archive workflow for this provider."""
 
-        return archive_provider_bundle(
+        return archive_bundle(
             self.provider,
             archive_root=archive_root,
             source_bundle=source_bundle,
