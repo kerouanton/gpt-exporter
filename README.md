@@ -28,10 +28,11 @@ Source-specific code belongs to the provider. Shared behavior belongs to CORE:
 - filters, previews and keyword cloud;
 - task progress/logging and common diagnostics.
 
-The ChatGPT production path has passed the current-batch real-archive
-compatibility gate with zero differences against the historical exporter. A
-formal milestone tag additionally requires one full-archive `--all` validation.
-See `docs/EXPORTER_CORE_CHATGPT_VALIDATION.md`.
+The ChatGPT production path has passed both the current-batch and complete real-
+archive compatibility gates with zero differences against the historical
+exporter. The full 2026-08-31 gate checked 146 conversations and matched all 146
+with zero mismatches and zero failures. See
+`docs/EXPORTER_CORE_CHATGPT_VALIDATION.md`.
 
 ## Requirements
 
@@ -170,10 +171,16 @@ Run the current-batch compatibility validator explicitly with:
 py -m gpt_exporter.validation_cli
 ```
 
-Run the formal full-archive gate with:
+Run the complete archive validator with:
 
 ```text
 py -m gpt_exporter.validation_cli --all
+```
+
+After a failed full run, retest only the previous mismatches with:
+
+```text
+py -m gpt_exporter.validation_cli --mismatched
 ```
 
 ## Advanced / compatibility CLI
@@ -252,21 +259,24 @@ GitHub Actions validates Python 3.12 and 3.13 on Windows and builds the Windows
 
 ## Formal ChatGPT CORE milestone
 
-The current-batch real-archive compatibility run on 2026-08-31 reported:
+The complete real-archive compatibility run on 2026-08-31 reported:
 
 ```text
-Sources     : 2
-Checked     : 2
-Matched     : 2
+Sources     : 146
+Checked     : 146
+Matched     : 146
 Mismatched  : 0
 Failed      : 0
 ```
 
-The formal tag is created only after the same zero-difference condition is met
-for `validation_cli --all` and the exact tag-target commit has green Tests and
-Windows build CI.
+That run validated the production/shadow/legacy index path, message content and
+provenance/origins, exact Markdown compatibility and semantic DOCX compatibility
+across the complete preserved archive.
 
-The formal milestone record, retained compatibility seams and tag gate are in
+The milestone tag is `exporter-core-chatgpt-validated-2026-08-31`. The exact tag-
+target commit must have green Tests and Windows onedir build CI.
+
+The formal milestone record, retained compatibility seams and tag criteria are in
 `docs/EXPORTER_CORE_CHATGPT_VALIDATION.md`.
 
 The milestone does **not** claim Discord integration. A second provider must
