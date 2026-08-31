@@ -312,6 +312,7 @@ def normalize_conversation_file(
             if exported is not None
             else native_content_type
         )
+        display_node_id = exported.node_id if exported is not None else None
 
         messages.append(
             Message(
@@ -335,8 +336,9 @@ def normalize_conversation_file(
                 attachments=_native_attachments(native_message),
                 metadata={
                     "chatgpt": {
+                        "node_id": display_node_id,
+                        "display_node_id": display_node_id,
                         "native_message": native_message,
-                        "display_node_id": exported.node_id if exported is not None else None,
                     }
                 },
             )
