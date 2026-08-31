@@ -68,6 +68,14 @@ class ExporterProvider:
             raise ValueError(f"Collector JavaScript is empty: {self.collector_path}")
         return source
 
+    def normalize_conversation(
+        self,
+        input_path: Path | str,
+        **kwargs,
+    ) -> Conversation:
+        """Normalize one preserved native conversation through this provider."""
+        return self.normalizer(input_path, **kwargs)
+
 
 __all__ = [
     "BundleImporter",
