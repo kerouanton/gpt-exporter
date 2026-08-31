@@ -27,7 +27,8 @@ from gpt_exporter.archive.manifest import (
     build_asset_manifest,
     render_console_summary as render_manifest_summary,
 )
-from gpt_exporter.export.batch import BatchExportResult, export_batch
+from gpt_exporter.export.batch import BatchExportResult
+from gpt_exporter.export.normalized_batch import export_normalized_batch
 from gpt_exporter.index import IndexUpdateResult, update_normalized_index
 from gpt_exporter.paths import ArchivePaths, default_archive_paths
 from gpt_exporter.pipeline import (
@@ -95,9 +96,9 @@ def archive_provider_bundle(
     """Run one provider archive while preserving current ChatGPT semantics.
 
     The source bundle is acquired and imported through ``provider``. The proven
-    ChatGPT asset/export stages remain in place for now. Production indexing is
-    provider-neutral and consumes the normalized search projection. A separate
-    shadow database still validates the normalized result non-destructively.
+    ChatGPT asset stages remain in place for now. Production export and indexing
+    are provider-neutral and consume the normalized display/search projections.
+    A separate legacy oracle still validates the normalized result.
     """
 
     if provider.key != CHATGPT_PROVIDER.key:
@@ -193,7 +194,8 @@ def archive_provider_bundle(
     if not export_skipped:
         export_result = _call_stage(
             "4/5 - Export new or larger conversations",
-            lambda: export_batch(
+            lambda: export_normalized_batch(
+                provider,
                 archive_root=paths.root,
                 batch_file=None if convert_only else batch_file,
                 overwrite_all=True,
