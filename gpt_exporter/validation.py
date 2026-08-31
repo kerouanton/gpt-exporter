@@ -243,14 +243,7 @@ def _text_difference(expected: str, actual: str) -> str | None:
 
 
 def _resolved_relationship_target(docx_path: Path, target: str, target_mode: str) -> str:
-    """Return a stable semantic target for one OOXML relationship.
-
-    The DOCX converter intentionally writes local hyperlinks relative to the
-    directory containing the output DOCX. Validation oracles live below
-    ``reports/provider-validation`` while production DOCX files live at the
-    archive root, so bytewise relationship XML comparison produces false
-    negatives even when both links resolve to the same archived asset.
-    """
+    """Return a stable semantic target for one OOXML relationship."""
 
     if target_mode.casefold() != "external":
         return target
@@ -316,6 +309,15 @@ def _compare_export_oracle(
     oracle_root: Path,
     conversation_id: str,
 ) -> tuple[bool, str | None, bool | None, str | None]:
+    """Compare freshly generated CORE and legacy exports from the same source.
+
+    Full-archive validation must not compare a freshly generated legacy DOCX to
+    an arbitrary historical production DOCX: older production files may have
+    been created by previous converter versions. Both DOCX sides are therefore
+    generated into the disposable validation tree from their respective fresh
+    Markdown outputs.
+    """
+
     oracle_root.mkdir(parents=True, exist_ok=True)
     core_markdown = oracle_root / f"{conversation_id}-core.md"
     legacy_markdown = oracle_root / f"{conversation_id}-legacy.md"
@@ -338,22 +340,20 @@ def _compare_export_oracle(
     markdown_difference = _text_difference(legacy_text, core_text)
     markdown_matches = markdown_difference is None
 
-    production_docx = legacy_indexer.find_docx(archive, conversation_id)
-    if production_docx is None or not production_docx.is_file():
-        return markdown_matches, markdown_difference, None, None
-
+    core_docx = oracle_root / f"{conversation_id}-core.docx"
     legacy_docx = oracle_root / f"{conversation_id}-legacy.docx"
+    export_docx(core_markdown, core_docx, overwrite=True)
     export_docx(legacy_markdown, legacy_docx, overwrite=True)
+    core_fingerprint = _docx_fingerprint(core_docx)
     legacy_fingerprint = _docx_fingerprint(legacy_docx)
-    production_fingerprint = _docx_fingerprint(production_docx)
-    docx_matches = legacy_fingerprint == production_fingerprint
+    docx_matches = legacy_fingerprint == core_fingerprint
     docx_difference = None
     if not docx_matches:
         legacy_members = dict(legacy_fingerprint)
-        production_members = dict(production_fingerprint)
-        names = sorted(set(legacy_members) | set(production_members))
+        core_members = dict(core_fingerprint)
+        names = sorted(set(legacy_members) | set(core_members))
         for name in names:
-            if legacy_members.get(name) != production_members.get(name):
+            if legacy_members.get(name) != core_members.get(name):
                 docx_difference = f"DOCX member differs: {name}"
                 break
         if docx_difference is None:
@@ -455,81 +455,52 @@ def run_normalized_shadow_validation(
                     docx_difference = None
 
                 if production is None or normalized is None:
-                    title_matches = None
-                    message_count_matches = None
-                    message_content_matches = None
-                    provenance_matches = None
-                    origins_match = None
-                    production_count = len(production[1]) if production is not None else None
-                    normalized_count = len(normalized[1]) if normalized is not None else None
-                    legacy_count = len(legacy[1]) if legacy is not None else None
-                    legacy_matches = None
-                    missing_ids: tuple[str, ...] = ()
-                    extra_ids: tuple[str, ...] = ()
-                    first_difference = "Conversation missing from production or shadow database."
-                    provenance_difference = None
-                    legacy_difference = None
+                    result = ShadowConversationResult(
+                        source=str(source),
+                        conversation_id=conversation.conversation_id,
+                        title_matches=False,
+                        message_count_matches=False,
+                        message_content_matches=False,
+                        production_message_count=(len(production[1]) if production else None),
+                        normalized_message_count=(len(normalized[1]) if normalized else None),
+                        error="conversation missing from production or shadow database",
+                    )
                     mismatched += 1
+                    results.append(result)
+                    continue
+
+                missing, extra, first_difference = _message_diagnostics(
+                    production[1], normalized[1]
+                )
+                provenance_difference = _provenance_difference(
+                    production[2], normalized[2], production[3], normalized[3]
+                )
+                legacy_difference = (
+                    _snapshot_difference(legacy, production)
+                    if legacy is not None
+                    else None
+                )
+                title_matches = production[0] == normalized[0]
+                message_count_matches = len(production[1]) == len(normalized[1])
+                message_content_matches = production[1] == normalized[1]
+                provenance_matches = production[2] == normalized[2]
+                origins_match = production[3] == normalized[3]
+                legacy_matches = legacy_difference is None if legacy is not None else None
+                conversation_matches = (
+                    title_matches
+                    and message_count_matches
+                    and message_content_matches
+                    and provenance_matches
+                    and origins_match
+                    and (legacy_matches is not False)
+                    and (markdown_legacy_matches is not False)
+                    and (docx_legacy_matches is not False)
+                )
+
+                if conversation_matches:
+                    matched += 1
                 else:
-                    (
-                        production_title,
-                        production_messages,
-                        production_provenance,
-                        production_origins,
-                    ) = production
-                    (
-                        normalized_title,
-                        normalized_messages,
-                        normalized_provenance,
-                        normalized_origins,
-                    ) = normalized
-                    production_count = len(production_messages)
-                    normalized_count = len(normalized_messages)
-                    title_matches = production_title == normalized_title
-                    message_count_matches = production_count == normalized_count
-                    message_content_matches = production_messages == normalized_messages
-                    provenance_matches = production_provenance == normalized_provenance
-                    origins_match = production_origins == normalized_origins
-                    missing_ids, extra_ids, first_difference = _message_diagnostics(
-                        production_messages,
-                        normalized_messages,
-                    )
-                    provenance_difference = _provenance_difference(
-                        production_provenance,
-                        normalized_provenance,
-                        production_origins,
-                        normalized_origins,
-                    )
-
-                    if legacy_db is None:
-                        legacy_matches = None
-                        legacy_count = None
-                        legacy_difference = None
-                    elif legacy is None:
-                        legacy_matches = False
-                        legacy_count = None
-                        legacy_difference = "Conversation missing from legacy oracle database."
-                    else:
-                        legacy_count = len(legacy[1])
-                        legacy_difference = _snapshot_difference(legacy, production)
-                        legacy_matches = legacy_difference is None
-
-                    core_matches = (
-                        title_matches
-                        and message_count_matches
-                        and message_content_matches
-                        and provenance_matches
-                        and origins_match
-                    )
-                    oracle_matches = (
-                        legacy_matches is not False
-                        and markdown_legacy_matches is not False
-                        and docx_legacy_matches is not False
-                    )
-                    if core_matches and oracle_matches:
-                        matched += 1
-                    else:
-                        mismatched += 1
+                    mismatched += 1
 
                 results.append(
                     ShadowConversationResult(
@@ -538,16 +509,16 @@ def run_normalized_shadow_validation(
                         title_matches=title_matches,
                         message_count_matches=message_count_matches,
                         message_content_matches=message_content_matches,
-                        production_message_count=production_count,
-                        normalized_message_count=normalized_count,
+                        production_message_count=len(production[1]),
+                        normalized_message_count=len(normalized[1]),
                         provenance_matches=provenance_matches,
                         origins_match=origins_match,
                         legacy_matches=legacy_matches,
-                        legacy_message_count=legacy_count,
+                        legacy_message_count=(len(legacy[1]) if legacy is not None else None),
                         markdown_legacy_matches=markdown_legacy_matches,
                         docx_legacy_matches=docx_legacy_matches,
-                        missing_message_ids=missing_ids,
-                        extra_message_ids=extra_ids,
+                        missing_message_ids=missing,
+                        extra_message_ids=extra,
                         first_message_difference=first_difference,
                         provenance_difference=provenance_difference,
                         legacy_difference=legacy_difference,
@@ -555,7 +526,7 @@ def run_normalized_shadow_validation(
                         docx_difference=docx_difference,
                     )
                 )
-            except Exception as error:  # Diagnostic boundary: production already succeeded.
+            except Exception as error:  # validation must report individual failures
                 failed += 1
                 results.append(
                     ShadowConversationResult(
@@ -566,42 +537,30 @@ def run_normalized_shadow_validation(
                         message_content_matches=None,
                         production_message_count=None,
                         normalized_message_count=None,
-                        error=str(error),
+                        error=f"{type(error).__name__}: {error}",
                     )
                 )
     finally:
         if legacy_connection is not None:
             legacy_connection.close()
 
+    validation_root.mkdir(parents=True, exist_ok=True)
     payload = {
         "provider_key": provider.key,
-        "comparison_mode": (
-            "production-core+shadow-core+legacy-index+legacy-export"
-            if compare_with_legacy_oracle
-            else "production+shadow-core"
-        ),
         "checked": len(results),
         "matched": matched,
         "mismatched": mismatched,
         "failed": failed,
-        "production_database": str(production_db),
         "shadow_database": str(shadow_db),
         "legacy_oracle_database": str(legacy_db) if legacy_db is not None else None,
         "conversations": [asdict(item) for item in results],
     }
-    report_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-
+    report_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     _emit(
         progress,
-        "Normalized shadow validation: "
-        f"{matched} matched, {mismatched} mismatched, {failed} failed "
-        f"({report_path})",
+        f"Normalized shadow validation: {matched} matched, {mismatched} mismatched, "
+        f"{failed} failed ({report_path})",
     )
-
     return ShadowValidationResult(
         provider_key=provider.key,
         checked=len(results),
@@ -613,10 +572,3 @@ def run_normalized_shadow_validation(
         legacy_oracle_database=legacy_db,
         conversations=tuple(results),
     )
-
-
-__all__ = [
-    "ShadowConversationResult",
-    "ShadowValidationResult",
-    "run_normalized_shadow_validation",
-]
