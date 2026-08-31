@@ -38,7 +38,7 @@ class NormalizedMarkdownTests(unittest.TestCase):
         rendered = render_conversation_markdown(conversation, include_timestamps=True)
 
         self.assertIn("# Synthetic conversation", rendered)
-        self.assertIn("- Provider: `synthetic`", rendered)
+        self.assertNotIn("- Provider:", rendered)
         self.assertIn("- Conversation ID: `conv-1`", rendered)
         self.assertIn("## Alice", rendered)
         self.assertIn("Hello", rendered)
