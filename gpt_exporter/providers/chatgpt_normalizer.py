@@ -267,6 +267,13 @@ def _native_attachments(message: dict[str, Any]) -> tuple[Attachment, ...]:
 
 
 def _display_name(role: str, native_name: str) -> str:
+    # The frozen ChatGPT Markdown exporter presents visible tool output as
+    # ChatGPT, even when native author.name contains an internal tool name
+    # such as file_search, api_tool, or an opaque tool identifier. Keep the
+    # native name in provider metadata/participant identity, but preserve the
+    # historical visible label for export parity.
+    if role == "tool":
+        return "ChatGPT"
     if native_name.strip():
         return native_name.strip()
     if role == "user":
