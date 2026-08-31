@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from gpt_exporter.model import Conversation, Message
 
 
 def _format_timestamp(value: datetime | None) -> str:
+    """Match the historical exporter timestamp presentation exactly."""
     if value is None:
         return "unknown"
-    return value.astimezone(timezone.utc).isoformat(timespec="seconds")
+    try:
+        return value.astimezone().isoformat(timespec="seconds")
+    except (OSError, OverflowError, TypeError, ValueError):
+        return f"invalid timestamp: {value!r}"
 
 
 def _display_author(message: Message) -> str:
@@ -27,13 +31,12 @@ def render_conversation_markdown(
     *,
     include_timestamps: bool = False,
 ) -> str:
-    """Render only the provider-defined visible projection of a conversation."""
+    """Render the provider-defined visible projection using the stable archive format."""
 
     title = (conversation.title or "Untitled conversation").replace("\n", " ").strip()
     lines: list[str] = [
         f"# {title}",
         "",
-        f"- Provider: `{conversation.provider_key}`",
         f"- Conversation ID: `{conversation.conversation_id}`",
         f"- Created: {_format_timestamp(conversation.created_at)}",
         f"- Updated: {_format_timestamp(conversation.updated_at)}",
