@@ -2,8 +2,8 @@
 
 This module is the migration bridge between the source-specific provider
 contract and the common exporter core. It intentionally reuses the proven
-archive migration, asset, batch-export, and index stages while routing source
-acquisition/import through ``ExporterProvider``.
+archive migration, asset, and batch-export stages while routing source
+acquisition/import and production indexing through ``ExporterProvider``.
 
 ChatGPT remains the only provider whose native asset/incremental-export stages
 are connected here. Other providers are rejected explicitly until their
@@ -28,7 +28,7 @@ from gpt_exporter.archive.manifest import (
     render_console_summary as render_manifest_summary,
 )
 from gpt_exporter.export.batch import BatchExportResult, export_batch
-from gpt_exporter.index import IndexUpdateResult, update_index as update_archive_index
+from gpt_exporter.index import IndexUpdateResult, update_normalized_index
 from gpt_exporter.paths import ArchivePaths, default_archive_paths
 from gpt_exporter.pipeline import (
     ArchivePipelineResult,
@@ -94,10 +94,10 @@ def archive_provider_bundle(
 ) -> ArchivePipelineResult:
     """Run one provider archive while preserving current ChatGPT semantics.
 
-    The source bundle is acquired and imported through ``provider``. The
-    downstream v2.8 asset/export/index stages remain authoritative while the
-    normalized export/index path runs afterward as a non-destructive shadow
-    validation under ``reports/provider-validation``.
+    The source bundle is acquired and imported through ``provider``. The proven
+    ChatGPT asset/export stages remain in place for now. Production indexing is
+    provider-neutral and consumes the normalized search projection. A separate
+    shadow database still validates the normalized result non-destructively.
     """
 
     if provider.key != CHATGPT_PROVIDER.key:
@@ -208,7 +208,8 @@ def archive_provider_bundle(
 
     index_result: IndexUpdateResult = _call_stage(
         "5/5 - Update archive search index",
-        lambda: update_archive_index(
+        lambda: update_normalized_index(
+            provider,
             paths.root,
             downloads_dir=paths.downloads,
             database_path=paths.database,
