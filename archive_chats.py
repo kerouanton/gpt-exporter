@@ -10,10 +10,13 @@ from pathlib import Path
 
 from gpt_exporter.paths import default_archive_paths
 from gpt_exporter.pipeline import archive_bundle
+from gpt_exporter.providers import CHATGPT_PROVIDER
 
 
 ROOT = Path(__file__).resolve().parent
-PATHS = default_archive_paths()
+PATHS = default_archive_paths(
+    archive_directory_name=CHATGPT_PROVIDER.archive_directory_name,
+)
 ARCHIVE_ROOT = PATHS.root
 DOWNLOADS_DIR = PATHS.downloads
 ASSETS_DIR = PATHS.assets
@@ -24,7 +27,7 @@ MARKDOWN_DIR = PATHS.markdown
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Import the browser-generated ChatGPT archive bundle and "
+            f"Import the browser-generated {CHATGPT_PROVIDER.display_name} archive bundle and "
             "create cumulative DOCX exports."
         )
     )
