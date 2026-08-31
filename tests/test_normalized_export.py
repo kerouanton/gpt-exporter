@@ -31,7 +31,7 @@ class NormalizedExportTests(unittest.TestCase):
             self.assertIn("## Alice", rendered)
             self.assertIn("Hello", rendered)
 
-    def test_export_can_delegate_docx_conversion(self) -> None:
+    def test_export_can_delegate_docx_conversion_without_extra_title(self) -> None:
         conversation = Conversation(
             provider_key="synthetic",
             conversation_id="conv-1",
@@ -59,7 +59,7 @@ class NormalizedExportTests(unittest.TestCase):
             args, kwargs = converter.call_args
             self.assertEqual(args[0], markdown.resolve())
             self.assertEqual(args[1], docx.resolve())
-            self.assertEqual(kwargs["document_title"], "Synthetic")
+            self.assertIsNone(kwargs["document_title"])
             self.assertTrue(kwargs["overwrite"])
             self.assertIs(result.docx_result, fake_result)
 
