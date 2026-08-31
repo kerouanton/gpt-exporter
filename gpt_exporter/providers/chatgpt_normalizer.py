@@ -17,9 +17,16 @@ import io
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
-from gpt_exporter.model import Attachment, ContentBlock, Conversation, Message, Participant
+from gpt_exporter.model import (
+    Attachment,
+    ContentBlock,
+    Conversation,
+    ConversationOrigin,
+    Message,
+    Participant,
+)
 
 
 with contextlib.redirect_stdout(io.StringIO()):
@@ -34,6 +41,7 @@ _EXCLUDED_INDEX_CONTENT_TYPES = {
     "reasoning_recap",
 }
 _WHITESPACE_RE = re.compile(r"\s+")
+_ORIGIN_TYPE_PRIORITY = {"project": 0, "custom_gpt": 1, "other": 2}
 
 
 def _timestamp(value: Any) -> datetime | None:
@@ -43,6 +51,101 @@ def _timestamp(value: Any) -> datetime | None:
         return datetime.fromtimestamp(float(value), tz=timezone.utc)
     except (OSError, OverflowError, TypeError, ValueError):
         return None
+
+
+def _optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _classify_origin_id(origin_id: str) -> str:
+    if origin_id.startswith("g-p-"):
+        return "project"
+    if origin_id.startswith("g-"):
+        return "custom_gpt"
+    return "other"
+
+
+def _iter_nested_gizmo_ids(value: Any, path: str) -> Iterable[tuple[str, str]]:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if key == "gizmo_id":
+                candidate = _optional_string(child)
+                if candidate:
+                    yield candidate, child_path
+            if isinstance(child, (dict, list)):
+                yield from _iter_nested_gizmo_ids(child, child_path)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            if isinstance(child, (dict, list)):
+                yield from _iter_nested_gizmo_ids(child, f"{path}[{index}]")
+
+
+def _conversation_origins(data: dict[str, Any]) -> tuple[ConversationOrigin, ...]:
+    """Mirror the historical native origin detection provider-side."""
+
+    discovered: dict[str, dict[str, str]] = {}
+
+    def add(origin_id: str | None, source: str) -> None:
+        if not origin_id:
+            return
+        current = discovered.get(origin_id)
+        if current is None:
+            discovered[origin_id] = {
+                "origin_id": origin_id,
+                "origin_type": _classify_origin_id(origin_id),
+                "source": source,
+            }
+        elif source not in current["source"].split(";"):
+            current["source"] += ";" + source
+
+    add(_optional_string(data.get("gizmo_id")), "top_level.gizmo_id")
+    add(
+        _optional_string(data.get("conversation_template_id")),
+        "top_level.conversation_template_id",
+    )
+
+    mapping = data.get("mapping") or {}
+    if isinstance(mapping, dict):
+        for node in mapping.values():
+            if not isinstance(node, dict):
+                continue
+            message = node.get("message")
+            if not isinstance(message, dict):
+                continue
+
+            metadata = message.get("metadata")
+            if isinstance(metadata, (dict, list)):
+                for origin_id, path in _iter_nested_gizmo_ids(
+                    metadata, "message.metadata"
+                ):
+                    add(origin_id, path)
+
+            content = message.get("content")
+            if isinstance(content, dict):
+                for origin_id, path in _iter_nested_gizmo_ids(
+                    content, "message.content"
+                ):
+                    add(origin_id, path)
+
+    ordered = sorted(
+        discovered.values(),
+        key=lambda item: (
+            _ORIGIN_TYPE_PRIORITY[item["origin_type"]],
+            item["origin_id"],
+        ),
+    )
+    return tuple(
+        ConversationOrigin(
+            origin_id=item["origin_id"],
+            origin_type=item["origin_type"],
+            source=item["source"],
+        )
+        for item in ordered
+    )
 
 
 def _index_normalize_text(value: Any) -> str:
@@ -252,7 +355,6 @@ def normalize_conversation_file(
             record_order.append(key)
         return record
 
-    # Display projection: active branch + established Markdown merge/asset rules.
     for display_order, exported in enumerate(visible, start=1):
         native_message = raw_by_node.get(exported.node_id, {})
         native_id = native_message.get("id") if isinstance(native_message, dict) else None
@@ -262,7 +364,6 @@ def normalize_conversation_file(
         record["display"] = exported
         record["display_order"] = display_order
 
-    # Search projection: exact historical mapping-wide SQLite rules/order.
     searchable_native: list[dict[str, Any]] = []
     for node in mapping.values():
         if not isinstance(node, dict):
@@ -352,6 +453,16 @@ def normalize_conversation_file(
         updated_at=_timestamp(data.get("update_time")),
         participants=tuple(participants.values()),
         messages=tuple(messages),
+        origins=_conversation_origins(data),
+        index_metadata={
+            "gizmo_id": _optional_string(data.get("gizmo_id")),
+            "gizmo_type": _optional_string(data.get("gizmo_type")),
+            "conversation_template_id": _optional_string(
+                data.get("conversation_template_id")
+            ),
+            "conversation_origin": _optional_string(data.get("conversation_origin")),
+            "default_model_slug": _optional_string(data.get("default_model_slug")),
+        },
         metadata={
             "chatgpt": {
                 "current_node": current_node_id,
