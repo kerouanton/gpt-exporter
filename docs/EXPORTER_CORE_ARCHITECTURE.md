@@ -107,6 +107,11 @@ context, collector, source-bundle name, website action, reports, and derived
 outputs together. Provider-specific labels such as `Archive -> Open ChatGPT`
 are rendered from `current_workspace.provider` rather than hard-coded strings.
 
+`WorkspaceWorkflow` is the non-GUI operating-context object. It binds one
+workspace to its provider workflow and archive root so acquisition/archive
+operations cannot accidentally mix one provider with another workspace's paths.
+Compatibility singletons remain only while legacy callers are migrated.
+
 Provider archives are physically separate. Shared behavior lives in the code and
 UI, not in a combined data directory.
 
@@ -120,6 +125,7 @@ A provider owns only source-specific behavior:
 - native-format parsing;
 - source-specific attachment/reference decoding;
 - normalization into the common conversation model;
+- source-specific origin/provenance detection;
 - optional source-specific actions that cannot be expressed by the core.
 
 Providers must not implement their own archive browser, project tree, search
@@ -144,6 +150,8 @@ common Conversation model
         |
         +--> search projection --> common SQLite / FTS index writer
         |
+        +--> normalized origins / index metadata --> common SQLite provenance writer
+        |
         +--> Browser / search / projects / tags / keyword cloud
 ```
 
@@ -153,6 +161,12 @@ DOCX/Markdown follows the active branch, while the historical SQLite index uses
 its established mapping-wide visibility/indexability rules. The common model
 therefore carries provider-defined display/search flags and ordering rather than
 forcing both outputs through one lossy message list.
+
+Native provenance is normalized too. CORE receives provider-neutral
+`ConversationOrigin` records plus compatibility index metadata; it does not walk
+ChatGPT-native JSON to discover projects, Custom GPTs, templates, or model data.
+The shadow validator compares these provenance outputs against the production
+SQLite database before the normalized writer can become authoritative.
 
 Provider-native source data remains preserved separately. The normalized model
 is rebuildable and must never silently replace or destructively rewrite native
@@ -199,14 +213,16 @@ abstraction is driven by real implementations rather than speculation.
 9. Provider registry and `Manage Providers` UI: done.
 10. Workspace abstraction and visible current-workspace selector: done.
 11. Workspace-derived provider labels, collector, bundle name, archive root, and archive runner: done.
-12. Provider-aware GUI workflow and compatibility pipeline bridge: done.
-13. Non-destructive shadow validation against the production index: done.
-14. Reach zero unexplained shadow differences for ChatGPT message/title semantics: done on real appended conversations; continue characterization coverage.
-15. Preserve/compare remaining ChatGPT native provenance and organization fields.
-16. Switch primary ChatGPT index/export stages behind compatibility guards.
-17. Move remaining ChatGPT-specific asset-reference rules behind the provider.
-18. Verify GPT Exporter behavior against characterization and real-archive tests.
-19. Integrate Discord as the second provider using the same core, workspace UI, and GUI.
+12. Persistent `Manage Workspaces` configuration and startup reload: done.
+13. `WorkspaceWorkflow` context binding provider operations to one archive root: done at CORE API level; GUI migration in progress.
+14. Provider-aware GUI workflow and compatibility pipeline bridge: done.
+15. Non-destructive shadow validation against the production index: done.
+16. Reach zero unexplained shadow differences for ChatGPT message/title semantics: done on real appended conversations; continue characterization coverage.
+17. Normalize/write/compare ChatGPT native provenance and origin fields: implemented; real-archive validation pending.
+18. Switch primary ChatGPT index/export stages behind compatibility guards.
+19. Move remaining ChatGPT-specific asset-reference rules behind the provider.
+20. Verify GPT Exporter behavior against characterization and real-archive tests.
+21. Integrate Discord as the second provider using the same core, workspace UI, and GUI.
 
 ## Architectural acceptance test
 
