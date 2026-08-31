@@ -52,6 +52,23 @@ def windows_download_directories(
     return unique
 
 
+def source_bundle_signature(path: Path | str | None) -> tuple[str, int, int] | None:
+    """Return a stable signature for detecting a newly downloaded bundle."""
+
+    if path is None:
+        return None
+    candidate = Path(path)
+    try:
+        stat = candidate.stat()
+    except OSError:
+        return None
+    return (
+        os.path.normcase(os.path.abspath(str(candidate))),
+        int(stat.st_mtime_ns),
+        int(stat.st_size),
+    )
+
+
 def find_source_bundle(
     provider: ExporterProvider,
     *,
@@ -158,5 +175,6 @@ __all__ = [
     "find_source_bundle",
     "print_bundle_creation_instructions",
     "require_source_bundle",
+    "source_bundle_signature",
     "windows_download_directories",
 ]
