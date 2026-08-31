@@ -64,6 +64,31 @@ class ProviderWorkflowTests(unittest.TestCase):
         self.assertFalse(kwargs["delete_source"])
         self.assertIs(result, mock.sentinel.result)
 
+    def test_workspace_workflow_updates_its_own_core_index(self) -> None:
+        workspace = Workspace(
+            key="chatgpt-test",
+            display_name="ChatGPT Test",
+            provider=CHATGPT_PROVIDER,
+            archive_root=Path("C:/synthetic/ChatGPT Test Archive"),
+        )
+        workflow = WorkspaceWorkflow(workspace)
+
+        with mock.patch(
+            "gpt_exporter.workflow.update_normalized_index",
+            return_value=mock.sentinel.index_result,
+        ) as update_index:
+            result = workflow.update_index(force=True, progress=mock.sentinel.progress)
+
+        update_index.assert_called_once_with(
+            CHATGPT_PROVIDER,
+            workspace.archive_root,
+            downloads_dir=workspace.paths.downloads,
+            database_path=workspace.database_path,
+            force=True,
+            progress=mock.sentinel.progress,
+        )
+        self.assertIs(result, mock.sentinel.index_result)
+
     def test_workspace_workflow_exposes_workspace_paths(self) -> None:
         workspace = Workspace(
             key="chatgpt-test",
@@ -76,6 +101,7 @@ class ProviderWorkflowTests(unittest.TestCase):
         self.assertIs(workflow.provider, CHATGPT_PROVIDER)
         self.assertEqual(workflow.archive_root, workspace.archive_root)
         self.assertEqual(workflow.paths.database, workspace.database_path)
+        self.assertEqual(workflow.database_path, workspace.database_path)
 
     def test_unconnected_provider_is_rejected_explicitly(self) -> None:
         synthetic = ExporterProvider(
