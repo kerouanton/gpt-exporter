@@ -1,12 +1,12 @@
 """Provider-aware archive pipeline built on the preserved v2.8 mechanics.
 
 This module is the migration bridge between the source-specific provider
-contract and the common exporter core.  It intentionally reuses the proven
+contract and the common exporter core. It intentionally reuses the proven
 archive migration, asset, batch-export, and index stages while routing source
 acquisition/import through ``ExporterProvider``.
 
 ChatGPT remains the only provider whose native asset/incremental-export stages
-are connected here.  Other providers are rejected explicitly until their
+are connected here. Other providers are rejected explicitly until their
 provider-native preservation semantics are defined.
 """
 
@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from gpt_exporter.acquisition import delete_consumed_source_bundle, require_source_bundle
 from gpt_exporter.archive.inventory import (
     InventoryResult,
     inventory_media,
@@ -41,7 +42,7 @@ from gpt_exporter.pipeline import (
 )
 from gpt_exporter.providers import CHATGPT_PROVIDER, ExporterProvider
 from gpt_exporter.providers.base import ProgressCallback
-from gpt_exporter.acquisition import delete_consumed_source_bundle, require_source_bundle
+from gpt_exporter.validation import run_normalized_shadow_validation
 
 
 def _resolved_paths(
@@ -55,6 +56,28 @@ def _resolved_paths(
     return ArchivePaths.from_root(Path(archive_root).expanduser().resolve())
 
 
+def _resolve_validation_sources(
+    paths: ArchivePaths,
+    *,
+    convert_only: bool,
+    batch_data: dict[str, Any] | None,
+) -> list[Path]:
+    """Return preserved native files to exercise through the normalized path."""
+
+    if convert_only:
+        return _conversation_files(paths.downloads)
+
+    names = (batch_data or {}).get("conversation_files") or []
+    sources: list[Path] = []
+    for raw_name in names:
+        candidate = Path(str(raw_name))
+        if not candidate.is_absolute():
+            candidate = paths.downloads / candidate
+        if candidate.is_file():
+            sources.append(candidate)
+    return sources
+
+
 def archive_provider_bundle(
     provider: ExporterProvider,
     *,
@@ -66,13 +89,15 @@ def archive_provider_bundle(
     legacy_root: Path | str | None = None,
     download_directories: list[Path] | None = None,
     delete_source: bool = True,
+    validate_normalized: bool = True,
     progress: ProgressCallback | None = None,
 ) -> ArchivePipelineResult:
     """Run one provider archive while preserving current ChatGPT semantics.
 
-    The source bundle is acquired and imported through ``provider``.  The
-    downstream v2.8 asset/export/index stages are still ChatGPT-specific, so a
-    non-ChatGPT provider is rejected before any archive content is modified.
+    The source bundle is acquired and imported through ``provider``. The
+    downstream v2.8 asset/export/index stages remain authoritative while the
+    normalized export/index path runs afterward as a non-destructive shadow
+    validation under ``reports/provider-validation``.
     """
 
     if provider.key != CHATGPT_PROVIDER.key:
@@ -156,6 +181,7 @@ def archive_provider_bundle(
         _emit(progress, "\nAssets skipped by request.")
 
     batch_file = paths.reports / "current-batch.json"
+    batch_data: dict[str, Any] | None = None
     export_skipped = False
     if not convert_only and batch_file.is_file():
         batch_data = json.loads(batch_file.read_text(encoding="utf-8"))
@@ -190,6 +216,28 @@ def archive_provider_bundle(
         ),
         progress=progress,
     )
+
+    if validate_normalized:
+        validation_sources = _resolve_validation_sources(
+            paths,
+            convert_only=convert_only,
+            batch_data=batch_data,
+        )
+        if validation_sources:
+            _emit(progress)
+            _emit(progress, "Running normalized provider validation (non-destructive)…")
+            try:
+                run_normalized_shadow_validation(
+                    provider,
+                    validation_sources,
+                    archive_root=paths.root,
+                    production_database=paths.database,
+                    progress=progress,
+                )
+            except Exception as error:  # Validation must never invalidate a successful archive.
+                _emit(progress, f"WARNING: normalized shadow validation failed: {error}")
+        else:
+            _emit(progress, "Normalized shadow validation: no changed conversations to check.")
 
     source_deleted = False
     if resolved_source is not None and delete_source:
