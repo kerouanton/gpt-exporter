@@ -26,8 +26,6 @@ _ensure_standard_streams()
 with contextlib.redirect_stdout(io.StringIO()):
     import archive_browser as browser
 
-import archive_gui_workflow as legacy_workflow
-from gpt_exporter.index import IndexUpdateResult, update_index as update_archive_index
 from gpt_exporter.providers import BUILTIN_PROVIDERS, CHATGPT_PROVIDER
 from gpt_exporter.resources import read_release_history, read_user_guide
 from gpt_exporter.ui import (
@@ -40,7 +38,7 @@ from gpt_exporter.ui import (
     show_workspace_manager,
 )
 from gpt_exporter.version import APP_NAME, display_version
-from gpt_exporter.workflow import ProviderWorkflow
+from gpt_exporter.workflow import WorkspaceWorkflow
 from gpt_exporter.workspaces import (
     BUILTIN_WORKSPACES,
     DEFAULT_WORKSPACE_CONFIG,
@@ -51,22 +49,6 @@ from gpt_exporter.workspaces import (
 
 
 ROOT = Path(__file__).resolve().parent
-
-
-def update_browser_index(
-    database_path: Path,
-    *,
-    progress=None,
-) -> IndexUpdateResult:
-    """Update the Browser's open archive database through the library API."""
-    database_path = Path(database_path).expanduser().resolve()
-    archive_root = database_path.parent
-    return update_archive_index(
-        archive_root,
-        downloads_dir=archive_root / "downloads",
-        database_path=database_path,
-        progress=progress,
-    )
 
 
 def _workspace_for_database(
@@ -105,7 +87,7 @@ class GPTExporterApp(browser.ArchiveBrowser):
     ) -> None:
         self.workspace_registry = workspace_registry
         self.current_workspace = _workspace_for_database(database_path, workspace_registry)
-        self.provider_workflow = ProviderWorkflow(self.current_workspace.provider)
+        self.workspace_workflow = WorkspaceWorkflow(self.current_workspace)
         self.available_workspaces = list(workspace_registry.all())
         if all(item.key != self.current_workspace.key for item in self.available_workspaces):
             self.available_workspaces.append(self.current_workspace)
@@ -231,9 +213,10 @@ class GPTExporterApp(browser.ArchiveBrowser):
             return
 
         old_workspace = self.current_workspace
+        old_workflow = self.workspace_workflow
         old_database = self.database_path
         self.current_workspace = target
-        self.provider_workflow = ProviderWorkflow(target.provider)
+        self.workspace_workflow = WorkspaceWorkflow(target)
         self.database_path = target.database_path
         try:
             self.database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -242,7 +225,7 @@ class GPTExporterApp(browser.ArchiveBrowser):
             self._refresh_all()
         except (OSError, ValueError, sqlite3.Error) as error:
             self.current_workspace = old_workspace
-            self.provider_workflow = ProviderWorkflow(old_workspace.provider)
+            self.workspace_workflow = old_workflow
             self.database_path = old_database
             self.workspace_var.set(old_workspace.display_name)
             messagebox.showerror(
@@ -300,18 +283,17 @@ class GPTExporterApp(browser.ArchiveBrowser):
         WorkspaceArchiveDialog(
             self,
             workspace=self.current_workspace,
-            find_source_bundle=lambda: self.provider_workflow.find_source_bundle(),
-            source_bundle_signature=legacy_workflow.source_bundle_signature,
+            find_source_bundle=self.workspace_workflow.find_source_bundle,
             on_open_provider=self.open_provider,
             on_copy_collector=self.copy_collector_javascript,
             on_run_archive=self.process_downloaded_bundle,
         )
 
     def open_provider(self) -> None:
-        provider = self.current_workspace.provider
+        provider = self.workspace_workflow.provider
         title = f"Open {provider.display_name}"
         try:
-            opened = self.provider_workflow.open_website()
+            opened = self.workspace_workflow.open_website()
         except OSError as error:
             messagebox.showerror(title, str(error), parent=self)
             return
@@ -328,7 +310,7 @@ class GPTExporterApp(browser.ArchiveBrowser):
 
     def copy_collector_javascript(self) -> bool:
         try:
-            source = self.provider_workflow.read_collector_source()
+            source = self.workspace_workflow.read_collector_source()
             self.clipboard_clear()
             self.clipboard_append(source)
             self.update_idletasks()
@@ -336,24 +318,24 @@ class GPTExporterApp(browser.ArchiveBrowser):
             messagebox.showerror("Copy Collector JavaScript", str(error), parent=self)
             return False
         self.status_var.set(
-            f"{self.current_workspace.provider.display_name} collector JavaScript copied to the clipboard."
+            f"{self.workspace_workflow.provider.display_name} collector JavaScript copied to the clipboard."
         )
         return True
 
     def show_collector_in_explorer(self) -> None:
         try:
-            browser.reveal_in_file_manager(str(self.current_workspace.provider.collector_path))
+            browser.reveal_in_file_manager(str(self.workspace_workflow.provider.collector_path))
         except OSError as error:
             messagebox.showerror("Show Collector JavaScript", str(error), parent=self)
 
     def open_archive_folder(self) -> None:
         try:
-            browser.open_with_default_application(str(self.current_workspace.archive_root))
+            browser.open_with_default_application(str(self.workspace_workflow.archive_root))
         except OSError as error:
             messagebox.showerror("Open Archive Folder", str(error), parent=self)
 
     def show_last_archive_log(self) -> None:
-        log_path = latest_archive_log_path(self.current_workspace.paths.reports)
+        log_path = latest_archive_log_path(self.workspace_workflow.paths.reports)
         if not log_path.is_file():
             messagebox.showinfo(
                 "Show Last Archive Log",
@@ -367,17 +349,16 @@ class GPTExporterApp(browser.ArchiveBrowser):
             messagebox.showerror("Show Last Archive Log", str(error), parent=self)
 
     def update_index(self) -> None:
-        """Update the current workspace Browser index through the reusable library."""
+        """Update the current workspace Browser index through CORE."""
         browser.LOGGER.info(
-            "Updating archive search index in-process for workspace %s",
+            "Updating CORE search index in-process for workspace %s",
             self.current_workspace.key,
         )
         self.status_var.set("Updating search index…")
         self.update_idletasks()
 
         try:
-            result = update_browser_index(
-                self.database_path,
+            result = self.workspace_workflow.update_index(
                 progress=lambda message: browser.LOGGER.info("Indexer: %s", message),
             )
         except (OSError, ValueError, sqlite3.Error) as error:
@@ -401,8 +382,8 @@ class GPTExporterApp(browser.ArchiveBrowser):
         )
 
     def process_downloaded_bundle(self) -> bool:
-        provider = self.current_workspace.provider
-        bundle = self.provider_workflow.find_source_bundle()
+        provider = self.workspace_workflow.provider
+        bundle = self.workspace_workflow.find_source_bundle()
         if bundle is None:
             messagebox.showinfo(
                 "Process Downloaded Bundle",
@@ -415,8 +396,7 @@ class GPTExporterApp(browser.ArchiveBrowser):
         self.status_var.set(f"Archive bundle ready: {bundle.name}")
         WorkspaceArchiveRunDialog(
             self,
-            workspace=self.current_workspace,
-            provider_workflow=self.provider_workflow,
+            workspace_workflow=self.workspace_workflow,
             source_bundle=bundle,
             legacy_root=ROOT,
             on_success=self._archive_run_succeeded,
