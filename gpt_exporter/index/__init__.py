@@ -12,6 +12,7 @@ from .normalized import (
     index_normalized_file,
     initialize_normalized_database,
 )
+from .normalized_engine import update_normalized_index
 
 __all__ = [
     "IndexFailure",
@@ -22,4 +23,5 @@ __all__ = [
     "initialize_normalized_database",
     "rebuild_index",
     "update_index",
+    "update_normalized_index",
 ]
