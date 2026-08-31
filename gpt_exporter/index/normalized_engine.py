@@ -30,6 +30,35 @@ def _emit(progress: ProgressCallback | None, message: str) -> None:
         progress(message)
 
 
+def _unchanged_source_path(
+    connection,
+    source: Path,
+    source_mtime_ns: int,
+    *,
+    force: bool,
+) -> bool:
+    """Fast-path an unchanged archived file before provider normalization.
+
+    The production schema stores the resolved source path and source mtime.  A
+    row matching both values is enough to prove that this exact archived source
+    has already been indexed.  Renamed/moved files deliberately miss this
+    shortcut and are normalized so their conversation identity and stored path
+    remain correct.
+    """
+
+    if force:
+        return False
+    existing = connection.execute(
+        """
+        SELECT source_mtime_ns
+        FROM conversations
+        WHERE source_json_path = ?
+        """,
+        (str(source),),
+    ).fetchone()
+    return bool(existing and existing["source_mtime_ns"] == source_mtime_ns)
+
+
 def update_normalized_index(
     provider: ExporterProvider,
     archive_root: Path | str,
@@ -84,7 +113,17 @@ def update_normalized_index(
     try:
         for source in json_files:
             try:
+                source = source.expanduser().resolve()
                 source_mtime_ns = source.stat().st_mtime_ns
+
+                if _unchanged_source_path(
+                    connection,
+                    source,
+                    source_mtime_ns,
+                    force=force,
+                ):
+                    continue
+
                 conversation = provider.normalize_conversation(source)
                 existing = connection.execute(
                     "SELECT source_mtime_ns FROM conversations WHERE conversation_id = ?",
