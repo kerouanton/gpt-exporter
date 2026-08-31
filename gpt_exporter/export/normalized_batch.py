@@ -2,8 +2,9 @@
 
 This preserves the historical batch orchestration contract while replacing the
 source-specific Markdown conversion step with ``ExporterProvider`` normalization
-plus the common renderer.  DOCX conversion and cumulative asset auditing remain
-the proven shared implementations.
+plus the common renderer. DOCX conversion remains shared. The historical
+cumulative asset audit is still available, but callers may disable it for the
+normal incremental archive path because it rescans the complete archive.
 """
 
 from __future__ import annotations
@@ -44,9 +45,15 @@ def export_normalized_batch(
     overwrite_all: bool = False,
     markdown_only: bool = False,
     keep_markdown: bool = False,
+    run_asset_audit: bool = True,
     progress: ProgressCallback | None = None,
 ) -> BatchExportResult:
-    """Export one archive batch through the provider-neutral display model."""
+    """Export one archive batch through the provider-neutral display model.
+
+    ``run_asset_audit`` defaults to ``True`` so direct/library callers retain
+    historical behavior. The daily archive pipeline may disable it because the
+    cumulative audit opens every DOCX and every preserved conversation JSON.
+    """
 
     resolved_root = Path(archive_root).expanduser().resolve()
     downloads_directory = resolved_root / DOWNLOAD_DIRECTORY
@@ -146,12 +153,15 @@ def export_normalized_batch(
     audit_result: AssetAuditResult | None = None
     if markdown_only:
         success = not markdown_failed
-        if success:
+        if success and run_asset_audit:
             _emit(progress)
             _emit(progress, "Running cumulative asset reference audit...")
             audit_result = audit_asset_references(resolved_root)
             for line in _audit_lines(audit_result):
                 _emit(progress, line)
+        elif success:
+            _emit(progress)
+            _emit(progress, "Cumulative asset reference audit skipped for incremental run.")
         return BatchExportResult(
             archive_root=resolved_root,
             markdown_directory=markdown_directory,
@@ -204,7 +214,7 @@ def export_normalized_batch(
             docx_failed.append(json_path)
 
     success = not markdown_failed and not docx_failed
-    if success:
+    if success and run_asset_audit:
         _emit(progress)
         _emit(progress, "Running cumulative asset reference audit...")
         try:
@@ -214,6 +224,9 @@ def export_normalized_batch(
         except Exception as exc:
             _emit(progress, f"ERROR: asset reference audit failed: {exc}")
             success = False
+    elif success:
+        _emit(progress)
+        _emit(progress, "Cumulative asset reference audit skipped for incremental run.")
 
     temporary_markdown_removed = False
     if temporary_markdown_directory is not None:
