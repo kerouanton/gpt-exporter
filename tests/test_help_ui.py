@@ -123,6 +123,7 @@ sample
         class FakeApp:
             def __init__(self):
                 self.menu = None
+                self.current_workspace = gui.BUILTIN_WORKSPACES.get("chatgpt")
 
             def config(self, **kwargs):
                 self.menu = kwargs.get("menu")
