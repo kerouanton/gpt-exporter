@@ -66,7 +66,12 @@ class ProviderPipelineTests(unittest.TestCase):
             provider.importer.assert_called_once()
             export_batch.assert_called_once()
             _, export_kwargs = export_batch.call_args
-            self.assertEqual(export_kwargs["batch_file"], root / "reports" / "current-batch.json")
+            self.assertTrue(
+                os.path.samefile(
+                    export_kwargs["batch_file"],
+                    root / "reports" / "current-batch.json",
+                )
+            )
             self.assertFalse(result.export_skipped)
             self.assertIs(result.export_result, export_result)
 
