@@ -6,6 +6,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
 
+from gpt_exporter.acquisition import source_bundle_signature as core_source_bundle_signature
 from gpt_exporter.workspaces import Workspace
 
 
@@ -20,7 +21,7 @@ class WorkspaceArchiveDialog(tk.Toplevel):
         *,
         workspace: Workspace,
         find_source_bundle,
-        source_bundle_signature,
+        source_bundle_signature=core_source_bundle_signature,
         on_open_provider,
         on_copy_collector,
         on_run_archive,
