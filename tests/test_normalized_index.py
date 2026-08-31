@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from gpt_exporter.index.normalized import index_normalized_conversation
-from gpt_exporter.model import Conversation, ContentBlock, Message
+from gpt_exporter.model import Conversation, ConversationOrigin, ContentBlock, Message
 from gpt_exporter.index import _legacy_indexer as legacy
 
 
@@ -73,6 +73,81 @@ class NormalizedIndexTests(unittest.TestCase):
                 self.assertEqual(fts["conversation_id"], "conv-1")
             finally:
                 connection.close()
+
+    def test_index_writes_normalized_origins_and_native_index_metadata(self) -> None:
+        conversation = Conversation(
+            provider_key="chatgpt",
+            conversation_id="conv-origin",
+            title="Origin",
+            origins=(
+                ConversationOrigin(
+                    origin_id="g-p-project",
+                    origin_type="project",
+                    source="message.metadata.gizmo_id",
+                ),
+                ConversationOrigin(
+                    origin_id="g-custom",
+                    origin_type="custom_gpt",
+                    source="top_level.gizmo_id",
+                ),
+            ),
+            index_metadata={
+                "gizmo_id": "g-custom",
+                "gizmo_type": "custom",
+                "conversation_template_id": "g-p-project",
+                "conversation_origin": "native-origin",
+                "default_model_slug": "gpt-test",
+            },
+        )
+
+        with tempfile.TemporaryDirectory() as temp_name:
+            root = Path(temp_name)
+            database = root / "conversations-index.sqlite"
+            source = root / "source.json"
+            source.write_text("{}", encoding="utf-8")
+            connection = legacy.connect_database(database)
+            try:
+                index_normalized_conversation(
+                    connection,
+                    conversation,
+                    source_path=source,
+                    archive_root=root,
+                )
+                row = connection.execute(
+                    """
+                    SELECT primary_origin_type, primary_origin_id, gizmo_id, gizmo_type,
+                           conversation_template_id, conversation_origin, default_model_slug
+                    FROM conversations WHERE conversation_id = ?
+                    """,
+                    ("conv-origin",),
+                ).fetchone()
+                origins = connection.execute(
+                    """
+                    SELECT co.origin_id, o.origin_type, co.source, co.is_primary
+                    FROM conversation_origins AS co
+                    JOIN origins AS o ON o.origin_id = co.origin_id
+                    WHERE co.conversation_id = ?
+                    ORDER BY co.origin_id
+                    """,
+                    ("conv-origin",),
+                ).fetchall()
+            finally:
+                connection.close()
+
+        self.assertEqual(row["primary_origin_type"], "project")
+        self.assertEqual(row["primary_origin_id"], "g-p-project")
+        self.assertEqual(row["gizmo_id"], "g-custom")
+        self.assertEqual(row["gizmo_type"], "custom")
+        self.assertEqual(row["conversation_template_id"], "g-p-project")
+        self.assertEqual(row["conversation_origin"], "native-origin")
+        self.assertEqual(row["default_model_slug"], "gpt-test")
+        self.assertEqual(
+            [(item["origin_id"], item["origin_type"], item["source"], item["is_primary"]) for item in origins],
+            [
+                ("g-custom", "custom_gpt", "top_level.gizmo_id", 0),
+                ("g-p-project", "project", "message.metadata.gizmo_id", 1),
+            ],
+        )
 
     def test_index_uses_search_projection_not_display_projection(self) -> None:
         conversation = Conversation(
