@@ -41,6 +41,20 @@ def ensure_provider_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def initialize_normalized_database(database_path: Path | str) -> Path:
+    """Create the common browser/index schema for a new empty workspace."""
+
+    database = Path(database_path).expanduser().resolve()
+    database.parent.mkdir(parents=True, exist_ok=True)
+    connection = legacy.connect_database(database)
+    try:
+        ensure_provider_schema(connection)
+        connection.commit()
+    finally:
+        connection.close()
+    return database
+
+
 def index_normalized_conversation(
     connection: sqlite3.Connection,
     conversation: Conversation,
@@ -170,7 +184,7 @@ def index_normalized_file(
     source = Path(source_path).expanduser().resolve()
     conversation = provider.normalize_conversation(source)
     database = Path(database_path).expanduser().resolve()
-    database.parent.mkdir(parents=True, exist_ok=True)
+    initialize_normalized_database(database)
     connection = legacy.connect_database(database)
     try:
         index_normalized_conversation(
@@ -189,4 +203,5 @@ __all__ = [
     "ensure_provider_schema",
     "index_normalized_conversation",
     "index_normalized_file",
+    "initialize_normalized_database",
 ]
