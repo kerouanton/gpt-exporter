@@ -1,8 +1,8 @@
 """Index provider-neutral conversations into the existing archive search schema.
 
 The current v4 browser schema remains compatible. Provider identity is stored in
-an additive table so existing ChatGPT project/tag/category metadata and browser
-queries remain valid during the incremental migration.
+an additive table so existing project/tag/category metadata and browser queries
+remain valid during the incremental migration.
 """
 
 from __future__ import annotations
@@ -18,8 +18,25 @@ with contextlib.redirect_stdout(io.StringIO()):
     from . import _legacy_indexer as legacy
 
 
+_LEGACY_INDEX_METADATA_FIELDS = (
+    "gizmo_id",
+    "gizmo_type",
+    "conversation_template_id",
+    "conversation_origin",
+    "default_model_slug",
+)
+
+
 def _iso(value) -> str | None:
     return value.astimezone().isoformat() if value is not None else None
+
+
+def _index_metadata_value(conversation: Conversation, key: str) -> str | None:
+    value = conversation.index_metadata.get(key)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def ensure_provider_schema(connection: sqlite3.Connection) -> None:
@@ -71,6 +88,13 @@ def index_normalized_conversation(
     title = legacy.normalize_text(conversation.title) or "Untitled conversation"
     docx = legacy.find_docx(archive, conversation_id)
     indexed_at = legacy.now_iso()
+    primary = conversation.primary_origin
+    primary_origin_type = primary.origin_type if primary is not None else "standard"
+    primary_origin_id = primary.origin_id if primary is not None else None
+    index_values = {
+        key: _index_metadata_value(conversation, key)
+        for key in _LEGACY_INDEX_METADATA_FIELDS
+    }
 
     ensure_provider_schema(connection)
 
@@ -87,8 +111,13 @@ def index_normalized_conversation(
                 docx_path,
                 indexed_at,
                 primary_origin_type,
-                primary_origin_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'standard', NULL)
+                primary_origin_id,
+                gizmo_id,
+                gizmo_type,
+                conversation_template_id,
+                conversation_origin,
+                default_model_slug
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(conversation_id) DO UPDATE SET
                 title = excluded.title,
                 created_at = excluded.created_at,
@@ -96,7 +125,14 @@ def index_normalized_conversation(
                 source_json_path = excluded.source_json_path,
                 source_mtime_ns = excluded.source_mtime_ns,
                 docx_path = excluded.docx_path,
-                indexed_at = excluded.indexed_at
+                indexed_at = excluded.indexed_at,
+                primary_origin_type = excluded.primary_origin_type,
+                primary_origin_id = excluded.primary_origin_id,
+                gizmo_id = excluded.gizmo_id,
+                gizmo_type = excluded.gizmo_type,
+                conversation_template_id = excluded.conversation_template_id,
+                conversation_origin = excluded.conversation_origin,
+                default_model_slug = excluded.default_model_slug
             """,
             (
                 conversation_id,
@@ -107,6 +143,13 @@ def index_normalized_conversation(
                 int(source_mtime_ns),
                 str(docx) if docx else None,
                 indexed_at,
+                primary_origin_type,
+                primary_origin_id,
+                index_values["gizmo_id"],
+                index_values["gizmo_type"],
+                index_values["conversation_template_id"],
+                index_values["conversation_origin"],
+                index_values["default_model_slug"],
             ),
         )
 
@@ -129,6 +172,19 @@ def index_normalized_conversation(
         )
 
         legacy.delete_message_index_rows(connection, conversation_id)
+        legacy.replace_detected_origins(
+            connection,
+            conversation_id,
+            [
+                {
+                    "origin_id": origin.origin_id,
+                    "origin_type": origin.origin_type,
+                    "source": origin.source,
+                }
+                for origin in conversation.origins
+            ],
+            primary_origin_id,
+        )
 
         for position, message in enumerate(conversation.indexable_messages, start=1):
             content_type = message.content[0].kind if message.content else None
