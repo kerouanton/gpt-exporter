@@ -41,6 +41,7 @@ explicitly chosen rather than emerging accidentally from the refactor.
 The exporter core owns:
 
 - the Tk application shell and archive browser;
+- workspace selection and workspace-to-provider/archive binding;
 - the provider registry and `Manage Providers` UI;
 - project, category, and tag management;
 - SQLite/FTS search and message previews;
@@ -66,8 +67,48 @@ The standard archive layout remains identical for every provider:
     *.docx
 ```
 
-A provider may select the default archive root name, but it must not redefine
-the layout below that root.
+A provider supplies its default archive directory name, but a workspace owns the
+actual archive root selected by the user. The layout below that root remains a
+core contract.
+
+## Workspace model
+
+A workspace is the application's current operating context. It references one
+provider and one archive root:
+
+```text
+Workspace
+    display_name
+    provider
+    archive_root
+```
+
+Typical default workspaces are:
+
+```text
+ChatGPT
+    provider     = chatgpt
+    archive_root = %USERPROFILE%\Documents\ChatGPT Archive
+
+Discord
+    provider     = discord
+    archive_root = %USERPROFILE%\Documents\Discord Archive
+```
+
+`Workspace` and `Provider` are deliberately different concepts. A provider
+contains source-specific capabilities; a workspace selects where one instance of
+those capabilities operates. This permits multiple workspaces to use the same
+provider later, for example a personal ChatGPT archive and a work ChatGPT
+archive.
+
+The GUI is driven by `current_workspace`. Selecting a workspace changes the
+active provider, archive root, SQLite database, search/project/tag/category
+context, collector, source-bundle name, website action, reports, and derived
+outputs together. Provider-specific labels such as `Archive -> Open ChatGPT`
+are rendered from `current_workspace.provider` rather than hard-coded strings.
+
+Provider archives are physically separate. Shared behavior lives in the code and
+UI, not in a combined data directory.
 
 ## Provider responsibilities
 
@@ -83,7 +124,7 @@ A provider owns only source-specific behavior:
 
 Providers must not implement their own archive browser, project tree, search
 engine, keyword cloud, generic DOCX renderer, generic logging UI, provider
-manager, or archive filesystem layout.
+manager, workspace selector, or archive filesystem layout.
 
 ## Normalized data flow
 
@@ -156,20 +197,23 @@ abstraction is driven by real implementations rather than speculation.
 7. Common Markdown/DOCX export path from normalized conversations: done.
 8. Common normalized SQLite/FTS writer preserving project assignments: done.
 9. Provider registry and `Manage Providers` UI: done.
-10. Provider-aware GUI workflow and compatibility pipeline bridge: done.
-11. Non-destructive shadow validation against the production index: done.
-12. Reach zero unexplained shadow differences for ChatGPT message/title semantics.
-13. Preserve/compare remaining ChatGPT native provenance and organization fields.
-14. Switch primary ChatGPT index/export stages behind compatibility guards.
-15. Move remaining ChatGPT-specific asset-reference rules behind the provider.
-16. Verify GPT Exporter behavior against characterization and real-archive tests.
-17. Integrate Discord as the second provider using the same core and GUI.
+10. Workspace abstraction and visible current-workspace selector: done.
+11. Workspace-derived provider labels, collector, bundle name, archive root, and archive runner: done.
+12. Provider-aware GUI workflow and compatibility pipeline bridge: done.
+13. Non-destructive shadow validation against the production index: done.
+14. Reach zero unexplained shadow differences for ChatGPT message/title semantics: done on real appended conversations; continue characterization coverage.
+15. Preserve/compare remaining ChatGPT native provenance and organization fields.
+16. Switch primary ChatGPT index/export stages behind compatibility guards.
+17. Move remaining ChatGPT-specific asset-reference rules behind the provider.
+18. Verify GPT Exporter behavior against characterization and real-archive tests.
+19. Integrate Discord as the second provider using the same core, workspace UI, and GUI.
 
 ## Architectural acceptance test
 
 If the ChatGPT provider is removed, the core should still know how to:
 
 - represent an archive;
+- represent/select a workspace;
 - launch its GUI;
 - list/manage installed providers;
 - browse/index normalized conversations;
@@ -182,4 +226,4 @@ data.
 
 Conversely, the ChatGPT provider must contain no duplicate GUI, search engine,
 project-management implementation, keyword-cloud implementation, provider
-manager, or generic DOCX renderer.
+manager, workspace selector, or generic DOCX renderer.
