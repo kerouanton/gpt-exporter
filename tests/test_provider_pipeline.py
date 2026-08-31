@@ -54,13 +54,14 @@ class ProviderPipelineTests(unittest.TestCase):
                 mock.patch("gpt_exporter.provider_pipeline.build_asset_manifest", return_value=SimpleNamespace()),
                 mock.patch("gpt_exporter.provider_pipeline.render_manifest_summary", return_value="manifest"),
                 mock.patch("gpt_exporter.provider_pipeline.export_batch", return_value=export_result) as export_batch,
-                mock.patch("gpt_exporter.provider_pipeline.update_archive_index", return_value=index_result),
+                mock.patch("gpt_exporter.provider_pipeline.update_normalized_index", return_value=index_result) as update_index,
             ):
                 result = archive_provider_bundle(
                     provider,
                     archive_root=root,
                     source_bundle=source,
                     delete_source=False,
+                    validate_normalized=False,
                 )
 
             provider.importer.assert_called_once()
@@ -72,8 +73,15 @@ class ProviderPipelineTests(unittest.TestCase):
                     root / "reports" / "current-batch.json",
                 )
             )
+            update_index.assert_called_once()
+            index_args, index_kwargs = update_index.call_args
+            self.assertIs(index_args[0], provider)
+            self.assertTrue(os.path.samefile(index_args[1], root))
+            self.assertTrue(os.path.samefile(index_kwargs["downloads_dir"], root / "downloads"))
+            self.assertTrue(os.path.samefile(index_kwargs["database_path"], root / "conversations-index.sqlite"))
             self.assertFalse(result.export_skipped)
             self.assertIs(result.export_result, export_result)
+            self.assertIs(result.index_result, index_result)
 
     def test_empty_current_batch_skips_export_but_updates_index(self) -> None:
         with tempfile.TemporaryDirectory() as temp_name:
@@ -101,19 +109,22 @@ class ProviderPipelineTests(unittest.TestCase):
                 mock.patch("gpt_exporter.provider_pipeline.build_asset_manifest", return_value=SimpleNamespace()),
                 mock.patch("gpt_exporter.provider_pipeline.render_manifest_summary", return_value="manifest"),
                 mock.patch("gpt_exporter.provider_pipeline.export_batch") as export_batch,
-                mock.patch("gpt_exporter.provider_pipeline.update_archive_index", return_value=index_result) as update_index,
+                mock.patch("gpt_exporter.provider_pipeline.update_normalized_index", return_value=index_result) as update_index,
             ):
                 result = archive_provider_bundle(
                     provider,
                     archive_root=root,
                     source_bundle=source,
                     delete_source=False,
+                    validate_normalized=False,
                 )
 
             export_batch.assert_not_called()
             update_index.assert_called_once()
+            self.assertIs(update_index.call_args.args[0], provider)
             self.assertTrue(result.export_skipped)
             self.assertIsNone(result.export_result)
+            self.assertIs(result.index_result, index_result)
 
     def test_non_chatgpt_provider_is_rejected_before_archive_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_name:
