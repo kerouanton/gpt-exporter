@@ -25,6 +25,20 @@ class AcquisitionCoreTests(unittest.TestCase):
         normalized = [os.path.normcase(os.path.abspath(str(path))) for path in directories]
         self.assertEqual(len(normalized), len(set(normalized)))
 
+    def test_source_bundle_signature_detects_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            path = Path(temp_name) / CHATGPT_PROVIDER.source_bundle_name
+            path.write_text("first", encoding="utf-8")
+            first = acquisition.source_bundle_signature(path)
+            time.sleep(0.01)
+            path.write_text("second bundle", encoding="utf-8")
+            second = acquisition.source_bundle_signature(path)
+
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertNotEqual(first, second)
+        self.assertIsNone(acquisition.source_bundle_signature(None))
+
     def test_find_source_bundle_uses_provider_bundle_name(self) -> None:
         with tempfile.TemporaryDirectory() as first_name, tempfile.TemporaryDirectory() as second_name:
             first = Path(first_name)
