@@ -74,6 +74,77 @@ class NormalizedIndexTests(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_index_uses_search_projection_not_display_projection(self) -> None:
+        conversation = Conversation(
+            provider_key="synthetic",
+            conversation_id="conv-projection",
+            title="Projection",
+            messages=(
+                Message(
+                    message_id="visible-only",
+                    author_role="assistant",
+                    text="Rendered attachment details",
+                    is_visible=True,
+                    is_indexable=False,
+                    display_order=1,
+                ),
+                Message(
+                    message_id="both",
+                    author_role="user",
+                    text="Rendered user text",
+                    search_text="Indexed user text",
+                    is_visible=True,
+                    is_indexable=True,
+                    display_order=2,
+                    search_order=2,
+                    content=(ContentBlock(kind="text", text="Rendered user text"),),
+                ),
+                Message(
+                    message_id="search-only",
+                    author_role="assistant",
+                    text="Search fallback",
+                    search_text="Alternative branch text",
+                    is_visible=False,
+                    is_indexable=True,
+                    search_order=1,
+                    content=(ContentBlock(kind="text", text="Alternative branch text"),),
+                ),
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_name:
+            root = Path(temp_name)
+            database = root / "conversations-index.sqlite"
+            source = root / "source.json"
+            source.write_text("{}", encoding="utf-8")
+            connection = legacy.connect_database(database)
+            try:
+                index_normalized_conversation(
+                    connection,
+                    conversation,
+                    source_path=source,
+                    archive_root=root,
+                )
+                rows = connection.execute(
+                    """
+                    SELECT message_id, message_order, body
+                    FROM messages
+                    WHERE conversation_id = ?
+                    ORDER BY message_order
+                    """,
+                    ("conv-projection",),
+                ).fetchall()
+            finally:
+                connection.close()
+
+        self.assertEqual(
+            [(row["message_id"], row["message_order"], row["body"]) for row in rows],
+            [
+                ("search-only", 1, "Alternative branch text"),
+                ("both", 2, "Indexed user text"),
+            ],
+        )
+
     def test_reindex_preserves_project_assignments(self) -> None:
         conversation = Conversation(
             provider_key="synthetic",
