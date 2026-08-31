@@ -69,6 +69,20 @@ class MessageReference:
 
 
 @dataclass(frozen=True, slots=True)
+class ConversationOrigin:
+    """One provider-detected native origin for a conversation.
+
+    Examples include a project, bot/application, template, channel, workspace,
+    or another source-specific container. ``source`` records where the provider
+    observed the identifier without requiring CORE to parse native metadata.
+    """
+
+    origin_id: str
+    origin_type: str
+    source: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class Message:
     """One normalized message with separate display and search projections."""
 
@@ -102,6 +116,8 @@ class Conversation:
     updated_at: datetime | None = None
     participants: tuple[Participant, ...] = ()
     messages: tuple[Message, ...] = ()
+    origins: tuple[ConversationOrigin, ...] = ()
+    index_metadata: Metadata = field(default_factory=dict)
     metadata: Metadata = field(default_factory=dict)
 
     @property
@@ -145,11 +161,16 @@ class Conversation:
     def indexable_message_count(self) -> int:
         return len(self.indexable_messages)
 
+    @property
+    def primary_origin(self) -> ConversationOrigin | None:
+        return self.origins[0] if self.origins else None
+
 
 __all__ = [
     "Attachment",
     "ContentBlock",
     "Conversation",
+    "ConversationOrigin",
     "Message",
     "MessageReference",
     "Metadata",
