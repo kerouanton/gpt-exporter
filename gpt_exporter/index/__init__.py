@@ -10,6 +10,7 @@ from .normalized import (
     ensure_provider_schema,
     index_normalized_conversation,
     index_normalized_file,
+    initialize_normalized_database,
 )
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "ensure_provider_schema",
     "index_normalized_conversation",
     "index_normalized_file",
+    "initialize_normalized_database",
     "rebuild_index",
     "update_index",
 ]
