@@ -7,7 +7,10 @@ from tkinter import ttk
 from typing import Callable
 import webbrowser
 
-from gpt_exporter.version import APP_NAME, REPOSITORY_URL, display_version
+from gpt_exporter.version import APP_NAME, LICENSE_ID, REPOSITORY_URL, display_version
+
+
+APP_DESCRIPTION = "Local ChatGPT archive, export, index and browser."
 
 
 def _show_fallback_about(parent: tk.Misc) -> tk.Toplevel:
@@ -23,8 +26,10 @@ def _show_fallback_about(parent: tk.Misc) -> tk.Toplevel:
 
     ttk.Label(frame, text=APP_NAME, font="TkHeadingFont").pack(anchor="w")
     version_label = ttk.Label(frame, text=f"Version {display_version()}", cursor="hand2")
-    version_label.pack(anchor="w", pady=(4, 14))
+    version_label.pack(anchor="w", pady=(4, 12))
     version_label.bind("<Button-1>", lambda _event: webbrowser.open(REPOSITORY_URL))
+    ttk.Label(frame, text=APP_DESCRIPTION, justify="left", wraplength=520).pack(anchor="w")
+    ttk.Label(frame, text=f"License: {LICENSE_ID}").pack(anchor="w", pady=(8, 14))
     ttk.Button(frame, text="Close", command=window.destroy).pack()
 
     window.bind("<Escape>", lambda _event: window.destroy())
@@ -59,6 +64,8 @@ def show_about_dialog(
         identity=AppIdentity(name=APP_NAME),
         app_version=display_version(),
         repository_url=REPOSITORY_URL,
+        description=APP_DESCRIPTION,
+        license_text=LICENSE_ID,
     )
 
 
