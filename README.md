@@ -1,28 +1,44 @@
 # GPT Exporter
 
-GPT Exporter is a Windows-oriented tool for preserving, exporting, indexing, searching, and browsing a local ChatGPT conversation archive.
-
-Starting with **v2.8**, the graphical application is the normal entry point. The command-line scripts remain available as implementation layers, diagnostics, and advanced tools.
+GPT Exporter is a Windows-oriented local archiver, exporter, indexer and browser
+for conversation archives. The current architecture separates a common exporter
+CORE from source-specific providers. ChatGPT is the validated reference provider.
 
 > [!IMPORTANT]
-> GPT Exporter processes private conversation data and temporary browser-session material. Never publish your generated archive, browser bundle, SQLite index, cookies, tokens, account identifiers, or private attachments. See `SECURITY.md`.
+> GPT Exporter processes private conversation data and temporary browser-session
+> material. Never publish generated archives, source bundles, SQLite indexes,
+> cookies, tokens, account identifiers or private attachments. See `SECURITY.md`.
 
-## What v2.8 does
+## Current architecture
 
-GPT Exporter combines four pieces into one workflow:
+The application operates on a selected **Workspace**. A workspace binds one
+provider to one archive root/database. The GUI uses `WorkspaceWorkflow` as its
+single runtime context, so switching workspace changes provider, archive root,
+SQLite database, collector/source-bundle lookup, archive execution and index
+update together.
 
-- **Browser collector** — runs inside your already authenticated ChatGPT browser session and downloads a temporary `chatgpt-archive-source.json` bundle.
-- **Archiver / exporter** — preserves cumulative canonical JSON/XZ plus assets and generates readable DOCX exports.
-- **Indexer** — maintains a rebuildable SQLite FTS5 search index with provenance and organizational metadata.
-- **GPT Exporter GUI** — searches, filters, organizes, opens, and updates the archive without requiring a normal PowerShell workflow.
+Source-specific code belongs to the provider. Shared behavior belongs to CORE:
 
-The v2.8 GUI can copy the browser collector to the clipboard, detect the browser download automatically, run the archive pipeline in the background, update the search index, refresh the Browser, persist workflow logs, and display progress only while it is useful.
+- GUI and workspace/provider management;
+- archive filesystem layout;
+- normalized conversation model;
+- Markdown/DOCX output;
+- SQLite/FTS search index;
+- Projects, Tags and Categories;
+- filters, previews and keyword cloud;
+- task progress/logging and common diagnostics.
+
+The ChatGPT production path has passed both the current-batch and complete real-
+archive compatibility gates with zero differences against the historical
+exporter. The full 2026-08-31 gate checked 146 conversations and matched all 146
+with zero mismatches and zero failures. See
+`docs/EXPORTER_CORE_CHATGPT_VALIDATION.md`.
 
 ## Requirements
 
 - Windows 10 or later is the primary tested platform.
-- Python 3.12 or newer.
-- A modern browser with Developer Tools; Firefox is the documented collector workflow.
+- Python 3.12 or newer for source execution.
+- A modern browser with Developer Tools for browser-side collection.
 - Dependencies from `requirements.txt` / `pyproject.toml`.
 
 Install dependencies:
@@ -37,135 +53,157 @@ Optional environment check:
 py check_environment.py
 ```
 
-## Quick start — GUI workflow
+## Quick start
 
-Launch GPT Exporter:
+Launch the GUI:
 
 ```text
 py gpt_exporter_gui.py
 ```
 
-The default archive is:
+The default ChatGPT workspace uses:
 
 ```text
 %USERPROFILE%\Documents\ChatGPT Archive\
 ```
 
-### Archive new or updated conversations
+Additional workspaces can be created through:
+
+```text
+Workspaces -> Manage Workspaces...
+```
+
+Multiple workspaces may use the same provider while keeping independent archive
+roots and SQLite databases.
+
+## Archive new or updated ChatGPT conversations
 
 Use:
 
 ```text
-Archive → Archive New Conversations…
+Archive -> Archive New Conversations...
 ```
 
-The guided workflow is intentionally simple:
+The guided workflow:
 
-1. Open ChatGPT in your normal browser and make sure you are signed in.
-2. Open Developer Tools (`F12`) and select the Console.
-3. The collector JavaScript is already placed on the clipboard when the workflow opens; paste and run it.
-4. Wait for the browser to download `chatgpt-archive-source.json`.
-5. GPT Exporter detects the new bundle automatically and starts the archive workflow.
-6. The archive pipeline imports the bundle, preserves assets, regenerates changed exports, updates the SQLite index, and refreshes the GUI.
-7. When both the archive and Browser refresh succeed, the progress/log window closes automatically after a short delay.
+1. opens/copies the provider collector workflow;
+2. waits for `chatgpt-archive-source.json` in the normal Downloads locations;
+3. imports the provider-native bundle into the cumulative archive;
+4. preserves canonical conversation JSON/XZ and assets;
+5. generates changed Markdown/DOCX through CORE;
+6. updates the CORE SQLite/FTS index;
+7. refreshes the Browser after success.
 
-The collector uses the browser's existing authenticated session. GPT Exporter does not ask Python to store ChatGPT credentials.
-
-Useful Archive-menu maintenance commands remain available:
-
-- **Copy Collector JavaScript** — copy `collect_chatgpt_archive.js` to the clipboard again.
-- **Show Collector JavaScript in Explorer** — reveal the collector file for inspection or drag-and-drop workflows.
-- **Process Downloaded Bundle…** — manually process an already downloaded bundle.
-- **Update Search Index** — run incremental indexing manually.
-- **Open Archive Folder** — open the active archive directory.
-- **Show Last Archive Log** — open the latest persistent archive-workflow log.
-
-## Persistent workflow logs
-
-Every archive run is logged under the active archive's `reports` directory:
+The normal five visible pipeline stages remain:
 
 ```text
-reports\archive-workflow-YYYY-MM-DD_HH-MM-SS.log
-reports\archive-workflow-latest.log
-```
-
-The timestamped file preserves the streamed archive output for that run. `archive-workflow-latest.log` is refreshed after every completed run, including failures.
-
-A successful run closes the progress window automatically only after the Browser has also refreshed successfully. Archive failures or Browser-refresh failures keep the window open so the diagnostic output remains visible.
-
-## Search and organization
-
-The main window provides:
-
-- SQLite FTS5 full-text search;
-- origin, project, tag, and category filters;
-- sortable conversation lists;
-- hierarchical work projects;
-- drag-and-drop conversation assignment to projects;
-- drag-and-drop project-branch movement;
-- conversation details and matching-message previews;
-- direct DOCX opening and reveal-in-file-manager actions;
-- a lightweight keyword cloud.
-
-Browser-managed projects, categories, and tags live in the SQLite index. Incremental re-indexing preserves this organizational metadata.
-
-## What happens during an archive run
-
-The GUI delegates to the existing tested command-line engines instead of duplicating archive logic. The canonical workflow is:
-
-```text
-1/5 - Import browser archive bundle
+1/5 - Import ChatGPT archive bundle
 2/5 - Inventory media references
 3/5 - Build asset manifest
 4/5 - Export new or larger conversations
 5/5 - Update archive search index
 ```
 
-A successful run is cumulative and non-destructive. The temporary browser bundle is consumed only after the archive workflow succeeds.
+Stages 4 and 5 are authoritative normalized CORE stages.
+
+## Archive menu
+
+Useful maintenance actions include:
+
+- **Open ChatGPT** — open the current provider website;
+- **Copy Collector JavaScript** — copy the packaged collector;
+- **Show Collector JavaScript in Explorer** — reveal the collector file;
+- **Process Downloaded Bundle...** — manually process a downloaded provider bundle;
+- **Update Search Index** — run the current workspace's CORE incremental indexer;
+- **Open Archive Folder** — open the current workspace archive root;
+- **Show Last Archive Log** — open the latest persistent archive log.
+
+Provider-facing labels and actions are derived from the selected workspace rather
+than hard-coded into a second provider-specific GUI.
+
+## Search and organization
+
+The common Browser provides:
+
+- SQLite FTS5 full-text search;
+- origin, project, tag and category filters;
+- sortable conversation lists;
+- hierarchical projects;
+- drag-and-drop conversation/project organization;
+- matching-message previews;
+- DOCX opening and reveal-in-file-manager actions;
+- keyword cloud.
+
+Projects, Categories and Tags live in the SQLite index and survive incremental
+reindexing.
 
 ## Archive model and preservation invariants
 
-The project deliberately follows conservative preservation rules:
+The preservation model remains conservative:
 
-1. Canonical durable data is `downloads\*.json.xz + assets\*`.
-2. DOCX, Markdown, SQLite indexes, manifests, reports, and workflow logs are derived/rebuildable.
+1. `downloads/*.json.xz + assets/*` are canonical durable data.
+2. DOCX, Markdown, SQLite indexes, manifests, reports and logs are derived/rebuildable.
 3. Normal archiving is cumulative and non-destructive.
-4. Existing conversations and assets are never pruned merely because a later browser bundle omits them.
-5. Asset collection is deliberately broad; over-collection is safer than silently losing recoverable files.
-6. ChatGPT `file_id` values embedded in archived filenames are stable local join keys.
-7. Unsupported raster formats may be normalized in memory for DOCX embedding, but original archived assets are not rewritten for compatibility.
-8. Ambiguous historical `sandbox:/mnt/data/...` links are never resolved by guessing.
-9. Missing visible attachments are represented explicitly rather than silently substituted.
-10. Changes affecting canonical data, deletion policy, collection breadth, visible-role semantics, or local-link semantics require explicit documentation and migration/rollback consideration.
+4. A conversation or asset omitted from a later bundle is not implicitly deleted.
+5. Asset collection remains deliberately broad.
+6. Stable provider file IDs are used for local asset joins where available.
+7. Source assets are not rewritten merely for DOCX compatibility.
+8. Ambiguous historical local links are never resolved by guessing.
+9. Missing visible attachments are represented explicitly.
+10. Canonical-data/deletion/visibility/link-semantics changes require explicit documentation and migration consideration.
 
-`FROZEN_VERSION.md` records the historical v2.7 preservation baseline. v2.8 keeps those archive invariants while moving normal operation into the GUI.
+`FROZEN_VERSION.md` records the historical v2.7 preservation baseline. The
+exporter-core refactor preserves those authority rules.
 
-## Advanced / command-line use
+## Performance and diagnostics
 
-The GUI is the recommended entry point, but the underlying tools remain usable directly.
+The normal archive path is incremental. The CORE index checks the stored source
+path and mtime before provider normalization, so unchanged conversation files are
+skipped immediately.
 
-Run the cumulative archive workflow:
+Expensive whole-archive diagnostics are intentionally **opt-in** rather than run
+on every daily update. This includes the cumulative asset-reference audit and the
+full CORE/legacy compatibility oracle.
+
+Run the current-batch compatibility validator explicitly with:
+
+```text
+py -m gpt_exporter.validation_cli
+```
+
+Run the complete archive validator with:
+
+```text
+py -m gpt_exporter.validation_cli --all
+```
+
+After a failed full run, retest only the previous mismatches with:
+
+```text
+py -m gpt_exporter.validation_cli --mismatched
+```
+
+## Advanced / compatibility CLI
+
+The GUI is the recommended entry point, but historical command-line entry points
+remain intentionally supported for diagnostics and advanced use.
+
+Run the cumulative ChatGPT archive workflow:
 
 ```text
 py archive_chats.py
 ```
 
-Rebuild derived DOCX files from the existing local JSON/XZ archive:
+Rebuild derived exports from the existing archive:
 
 ```text
 py archive_chats.py --convert-only
 ```
 
-Build or update the SQLite search index:
+Build/update the historical CLI index surface:
 
 ```text
 py index_chatgpt_archive.py index
-```
-
-Run the older Browser-only entry point:
-
-```text
-py archive_browser.py
 ```
 
 Generate persistent Markdown explicitly:
@@ -174,74 +212,86 @@ Generate persistent Markdown explicitly:
 py export_all.py --markdown-only --overwrite-all
 ```
 
-Destructive archive reset, intended only for deliberate recovery/testing:
+Deliberate destructive reset/recovery:
 
 ```text
 py archive_chats.py --fresh
 ```
 
-`--fresh` deletes the generated local archive tree before importing the current bundle. It is **not** intended for routine use.
+`--fresh` is not intended for routine use.
 
-## Main files
+## Main implementation areas
 
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `gpt_exporter_gui.py` | Main v2.8 graphical application |
-| `archive_gui_workflow.py` | Guided collection/archive workflow, persistent logs, and background process UI |
-| `collect_chatgpt_archive.js` | Browser-side collector for conversations and browser-accessible assets |
-| `archive_chats.py` | Canonical cumulative archive orchestration workflow |
-| `import_browser_bundle.py` | Imports the temporary browser bundle into the persistent archive |
-| `inventory_media.py` | Inventories media references |
-| `build_asset_manifest.py` | Builds cumulative asset-reference diagnostics |
-| `build_browser_asset_cache_seed.py` | Seeds the optional browser asset cache from an existing local report |
-| `export_all.py` | Coordinates Markdown/DOCX export and cumulative asset audit |
-| `export_markdown.py` | Converts archived conversation JSON/XZ to Markdown |
-| `export_docx.py` | Converts Markdown to DOCX and preserves local asset links |
-| `audit_asset_references.py` | Audits physical asset/reference consistency without deleting data |
-| `index_chatgpt_archive.py` | SQLite FTS5 indexer and organization CLI |
-| `archive_core.py` | Shared data/query core for the Archive Browser |
-| `archive_browser.py` | Browser/organizer base used by the v2.8 GUI |
-| `check_environment.py` | Checks runtime dependencies and active pipeline files |
+| `gpt_exporter_gui.py` | Main workspace-driven graphical application |
+| `gpt_exporter/workspaces.py` | Workspace model, registry and persistence |
+| `gpt_exporter/workflow.py` | Provider/workspace non-GUI workflow context |
+| `gpt_exporter/providers/` | Source-provider contracts and implementations |
+| `gpt_exporter/model.py` | Provider-neutral normalized conversation model |
+| `gpt_exporter/export/` | CORE Markdown/DOCX/batch export implementations and compatibility oracles |
+| `gpt_exporter/index/` | CORE SQLite/FTS writer plus compatibility implementation |
+| `gpt_exporter/provider_pipeline.py` | Provider-aware archive orchestration bridge |
+| `gpt_exporter/ui/` | Common workspace/provider/archive UI |
+| `gpt_exporter/validation.py` | CORE/shadow/legacy compatibility validator |
+| `collect_chatgpt_archive.js` | ChatGPT browser-side collector source |
+| `archive_chats.py` and other root scripts | Historical compatibility/diagnostic CLI entry points |
 
-## Privacy
-
-Generated archive data is intentionally excluded by `.gitignore`. In particular, do not commit:
-
-- `chatgpt-archive-source.json`;
-- conversation JSON/XZ files;
-- downloaded assets or attachments;
-- generated DOCX/Markdown containing private conversations;
-- `conversations-index.sqlite` or its WAL/SHM files;
-- browser cookies, access tokens, account IDs, or authorization headers.
-
-See `SECURITY.md` for reporting guidance.
+The obsolete root `archive_gui_workflow.py` implementation was removed after its
+responsibilities moved to the package UI and `WorkspaceWorkflow`.
 
 ## Development
 
-Run the test suite with:
+Run the test suite:
 
 ```text
 py -m unittest discover -s tests -v
 ```
 
-Compile-check the Python sources:
+Compile-check Python sources:
 
 ```text
 py -m compileall -q .
 ```
 
-GitHub Actions validates Python 3.12 and 3.13 on Windows. `main` is protected and release changes are merged through pull requests with required status checks.
+GitHub Actions validates Python 3.12 and 3.13 on Windows and builds the Windows
+`onedir` distribution.
 
-See `CONTRIBUTING.md` before changing archive semantics.
+## Formal ChatGPT CORE milestone
 
-## Documentation and release history
+The complete real-archive compatibility run on 2026-08-31 reported:
 
-- `docs/V2_8_GUI_WORKFLOW.md` — v2.8 GUI design and workflow architecture.
-- `docs/RELEASE_NOTES_V2.8.md` — v2.8 release summary and validation notes.
-- `CHANGELOG.md` — detailed historical release lineage.
-- `FROZEN_VERSION.md` — historical v2.7 validation and preservation baseline.
-- `SOURCE_SHA256SUMS.txt` — original frozen v2.7 package hashes; retained as historical evidence and not intended to match later Git checkouts.
+```text
+Sources     : 146
+Checked     : 146
+Matched     : 146
+Mismatched  : 0
+Failed      : 0
+```
+
+That run validated the production/shadow/legacy index path, message content and
+provenance/origins, exact Markdown compatibility and semantic DOCX compatibility
+across the complete preserved archive.
+
+The milestone tag is `exporter-core-chatgpt-validated-2026-08-31`. The exact tag-
+target commit must have green Tests and Windows onedir build CI.
+
+The formal milestone record, retained compatibility seams and tag criteria are in
+`docs/EXPORTER_CORE_CHATGPT_VALIDATION.md`.
+
+The milestone does **not** claim Discord integration. A second provider must
+reuse this same CORE rather than recreate the application.
+
+## Documentation
+
+- `docs/EXPORTER_CORE_ARCHITECTURE.md` — detailed provider/workspace architecture.
+- `docs/EXPORTER_CORE_CHATGPT_VALIDATION.md` — formal ChatGPT CORE validation/freeze record.
+- `docs/ARCHITECTURE.md` — concise current architecture/data-authority overview.
+- `docs/RELEASE_NOTES_V2.9.md` — historical public v2.9.0 packaging notes.
+- `CHANGELOG.md` — historical release lineage.
+- `FROZEN_VERSION.md` — historical v2.7 preservation baseline.
 
 ## License
 
-GPT Exporter is free software licensed under **GNU GPL v3 or later (`GPL-3.0-or-later`)**. See `LICENSE`.
+GPT Exporter is free software licensed under **GNU GPL v3 or later
+(`GPL-3.0-or-later`)**. See `LICENSE`.

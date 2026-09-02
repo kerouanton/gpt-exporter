@@ -1,7 +1,8 @@
-"""Path model for a GPT Exporter archive.
+"""Path model for an exporter archive.
 
-This module centralizes archive path construction without changing the v2.8
-Windows defaults.  It deliberately performs no filesystem I/O at import time.
+This module centralizes archive path construction. The filesystem layout is a
+core invariant shared by every provider; only the default archive directory
+name is source-specific.
 """
 
 from __future__ import annotations
@@ -10,6 +11,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+
+
+DEFAULT_ARCHIVE_DIRECTORY_NAME = "ChatGPT Archive"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +46,7 @@ def default_user_profile(
     *,
     home: Path | None = None,
 ) -> Path:
-    """Return the v2.8 user-profile path with the same fallback semantics."""
+    """Return the user-profile path with the existing Windows fallback semantics."""
     environment = os.environ if environ is None else environ
     configured = environment.get("USERPROFILE")
     if configured:
@@ -54,7 +58,24 @@ def default_archive_paths(
     environ: Mapping[str, str] | None = None,
     *,
     home: Path | None = None,
+    archive_directory_name: str = DEFAULT_ARCHIVE_DIRECTORY_NAME,
 ) -> ArchivePaths:
-    """Return canonical paths for the unchanged v2.8 default archive root."""
+    """Return canonical paths for a provider's default archive root.
+
+    ``archive_directory_name`` is the only provider-specific part of the
+    default path. The layout below that root is deliberately identical for all
+    current and future exporters.
+    """
+    directory_name = str(archive_directory_name).strip()
+    if not directory_name:
+        raise ValueError("Archive directory name cannot be empty.")
     profile = default_user_profile(environ, home=home)
-    return ArchivePaths.from_root(profile / "Documents" / "ChatGPT Archive")
+    return ArchivePaths.from_root(profile / "Documents" / directory_name)
+
+
+__all__ = [
+    "ArchivePaths",
+    "DEFAULT_ARCHIVE_DIRECTORY_NAME",
+    "default_archive_paths",
+    "default_user_profile",
+]
