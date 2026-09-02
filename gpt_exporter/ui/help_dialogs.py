@@ -7,16 +7,11 @@ from tkinter import ttk
 from typing import Callable
 import webbrowser
 
-from gpt_exporter.version import APP_NAME, LICENSE_ID, REPOSITORY_URL, display_version
+from gpt_exporter.version import APP_NAME, REPOSITORY_URL, display_version
 
 
-def show_about_dialog(
-    parent: tk.Misc,
-    *,
-    on_user_guide: Callable[[], object] | None = None,
-    on_history: Callable[[], object] | None = None,
-) -> tk.Toplevel:
-    """Open a compact About window using central application metadata."""
+def _show_fallback_about(parent: tk.Misc) -> tk.Toplevel:
+    """Keep standalone/public builds usable when 9c_app_toolkit is unavailable."""
 
     window = tk.Toplevel(parent)
     window.title(f"About {APP_NAME}")
@@ -27,36 +22,44 @@ def show_about_dialog(
     frame.pack(fill="both", expand=True)
 
     ttk.Label(frame, text=APP_NAME, font="TkHeadingFont").pack(anchor="w")
-    ttk.Label(frame, text=f"Version {display_version()}").pack(anchor="w", pady=(4, 12))
-    ttk.Label(
-        frame,
-        text="Local ChatGPT archive, export, index and browser.",
-        justify="left",
-    ).pack(anchor="w")
-    ttk.Label(frame, text=f"License: {LICENSE_ID}").pack(anchor="w", pady=(8, 14))
-
-    buttons = ttk.Frame(frame)
-    buttons.pack(fill="x")
-    if on_user_guide is not None:
-        ttk.Button(buttons, text="User Guide", command=on_user_guide).pack(side="left")
-    if on_history is not None:
-        ttk.Button(buttons, text="Release History", command=on_history).pack(side="left", padx=(6, 0))
-    ttk.Button(
-        buttons,
-        text="GitHub",
-        command=lambda: webbrowser.open(REPOSITORY_URL),
-    ).pack(side="left", padx=(6, 0))
-    ttk.Button(buttons, text="Close", command=window.destroy).pack(side="right")
+    version_label = ttk.Label(frame, text=f"Version {display_version()}", cursor="hand2")
+    version_label.pack(anchor="w", pady=(4, 14))
+    version_label.bind("<Button-1>", lambda _event: webbrowser.open(REPOSITORY_URL))
+    ttk.Button(frame, text="Close", command=window.destroy).pack()
 
     window.bind("<Escape>", lambda _event: window.destroy())
-    window.update_idletasks()
-    try:
-        x = parent.winfo_rootx() + max(0, (parent.winfo_width() - window.winfo_reqwidth()) // 2)
-        y = parent.winfo_rooty() + max(0, (parent.winfo_height() - window.winfo_reqheight()) // 2)
-        window.geometry(f"+{x}+{y}")
-    except tk.TclError:
-        pass
     return window
+
+
+def show_about_dialog(
+    parent: tk.Misc,
+    *,
+    on_user_guide: Callable[[], object] | None = None,
+    on_history: Callable[[], object] | None = None,
+) -> tk.Toplevel:
+    """Open the shared 9c About dialog using GPT Exporter metadata.
+
+    ``on_user_guide`` and ``on_history`` are retained for API compatibility.
+    Those actions already remain available directly from the Help menu.
+
+    GPT Exporter is public while 9c_app_toolkit is currently private, so the
+    toolkit import intentionally happens only when About is opened. Standalone
+    environments without the private toolkit retain a small functional fallback.
+    """
+
+    del on_user_guide, on_history
+
+    try:
+        from ninec_app_toolkit import AppIdentity, show_about_dialog as show_shared_about_dialog
+    except ModuleNotFoundError:
+        return _show_fallback_about(parent)
+
+    return show_shared_about_dialog(
+        parent,
+        identity=AppIdentity(name=APP_NAME),
+        app_version=display_version(),
+        repository_url=REPOSITORY_URL,
+    )
 
 
 __all__ = ["show_about_dialog"]
