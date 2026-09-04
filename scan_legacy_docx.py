@@ -4,8 +4,6 @@ print(f"The filename of this script is: {file_name}")
 
 """Audit historical ChatGPT DOCX files without importing them."""
 
-from __future__ import annotations
-
 import argparse
 import json
 import logging
