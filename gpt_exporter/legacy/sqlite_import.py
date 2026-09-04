@@ -15,6 +15,7 @@ from gpt_exporter.index._legacy_indexer import (
 
 
 LEGACY_SQLITE_IMPORT_VERSION = "legacy-sqlite-import-v1"
+LEGACY_ORIGIN_DISPLAY = "Legacy DOCX"
 
 
 def _sha256(path: Path) -> str:
@@ -163,7 +164,7 @@ def import_legacy_conversation(
                 primary_origin_type, primary_origin_id,
                 gizmo_id, gizmo_type, conversation_template_id,
                 conversation_origin, default_model_slug
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'standard', NULL, NULL, NULL, NULL, NULL, NULL)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL)
             ON CONFLICT(conversation_id) DO UPDATE SET
                 title = excluded.title,
                 created_at = excluded.created_at,
@@ -171,7 +172,8 @@ def import_legacy_conversation(
                 source_json_path = excluded.source_json_path,
                 source_mtime_ns = excluded.source_mtime_ns,
                 docx_path = excluded.docx_path,
-                indexed_at = excluded.indexed_at
+                indexed_at = excluded.indexed_at,
+                primary_origin_type = excluded.primary_origin_type
             """,
             (
                 conversation_id,
@@ -182,6 +184,7 @@ def import_legacy_conversation(
                 source_mtime_ns,
                 str(source),
                 indexed_at,
+                LEGACY_ORIGIN_DISPLAY,
             ),
         )
 
