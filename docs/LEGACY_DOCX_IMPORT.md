@@ -2,6 +2,8 @@
 
 Historical ChatGPT conversations may exist only as `.docx` files created by copying the full ChatGPT web page into Microsoft Word. These files are valuable archive sources, but they are not equivalent to native ChatGPT JSON exports and must not be silently treated as such.
 
+For native conversations, the durable source remains the exported JSON/XZ and DOCX is a derived presentation format. For legacy conversations, the historical DOCX is the immutable source of evidence and all JSON/SQLite representations are derived from it.
+
 ## Preferred filename convention
 
 Use:
@@ -18,80 +20,202 @@ HAM GPT 2026-04-03 BOM transverter 3.2-20 GHz.docx
 IT GPT 2026-03-27 Problème envoi email Gandi.docx
 ```
 
-The date is intentionally day-granular. Word core properties may retain a more precise creation timestamp; that timestamp is preserved separately and is not required in the filename.
+The filename supplies category/date/title hints. The source DOCX SHA-256 is the durable identity used by the legacy importer.
 
-Historical filename forms containing `HHMMSS` or a space-separated date are recognized by the audit scanner, but are reported as non-normalized.
+## Provenance and safety invariants
 
-## Phase 1: read-only audit
+Legacy import is deliberately non-destructive:
 
-The first implementation is deliberately non-destructive. It does **not**:
+- source DOCX files are never modified;
+- SHA-256 is verified before SQLite import;
+- role inference is stored separately from raw Word evidence;
+- ambiguous regions remain `unknown` instead of being silently forced to User/Assistant;
+- SQLite conversation IDs are stable and derived from source SHA-256;
+- legacy conversations are visibly marked as `Legacy DOCX` in the browser;
+- filename category hints (`HAM`, `PKI`, `IT`, `EMBEDDED`, etc.) are assigned as normal archive categories;
+- import is idempotent and supports forced reindex without creating duplicates;
+- the GUI/CLI validation pass does not modify SQLite;
+- an SQLite backup is created before applied GUI/CLI imports.
 
-- modify source DOCX files;
-- copy them into the canonical archive;
-- synthesize canonical JSON/XZ;
-- modify `conversations-index.sqlite`;
-- assign User/Assistant roles from weak layout heuristics.
+## Current validated corpus
 
-It records source provenance, filename hints, Word timestamps, structural counts, preserved ChatGPT sentinels, visible-text hints, and possible structural boundaries.
+The first real corpus contains 42 normalized DOCX files. The validated reconstruction currently yields:
 
-Run a directory audit with:
+```text
+User turns:      304
+Assistant turns: 311
+Unknown turns:    39
+Total turns:     654
+```
+
+All 42 source hashes validate, all 654 turns are present in `messages`, and all 654 are present in FTS5. A live browser search has been verified against legacy-only text.
+
+## Pipeline
+
+### 1. Audit source DOCX
 
 ```text
 py scan_legacy_docx.py "F:\GPT" --json legacy-docx-report.json --debug
 ```
 
-The JSON report schema identifier is:
+This inventories filename metadata, Word timestamps and structural evidence without changing the sources.
+
+### 2. Build loss-minimizing Word IR
 
 ```text
-gpt-exporter-legacy-docx-audit-v1
+py build_legacy_docx_ir.py "F:\GPT" --output legacy-docx-ir-v2.json
 ```
 
-## Corpus findings
+The v2 IR preserves ordered blocks plus Word evidence such as blank-block counts, alignment, indentation, shading, borders, numbering, run counts, bold/italic runs and hyperlinks.
 
-The first real corpus contained 42 normalized DOCX files. It confirmed that Word structure is rich enough to preserve useful evidence, but also showed that some captures begin in the middle of an Assistant response and that blank-gap counts do not reliably equal conversation-turn counts.
-
-See `LEGACY_DOCX_CORPUS_FINDINGS.md` for the corpus-level observations.
-
-## Phase 2: versioned intermediate representation
-
-Phase 2 introduces a loss-minimizing intermediate representation without touching the canonical archive or SQLite index.
-
-Each source becomes a `gpt-exporter-legacy-conversation-v1` object containing:
-
-- immutable source path and SHA-256 provenance;
-- filename category/date/title hints;
-- Word creation/modification timestamps;
-- parser version;
-- `starts_mid_conversation = true/false/unknown` plus confidence;
-- ordered Word blocks;
-- block kinds such as `paragraph`, `heading`, `table`, and `hyperlink_sentinel`;
-- role fields initialized to `unknown` unless stronger evidence is introduced later.
-
-Build the aggregate intermediate representation with:
+### 3. Profile formatting signatures
 
 ```text
-py build_legacy_docx_ir.py "F:\GPT" --output legacy-docx-ir.json
+py profile_legacy_docx_ir.py legacy-docx-ir-v2.json --output legacy-docx-profile.json
 ```
 
-This command is also non-destructive: it reads the legacy DOCX files and writes only the requested JSON output.
+The profile is used to validate corpus-level formatting signals without assigning roles by guesswork.
 
-The intermediate representation is intentionally not a synthetic native ChatGPT export. It remains explicitly marked as `source_type = legacy_docx`.
+### 4. Infer roles conservatively
 
-## Why turn reconstruction remains conservative
+```text
+py classify_legacy_docx_ir.py legacy-docx-ir-v2.json ^
+  --output legacy-docx-ir-classified-v3.json ^
+  --summary legacy-docx-role-summary-v3.json
+```
 
-The source DOCX is the evidence. Headings, tables, text style, paragraph gaps, language, and alternation may all become parser signals, but no single one is strong enough to justify silently assigning roles across the corpus.
+PowerShell form:
 
-The current Phase-2 parser therefore preserves blocks first and inference second. Assistant-like openings can mark a document as probably starting mid-conversation, but the blocks themselves remain `role = unknown` until a stronger reconstruction layer is validated.
+```powershell
+py classify_legacy_docx_ir.py legacy-docx-ir-v2.json `
+  --output legacy-docx-ir-classified-v3.json `
+  --summary legacy-docx-role-summary-v3.json
+```
 
-## Later migration work
+Current inference version: `legacy-role-inference-v3`.
 
-After the intermediate representation has been validated against the real corpus:
+Strong Word-format anchors are preferred. Assistant-tail phrases such as proposed next steps are explicitly guarded against as false User turns. Ambiguous regions remain `unknown`.
 
-1. add stronger multi-signal User/Assistant reconstruction with auditable confidence;
-2. explicitly represent unresolved/missing attachment references when visible in the DOCX;
-3. decide the durable storage location for immutable legacy originals and derived IR;
-4. extend the index schema so modern ChatGPT exports and legacy DOCX imports share search and organization without pretending they have identical provenance;
-5. add GUI import/preview/reparse support;
-6. only then consider a derived canonical search representation for legacy data.
+### 5. Build normalized turns
 
-No legacy migration should weaken the existing non-destructive archive invariants.
+```powershell
+py build_legacy_docx_turns.py legacy-docx-ir-classified-v3.json `
+  --output legacy-docx-turns.json
+```
+
+The turn representation preserves:
+
+- role and confidence;
+- normalized searchable content;
+- source block count;
+- first/last Word order;
+- exact source order references;
+- contributing block kinds.
+
+### 6. Validate SQLite import (dry-run)
+
+```powershell
+py import_legacy_docx_turns.py legacy-docx-turns.json `
+  --docx-root "F:\GPT"
+```
+
+Expected validated corpus result:
+
+```text
+Validated conversations: 42
+Validated turns: 654
+Validation failures: 0
+Dry-run only: SQLite was not modified.
+```
+
+### 7. Apply SQLite/FTS5 import
+
+```powershell
+py import_legacy_docx_turns.py legacy-docx-turns.json `
+  --docx-root "F:\GPT" `
+  --apply
+```
+
+Use `--force` when a newer importer needs to refresh metadata such as origin/category display without changing stable conversation IDs.
+
+### 8. Verify the resulting index
+
+```text
+py verify_legacy_index.py --query "grands rangements"
+```
+
+The verifier reports legacy conversation count, turn count in `messages`, turn count in FTS5, and legacy FTS matches for the supplied query.
+
+### 9. Browse and search
+
+```text
+py archive_browser.py
+```
+
+Legacy conversations appear with:
+
+```text
+Origin: Legacy DOCX
+```
+
+and use their filename category hint through the normal Category mechanism.
+
+### 10. GUI import of an already reconstructed corpus
+
+```text
+py legacy_import_gui.py
+```
+
+The GUI intentionally starts from `legacy-docx-turns.json`, not raw DOCX. It provides:
+
+- turns JSON selection;
+- source DOCX directory selection;
+- target SQLite selection;
+- read-only validation first;
+- explicit confirmation before Apply;
+- consistent SQLite backup using SQLite's backup API;
+- import result summary.
+
+This keeps the validated reconstruction pipeline separate from the database write step.
+
+## Rebuilding the complete archive
+
+The historical index `rebuild` command only knows how to rebuild native JSON/XZ conversations. Use the legacy-aware wrapper instead when legacy conversations must be retained:
+
+```text
+py rebuild_archive_with_legacy.py --help
+```
+
+The wrapper reconstructs the native index and then reimports the normalized legacy turns, with backup/validation safety.
+
+## Storage model
+
+Native path:
+
+```text
+ChatGPT JSON/XZ -> generated DOCX -> SQLite/FTS5
+```
+
+Legacy path:
+
+```text
+immutable historical DOCX
+        -> Word IR v2
+        -> conservative role inference v3
+        -> normalized turns v1
+        -> SQLite/FTS5 + provenance
+```
+
+The legacy DOCX remains the authoritative source. Derived IR/turn JSON may be regenerated when parser or inference logic improves.
+
+## Canonical legacy DOCX (future polish)
+
+A normalized DOCX may eventually be generated from reconstructed legacy turns so that old conversations visually match modern generated archive documents. Such a file must always be a derived artifact and must never replace the historical DOCX source.
+
+## Known limitations
+
+- attachments that were not embedded/preserved in the copied Word page cannot be recovered automatically;
+- 39 current turn regions remain deliberately `unknown` in the validated corpus;
+- some captures begin in the middle of an Assistant response;
+- the legacy parser reconstructs searchable conversation structure, not the exact original ChatGPT DOM;
+- role inference is corpus-informed and versioned, so future parser versions may improve the reconstruction while preserving the original source and provenance.
