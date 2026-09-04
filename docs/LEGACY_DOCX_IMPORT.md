@@ -35,7 +35,8 @@ Legacy import is deliberately non-destructive:
 - filename category hints (`HAM`, `PKI`, `IT`, `EMBEDDED`, etc.) are assigned as normal archive categories;
 - import is idempotent and supports forced reindex without creating duplicates;
 - the GUI/CLI validation pass does not modify SQLite;
-- an SQLite backup is created before applied GUI/CLI imports.
+- an SQLite backup is created before applied GUI/CLI imports;
+- normalized legacy DOCX files are written to a separate output directory and never replace historical sources.
 
 ## Current validated corpus
 
@@ -178,6 +179,42 @@ The GUI intentionally starts from `legacy-docx-turns.json`, not raw DOCX. It pro
 
 This keeps the validated reconstruction pipeline separate from the database write step.
 
+### 11. Generate normalized legacy DOCX derivatives
+
+```powershell
+py build_legacy_canonical_docx.py legacy-docx-turns.json `
+  --output-dir legacy-normalized-docx
+```
+
+For an initial visual smoke test, generate only one document:
+
+```powershell
+py build_legacy_canonical_docx.py legacy-docx-turns.json `
+  --output-dir legacy-normalized-docx `
+  --limit 1
+```
+
+Current renderer version: `legacy-canonical-docx-v1`.
+
+Each derived DOCX contains:
+
+- the normalized conversation title;
+- an explicit `Legacy DOCX normalized derivative` warning;
+- source filename and SHA-256;
+- parser / role-inference / turn-builder / renderer versions;
+- category/date hints;
+- one section per reconstructed User, Assistant or Unknown turn;
+- reconstruction confidence/source-order metadata when available;
+- an explicit warning when one or more turns remain `UNKNOWN`.
+
+Derived filenames end in:
+
+```text
+[normalized].docx
+```
+
+so they cannot silently overwrite the historical source filename. Existing normalized derivatives are kept unless `--overwrite` is supplied.
+
 ## Rebuilding the complete archive
 
 The historical index `rebuild` command only knows how to rebuild native JSON/XZ conversations. Use the legacy-aware wrapper instead when legacy conversations must be retained:
@@ -204,13 +241,10 @@ immutable historical DOCX
         -> conservative role inference v3
         -> normalized turns v1
         -> SQLite/FTS5 + provenance
+        -> optional normalized DOCX derivative
 ```
 
-The legacy DOCX remains the authoritative source. Derived IR/turn JSON may be regenerated when parser or inference logic improves.
-
-## Canonical legacy DOCX (future polish)
-
-A normalized DOCX may eventually be generated from reconstructed legacy turns so that old conversations visually match modern generated archive documents. Such a file must always be a derived artifact and must never replace the historical DOCX source.
+The legacy DOCX remains the authoritative source. Derived IR/turn JSON and normalized DOCX files may be regenerated when parser or inference logic improves.
 
 ## Known limitations
 
