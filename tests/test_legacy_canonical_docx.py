@@ -102,7 +102,9 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
     def test_export_restores_manual_line_breaks_from_immutable_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / "HAM GPT 2026-03-27 Lines.docx"
+            nested = root / "nested"
+            nested.mkdir()
+            source = nested / "HAM GPT 2026-03-27 Lines.docx"
             source_document = Document()
             paragraph = source_document.add_paragraph()
             paragraph.add_run("first code line")
@@ -113,7 +115,6 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
 
             conversation = {
                 "source_filename": source.name,
-                "source_path": str(source),
                 "source_sha256": source_sha,
                 "title_hint": "Lines",
                 "parser_version": "legacy-docx-parser-v2",
@@ -144,6 +145,18 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             self.assertIn("first code line", text)
             self.assertIn("second code line", text)
             self.assertIn("source Word blocks restored", text)
+
+    def test_explicit_docx_root_refuses_missing_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            conversation = self.conversation()
+            with self.assertRaises(FileNotFoundError):
+                export_legacy_canonical_docx(
+                    conversation,
+                    root / "normalized",
+                    overwrite=True,
+                    docx_root=root,
+                )
 
 
 if __name__ == "__main__":
