@@ -31,6 +31,15 @@ def main(argv: list[str] | None = None) -> int:
         default=Path("legacy-normalized-docx"),
         help="Directory for derived DOCX files (default: legacy-normalized-docx)",
     )
+    parser.add_argument(
+        "--docx-root",
+        type=Path,
+        default=None,
+        help=(
+            "Optional root containing immutable historical DOCX files. When supplied, "
+            "the renderer re-reads original Word block text to preserve manual line breaks."
+        ),
+    )
     parser.add_argument("--overwrite", action="store_true", help="Replace existing normalized derivatives")
     parser.add_argument("--limit", type=int, default=0, help="Generate only the first N conversations (0 = all)")
     args = parser.parse_args(argv)
@@ -43,8 +52,10 @@ def main(argv: list[str] | None = None) -> int:
 
     selected = conversations[: args.limit] if args.limit > 0 else conversations
     output_dir = args.output_dir.expanduser().resolve()
+    docx_root = args.docx_root.expanduser().resolve() if args.docx_root is not None else None
     created = 0
     skipped = 0
+    restored = 0
     total_turns = 0
     unknown_turns = 0
 
@@ -55,9 +66,11 @@ def main(argv: list[str] | None = None) -> int:
             conversation,
             output_dir,
             overwrite=args.overwrite,
+            docx_root=docx_root,
         )
         total_turns += result.turn_count
         unknown_turns += result.unknown_turn_count
+        restored += int(result.source_text_restored)
         if result.skipped:
             skipped += 1
             print(f"Skipped existing: {result.output_path.name}")
@@ -70,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Skipped DOCX: {skipped}")
     print(f"Rendered turns: {total_turns}")
     print(f"Unknown turns preserved: {unknown_turns}")
+    print(f"Source Word text restored: {restored}/{len(selected)}")
     print(f"Output directory: {output_dir}")
     return 0
 
