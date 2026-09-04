@@ -104,15 +104,8 @@ def parse_legacy_filename(path: Path | str) -> LegacyFilenameMetadata:
 
     filename = Path(path).name
 
-    match = NORMALIZED_FILENAME_RE.match(filename)
-    if match:
-        return LegacyFilenameMetadata(
-            category_hint=_clean(match.group("category")),
-            date_hint=match.group("date"),
-            title_hint=_clean(match.group("title")),
-            normalized=True,
-        )
-
+    # Historical timestamped names must be checked first because the preferred
+    # expression also accepts the HHMMSS token as the beginning of the title.
     match = LEGACY_TIMESTAMP_FILENAME_RE.match(filename)
     if match:
         return LegacyFilenameMetadata(
@@ -121,6 +114,15 @@ def parse_legacy_filename(path: Path | str) -> LegacyFilenameMetadata:
             title_hint=_clean(match.group("title")),
             normalized=False,
             legacy_time_hint=match.group("time"),
+        )
+
+    match = NORMALIZED_FILENAME_RE.match(filename)
+    if match:
+        return LegacyFilenameMetadata(
+            category_hint=_clean(match.group("category")),
+            date_hint=match.group("date"),
+            title_hint=_clean(match.group("title")),
+            normalized=True,
         )
 
     match = LEGACY_SPACED_DATE_FILENAME_RE.match(filename)
