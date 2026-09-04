@@ -38,31 +38,58 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _verify_source_sha(source: Path, conversation: dict[str, Any]) -> Path:
+    expected_sha = str(conversation.get("source_sha256") or "").strip().lower()
+    if expected_sha and len(expected_sha) == 64:
+        actual_sha = _sha256(source)
+        if actual_sha != expected_sha:
+            raise ValueError(
+                f"SHA-256 mismatch for source DOCX {source}: "
+                f"expected {expected_sha}, got {actual_sha}"
+            )
+    return source.resolve()
+
+
 def _resolve_source_docx(
     conversation: dict[str, Any],
     docx_root: Path | None,
 ) -> Path | None:
-    """Locate the immutable historical DOCX used to restore display whitespace."""
+    """Locate the immutable historical DOCX used to restore display whitespace.
+
+    An explicit ``docx_root`` is authoritative: search the expected filename
+    directly first, then recursively below that root.  If the caller supplied
+    a root but the source cannot be found (or is ambiguous), fail rather than
+    silently rendering from already-normalized turn text.
+    """
     source_filename = str(conversation.get("source_filename") or "").strip()
-    candidates: list[Path] = []
-    if docx_root is not None and source_filename:
-        candidates.append(Path(docx_root).expanduser() / source_filename)
+
+    if docx_root is not None:
+        root = Path(docx_root).expanduser().resolve()
+        if not root.is_dir():
+            raise FileNotFoundError(f"Legacy DOCX root does not exist: {root}")
+        if not source_filename:
+            raise ValueError("Legacy conversation is missing source_filename")
+
+        direct = root / source_filename
+        if direct.is_file():
+            return _verify_source_sha(direct, conversation)
+
+        matches = list(root.rglob(source_filename))
+        if not matches:
+            raise FileNotFoundError(
+                f"Legacy source DOCX not found under {root}: {source_filename}"
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple legacy DOCX files match {source_filename}: {matches}"
+            )
+        return _verify_source_sha(matches[0], conversation)
+
     source_path = str(conversation.get("source_path") or "").strip()
     if source_path:
-        candidates.append(Path(source_path).expanduser())
-
-    for candidate in candidates:
+        candidate = Path(source_path).expanduser()
         if candidate.is_file():
-            source = candidate.resolve()
-            expected_sha = str(conversation.get("source_sha256") or "").strip().lower()
-            if expected_sha and len(expected_sha) == 64:
-                actual_sha = _sha256(source)
-                if actual_sha != expected_sha:
-                    raise ValueError(
-                        f"SHA-256 mismatch for source DOCX {source}: "
-                        f"expected {expected_sha}, got {actual_sha}"
-                    )
-            return source
+            return _verify_source_sha(candidate, conversation)
     return None
 
 
