@@ -5,7 +5,7 @@ print(f"The filename of this script is: {file_name}")
 import unittest
 
 from gpt_exporter.legacy.model import LegacyBlock
-from gpt_exporter.legacy.roles import infer_roles
+from gpt_exporter.legacy.roles import ROLE_INFERENCE_VERSION, infer_roles
 
 
 class LegacyRoleInferenceTests(unittest.TestCase):
@@ -66,6 +66,27 @@ class LegacyRoleInferenceTests(unittest.TestCase):
         self.assertEqual(inferred[1].role, "user")
         self.assertEqual(inferred[1].role_confidence, "medium")
         self.assertEqual(inferred[2].role, "assistant")
+
+    def test_assistant_tail_is_not_promoted_to_user(self) -> None:
+        blocks = (
+            LegacyBlock(order=3, kind="paragraph", text="Parfait — réponse", style="Normal", blank_blocks_before=3, run_count=3, bold_run_count=1),
+            LegacyBlock(order=10, kind="paragraph", text="Si tu veux, je peux aussi te donner :", style="Normal", blank_blocks_before=1, run_count=1),
+            LegacyBlock(order=12, kind="paragraph", text="Excellent — suite", style="Normal", blank_blocks_before=1, run_count=3, bold_run_count=1),
+        )
+        inferred = infer_roles(blocks)
+        self.assertEqual(ROLE_INFERENCE_VERSION, "legacy-role-inference-v3")
+        self.assertEqual(inferred[0].role, "assistant")
+        self.assertNotEqual(inferred[1].role, "user")
+        self.assertEqual(inferred[2].role, "assistant")
+
+    def test_short_yes_can_still_be_user(self) -> None:
+        blocks = (
+            LegacyBlock(order=3, kind="paragraph", text="Parfait — question", style="Normal", blank_blocks_before=3, run_count=3, bold_run_count=1),
+            LegacyBlock(order=10, kind="paragraph", text="oui", style="Normal", blank_blocks_before=1, run_count=1),
+            LegacyBlock(order=12, kind="paragraph", text="Excellent — on continue", style="Normal", blank_blocks_before=1, run_count=3, bold_run_count=1),
+        )
+        inferred = infer_roles(blocks)
+        self.assertEqual(inferred[1].role, "user")
 
     def test_first_assistant_like_formatted_capture_can_start_mid_answer(self) -> None:
         blocks = (
