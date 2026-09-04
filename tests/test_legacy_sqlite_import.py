@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from gpt_exporter.legacy.sqlite_import import (
+    LEGACY_ORIGIN_DISPLAY,
     ensure_legacy_provenance_schema,
     import_legacy_collection,
     legacy_conversation_id,
@@ -84,11 +85,12 @@ class LegacySQLiteImportTests(unittest.TestCase):
             with connect_database(database) as connection:
                 ensure_legacy_provenance_schema(connection)
                 row = connection.execute(
-                    "SELECT title, source_json_path, docx_path FROM conversations WHERE conversation_id = ?",
+                    "SELECT title, source_json_path, docx_path, primary_origin_type FROM conversations WHERE conversation_id = ?",
                     (conversation_id,),
                 ).fetchone()
                 self.assertEqual(row["title"], "Test")
                 self.assertEqual(Path(row["docx_path"]), source.resolve())
+                self.assertEqual(row["primary_origin_type"], LEGACY_ORIGIN_DISPLAY)
 
                 roles = [
                     item["author_role"]
@@ -136,6 +138,45 @@ class LegacySQLiteImportTests(unittest.TestCase):
             second = import_legacy_collection(payload, database_path=database, docx_root=docx_root)
             self.assertEqual(first["updated"], 1)
             self.assertEqual(second["unchanged"], 1)
+
+    def test_force_reimport_refreshes_origin_label(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            docx_root = root / "docx"
+            docx_root.mkdir()
+            source = docx_root / "PKI GPT 2026-04-03 Test.docx"
+            source.write_bytes(b"fixture")
+            sha = hashlib.sha256(source.read_bytes()).hexdigest()
+            payload = {
+                "conversations": [{
+                    "source_filename": source.name,
+                    "source_sha256": sha,
+                    "title_hint": "Test",
+                    "turns": [{"role": "user", "content": "hello"}],
+                }]
+            }
+            database = root / "index.sqlite"
+            import_legacy_collection(payload, database_path=database, docx_root=docx_root)
+            conversation_id = legacy_conversation_id(sha)
+            with connect_database(database) as connection:
+                connection.execute(
+                    "UPDATE conversations SET primary_origin_type = 'standard' WHERE conversation_id = ?",
+                    (conversation_id,),
+                )
+                connection.commit()
+
+            import_legacy_collection(
+                payload,
+                database_path=database,
+                docx_root=docx_root,
+                force=True,
+            )
+            with connect_database(database) as connection:
+                origin = connection.execute(
+                    "SELECT primary_origin_type FROM conversations WHERE conversation_id = ?",
+                    (conversation_id,),
+                ).fetchone()["primary_origin_type"]
+            self.assertEqual(origin, LEGACY_ORIGIN_DISPLAY)
 
     def test_sha_mismatch_refuses_validation_and_import(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
