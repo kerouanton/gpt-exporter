@@ -42,6 +42,11 @@ def classify_payload(payload: dict[str, object]) -> dict[str, object]:
     output_conversations = []
     role_counts = {"user": 0, "assistant": 0, "unknown": 0}
     confidence_counts: dict[str, int] = {}
+    role_confidence_counts: dict[str, dict[str, int]] = {
+        "user": {},
+        "assistant": {},
+        "unknown": {},
+    }
 
     for conversation in conversations:
         if not isinstance(conversation, dict):
@@ -58,6 +63,8 @@ def classify_payload(payload: dict[str, object]) -> dict[str, object]:
             blocks.append(item)
             role_counts[block.role] += 1
             confidence_counts[block.role_confidence] = confidence_counts.get(block.role_confidence, 0) + 1
+            by_role = role_confidence_counts[block.role]
+            by_role[block.role_confidence] = by_role.get(block.role_confidence, 0) + 1
 
         updated = dict(conversation)
         updated["blocks"] = blocks
@@ -69,8 +76,14 @@ def classify_payload(payload: dict[str, object]) -> dict[str, object]:
     result["role_inference_version"] = ROLE_INFERENCE_VERSION
     result["role_counts"] = role_counts
     result["role_confidence_counts"] = confidence_counts
+    result["role_confidence_by_role"] = role_confidence_counts
     result["conversations"] = output_conversations
     return result
+
+
+def _format_confidence(counts: dict[str, int]) -> str:
+    order = ("high", "medium", "low", "none")
+    return ", ".join(f"{name}={counts.get(name, 0)}" for name in order)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -81,9 +94,11 @@ def main(argv: list[str] | None = None) -> int:
     output = args.output.expanduser().resolve()
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     counts = result["role_counts"]
-    print(f"User blocks: {counts['user']}")
-    print(f"Assistant blocks: {counts['assistant']}")
-    print(f"Unknown blocks: {counts['unknown']}")
+    by_role = result["role_confidence_by_role"]
+    print(f"Role inference: {result['role_inference_version']}")
+    print(f"User blocks: {counts['user']} ({_format_confidence(by_role['user'])})")
+    print(f"Assistant blocks: {counts['assistant']} ({_format_confidence(by_role['assistant'])})")
+    print(f"Unknown blocks: {counts['unknown']} ({_format_confidence(by_role['unknown'])})")
     print(f"Classified IR: {output}")
     return 0
 
