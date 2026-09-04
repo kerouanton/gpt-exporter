@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from docx import Document
+from docx.shared import Inches
 
 from gpt_exporter.legacy import LEGACY_SCHEMA, PARSER_VERSION, parse_legacy_conversation
 
@@ -15,9 +16,14 @@ class LegacyParserTests(unittest.TestCase):
     def _write_docx(self, path: Path, *, first_text: str) -> Path:
         document = Document()
         document.add_paragraph('HYPERLINK "https://chatgpt.com/"')
-        document.add_paragraph(first_text)
+        document.add_paragraph("")
+        first = document.add_paragraph()
+        first.paragraph_format.left_indent = Inches(0.25)
+        first.add_run(first_text).bold = True
+        document.add_paragraph("")
         document.add_heading("Structured answer", level=2)
-        document.add_paragraph("Body text")
+        body = document.add_paragraph("Body text")
+        body.add_run(" italic").italic = True
         table = document.add_table(rows=1, cols=2)
         table.cell(0, 0).text = "A"
         table.cell(0, 1).text = "B"
@@ -48,6 +54,12 @@ class LegacyParserTests(unittest.TestCase):
             self.assertTrue(all(block.role == "unknown" for block in conversation.blocks))
             self.assertIsNone(conversation.starts_mid_conversation)
 
+            first = conversation.blocks[1]
+            self.assertEqual(first.blank_blocks_before, 1)
+            self.assertIsNotNone(first.left_indent_emu)
+            self.assertEqual(first.run_count, 1)
+            self.assertEqual(first.bold_run_count, 1)
+
     def test_assistant_like_opening_marks_possible_mid_conversation_start(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "HAM GPT 2026-04-23 Test continuation.docx"
@@ -72,6 +84,8 @@ class LegacyParserTests(unittest.TestCase):
             self.assertEqual(payload["schema"], LEGACY_SCHEMA)
             self.assertIsInstance(payload["blocks"], list)
             self.assertIsInstance(payload["notes"], list)
+            self.assertIn("blank_blocks_before", payload["blocks"][1])
+            self.assertIn("run_count", payload["blocks"][1])
 
 
 if __name__ == "__main__":
