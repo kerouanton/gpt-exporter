@@ -5,7 +5,9 @@ print(f"The filename of this script is: {file_name}")
 """Import normalized legacy DOCX turns into the archive SQLite/FTS5 index."""
 
 import argparse
+import datetime as dt
 import json
+import shutil
 from pathlib import Path
 
 from gpt_exporter.index._legacy_indexer import DEFAULT_DATABASE_PATH
@@ -14,6 +16,16 @@ from gpt_exporter.legacy.sqlite_import import (
     import_legacy_collection,
     validate_legacy_collection,
 )
+
+
+def _backup_database(database: Path) -> Path | None:
+    """Copy an existing SQLite file before an --apply import."""
+    if not database.is_file():
+        return None
+    timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = database.with_name(f"{database.stem}-before-legacy-{timestamp}{database.suffix}")
+    shutil.copy2(database, backup)
+    return backup
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE_PATH, help="Archive SQLite database")
     parser.add_argument("--apply", action="store_true", help="Actually write legacy conversations into SQLite/FTS5")
     parser.add_argument("--force", action="store_true", help="Reindex legacy conversations even when SHA-256 is unchanged")
+    parser.add_argument("--no-backup", action="store_true", help="Skip the automatic pre-import SQLite backup")
     args = parser.parse_args(argv)
 
     source = args.input.expanduser().resolve()
@@ -48,6 +61,11 @@ def main(argv: list[str] | None = None) -> int:
         print("Dry-run only: SQLite was not modified. Re-run with --apply to import.")
         print(f"Target database: {database}")
         return 0
+
+    if not args.no_backup:
+        backup = _backup_database(database)
+        if backup is not None:
+            print(f"Database backup: {backup}")
 
     counts = import_legacy_collection(
         payload,
