@@ -10,11 +10,12 @@ from typing import Any
 from gpt_exporter.index._legacy_indexer import (
     connect_database,
     delete_message_index_rows,
+    get_or_create_category,
     now_iso,
 )
 
 
-LEGACY_SQLITE_IMPORT_VERSION = "legacy-sqlite-import-v1"
+LEGACY_SQLITE_IMPORT_VERSION = "legacy-sqlite-import-v2"
 LEGACY_ORIGIN_DISPLAY = "Legacy DOCX"
 
 
@@ -152,6 +153,7 @@ def import_legacy_conversation(
     parser_version = str(conversation.get("parser_version") or "").strip() or None
     role_inference_version = conversation.get("role_inference_version")
     turn_builder_version = conversation.get("turn_builder_version")
+    category_hint = str(conversation.get("category_hint") or "").strip() or None
     starts_mid = conversation.get("starts_mid_conversation")
     starts_mid_db = None if starts_mid is None else int(bool(starts_mid))
 
@@ -226,6 +228,20 @@ def import_legacy_conversation(
             )
             indexed_turns += 1
 
+        # Filename-derived legacy categories are trustworthy metadata, not a
+        # semantic guess. Preserve any existing manual categories and add this
+        # assignment idempotently.
+        if category_hint:
+            category = get_or_create_category(connection, category_hint)
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO conversation_categories (
+                    conversation_id, category_id, assigned_at
+                ) VALUES (?, ?, ?)
+                """,
+                (conversation_id, category["category_id"], indexed_at),
+            )
+
         connection.execute(
             """
             INSERT INTO legacy_conversation_sources (
@@ -256,7 +272,7 @@ def import_legacy_conversation(
                 role_inference_version,
                 turn_builder_version,
                 LEGACY_SQLITE_IMPORT_VERSION,
-                conversation.get("category_hint"),
+                category_hint,
                 conversation.get("date_hint"),
                 starts_mid_db,
                 indexed_at,
