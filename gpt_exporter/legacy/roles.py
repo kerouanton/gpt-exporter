@@ -1,10 +1,12 @@
 """Conservative role inference for legacy ChatGPT DOCX blocks.
 
-The inference deliberately works on structural segment starts instead of trying
- to classify every paragraph lexically.  A segment begins after a strong Word
-separator (two or more omitted/blank body blocks).  Only signatures validated
-against the real 42-document corpus become role anchors; ambiguous segments
-remain ``unknown``.
+Role inference is intentionally separated from DOCX parsing.  The raw v2 IR
+keeps Word evidence unchanged; this module annotates a derived copy.
+
+The real 42-document corpus showed that strong separators (two or more blank
+Word body blocks) are useful anchors but far too sparse to represent every
+conversation turn.  A classifier must therefore also react to one-blank
+boundaries without treating every such boundary as a role change.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from dataclasses import replace
 from .model import LegacyBlock
 
 
-ROLE_INFERENCE_VERSION = "legacy-role-inference-v1"
+ROLE_INFERENCE_VERSION = "legacy-role-inference-v2"
 
 ASSISTANT_OPENING_HINTS = re.compile(
     r"^(?:parfait|excellent|très bonne question|bonne idée|ton intuition|"
@@ -37,61 +39,110 @@ def _plain_paragraph(block: LegacyBlock) -> bool:
     )
 
 
-def _segment_anchor(block: LegacyBlock, *, first_segment: bool) -> tuple[str, str] | None:
-    """Return a conservative role/confidence anchor for one segment start."""
-
+def _assistant_anchor(block: LegacyBlock, *, strong: bool) -> tuple[str, str] | None:
     if not _plain_paragraph(block):
         return None
 
-    text = block.text.strip()
-    assistant_like = bool(ASSISTANT_OPENING_HINTS.search(text))
+    assistant_like = bool(ASSISTANT_OPENING_HINTS.search(block.text.strip()))
+    formatted = block.run_count >= 2 and block.bold_run_count >= 1
 
-    # Corpus evidence: assistant responses beginning after a strong separator
-    # commonly contain multiple runs with at least one bold run.  Lexical
-    # opening hints strengthen this but are not used alone for internal turns.
-    if block.blank_blocks_before >= 2 and block.bold_run_count >= 1 and block.run_count >= 2:
-        return "assistant", "high" if assistant_like else "medium"
+    # A one-blank boundary is common inside assistant formatting, so it only
+    # becomes an Assistant anchor when lexical and Word-format evidence agree.
+    if assistant_like and formatted:
+        return "assistant", "high" if strong else "medium"
 
-    # Corpus evidence: internal User turns after strong separators are often a
-    # single plain run with no bold/italic formatting.
-    if (
-        block.blank_blocks_before >= 2
-        and block.run_count == 1
-        and block.bold_run_count == 0
-        and block.italic_run_count == 0
-        and not assistant_like
-    ):
-        return "user", "high"
-
-    # The first preserved turn often has three blank body blocks before it and
-    # can contain several plain runs because of the copied page wrapper.  On
-    # the real corpus this is a useful User anchor only when no assistant-like
-    # opening or bold evidence is present.
-    if (
-        first_segment
-        and block.blank_blocks_before >= 3
-        and block.bold_run_count == 0
-        and not assistant_like
-    ):
-        return "user", "medium"
-
-    # A captured conversation may begin in the middle of an Assistant answer.
-    # At the first segment only, the combination of an assistant-like opening
-    # and preserved formatting is enough for a medium-confidence anchor.
-    if first_segment and block.blank_blocks_before >= 3 and assistant_like:
+    # At a strong separator, preserved formatting alone is useful evidence but
+    # is not strong enough to claim high confidence without an opening hint.
+    if strong and formatted:
         return "assistant", "medium"
 
     return None
 
 
-def infer_roles(blocks: tuple[LegacyBlock, ...]) -> tuple[LegacyBlock, ...]:
-    """Assign roles to structurally anchored segments; keep all others unknown.
+def _strong_user_anchor(block: LegacyBlock) -> tuple[str, str] | None:
+    if not _plain_paragraph(block):
+        return None
+    if ASSISTANT_OPENING_HINTS.search(block.text.strip()):
+        return None
+    if (
+        block.blank_blocks_before >= 2
+        and block.run_count == 1
+        and block.bold_run_count == 0
+        and block.italic_run_count == 0
+    ):
+        return "user", "high"
+    return None
 
-    A new segment starts at the first conversation block and whenever a block
-    has ``blank_blocks_before >= 2``.  Role evidence is evaluated only at the
-    segment start, then propagated inside that segment.  Crucially, an
-    ambiguous strong boundary starts a fresh ``unknown`` segment instead of
-    inheriting the previous role.
+
+def _first_anchor(block: LegacyBlock) -> tuple[str, str] | None:
+    """Classify only unusually well-preserved first-turn signatures."""
+
+    if not _plain_paragraph(block):
+        return None
+
+    assistant_like = bool(ASSISTANT_OPENING_HINTS.search(block.text.strip()))
+    if block.blank_blocks_before >= 3:
+        assistant = _assistant_anchor(block, strong=True)
+        if assistant is not None:
+            return assistant
+        if block.bold_run_count == 0 and not assistant_like:
+            return "user", "medium"
+    return None
+
+
+def _weak_user_sandwich(
+    blocks: tuple[LegacyBlock, ...],
+    index: int,
+    *,
+    current_role: str,
+) -> bool:
+    """Detect a short User turn between two Assistant regions.
+
+    A plain single-run paragraph after one blank is not enough by itself: such
+    paragraphs also occur inside Assistant answers.  It becomes useful User
+    evidence when the preceding region is Assistant and the next non-sentinel
+    block starts with a one-or-more-blank, independently recognizable
+    Assistant anchor.  This models the common ``assistant -> user -> assistant``
+    pattern without lexical classification of the User text.
+    """
+
+    if current_role != "assistant":
+        return False
+    block = blocks[index]
+    if block.blank_blocks_before < 1 or not _plain_paragraph(block):
+        return False
+    if block.run_count != 1 or block.bold_run_count or block.italic_run_count:
+        return False
+    if ASSISTANT_OPENING_HINTS.search(block.text.strip()):
+        return False
+
+    for following in blocks[index + 1 :]:
+        if following.kind == "hyperlink_sentinel":
+            continue
+        # The User turn may contain contiguous material, but a second blank
+        # boundary without an Assistant anchor makes the sandwich ambiguous.
+        if following.blank_blocks_before < 1:
+            continue
+        return _assistant_anchor(
+            following,
+            strong=following.blank_blocks_before >= 2,
+        ) is not None
+    return False
+
+
+def infer_roles(blocks: tuple[LegacyBlock, ...]) -> tuple[LegacyBlock, ...]:
+    """Annotate blocks while preferring ``unknown`` over long false propagation.
+
+    Rules:
+    - strong (>=2 blank) boundaries always start a fresh segment;
+    - one-blank boundaries can start a clear Assistant anchor;
+    - a weak User anchor is accepted only in an Assistant/User/Assistant
+      structural sandwich;
+    - when a User-labelled region reaches an ambiguous one-blank boundary, it
+      stops propagating and becomes unknown instead of painting the rest of the
+      document User;
+    - Assistant regions may cross ordinary one-blank formatting boundaries
+      unless contradictory role evidence appears.
     """
 
     if not blocks:
@@ -100,32 +151,46 @@ def infer_roles(blocks: tuple[LegacyBlock, ...]) -> tuple[LegacyBlock, ...]:
     result: list[LegacyBlock] = []
     current_role = "unknown"
     current_confidence = "none"
-    first_conversation_segment = True
+    first_conversation_block = True
 
-    for block in blocks:
+    for index, block in enumerate(blocks):
         if block.kind == "hyperlink_sentinel":
             result.append(block)
             continue
 
-        new_segment = first_conversation_segment or block.blank_blocks_before >= 2
-        if new_segment:
-            anchor = _segment_anchor(block, first_segment=first_conversation_segment)
-            if anchor is None:
+        new_anchor: tuple[str, str] | None = None
+        strong_boundary = block.blank_blocks_before >= 2
+        weak_boundary = block.blank_blocks_before >= 1
+
+        if first_conversation_block:
+            new_anchor = _first_anchor(block)
+            first_conversation_block = False
+        elif strong_boundary:
+            new_anchor = _assistant_anchor(block, strong=True) or _strong_user_anchor(block)
+            if new_anchor is None:
                 current_role, current_confidence = "unknown", "none"
-            else:
-                current_role, current_confidence = anchor
-            first_conversation_segment = False
+        elif weak_boundary:
+            new_anchor = _assistant_anchor(block, strong=False)
+            if new_anchor is None and _weak_user_sandwich(
+                blocks, index, current_role=current_role
+            ):
+                new_anchor = ("user", "medium")
+            elif new_anchor is None and current_role == "user":
+                # A User message rarely owns the following formatted answer.
+                # Stop propagation at the first unresolved weak boundary.
+                current_role, current_confidence = "unknown", "none"
+
+        if new_anchor is not None:
+            current_role, current_confidence = new_anchor
 
         if current_role == "unknown":
             result.append(replace(block, role="unknown", role_confidence="none"))
-        else:
-            # The start block carries the anchor confidence.  Following blocks
-            # are structurally propagated and therefore one level weaker.
-            confidence = current_confidence
-            if not new_segment:
-                confidence = "medium" if current_confidence == "high" else "low"
-            result.append(
-                replace(block, role=current_role, role_confidence=confidence)
-            )
+            continue
+
+        is_anchor = new_anchor is not None
+        confidence = current_confidence
+        if not is_anchor:
+            confidence = "medium" if current_confidence == "high" else "low"
+        result.append(replace(block, role=current_role, role_confidence=confidence))
 
     return tuple(result)
