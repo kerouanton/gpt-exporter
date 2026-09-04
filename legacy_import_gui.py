@@ -1,13 +1,10 @@
-import os
-file_name = os.path.basename(__file__)
-print(f"The filename of this script is: {file_name}")
-
 """Small GUI for validating and importing normalized legacy DOCX turns."""
 
 from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import sqlite3
 import tkinter as tk
 from pathlib import Path
@@ -19,6 +16,10 @@ from gpt_exporter.legacy.sqlite_import import (
     import_legacy_collection,
     validate_legacy_collection,
 )
+
+
+file_name = os.path.basename(__file__)
+print(f"The filename of this script is: {file_name}")
 
 
 def backup_database(database_path: Path) -> Path | None:
