@@ -1,19 +1,20 @@
-import os
-file_name = os.path.basename(__file__)
-print(f"The filename of this script is: {file_name}")
-
 """Build normalized DOCX derivatives from reconstructed legacy turns."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from gpt_exporter.legacy.canonical_docx import (
     CANONICAL_LEGACY_DOCX_VERSION,
     export_legacy_canonical_docx,
 )
+
+
+file_name = os.path.basename(__file__)
+print(f"The filename of this script is: {file_name}")
 
 
 def main(argv: list[str] | None = None) -> int:
