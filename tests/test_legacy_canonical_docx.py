@@ -2,6 +2,7 @@ import os
 file_name = os.path.basename(__file__)
 print(f"The filename of this script is: {file_name}")
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -82,6 +83,7 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             self.assertTrue(result.output_path.is_file())
             self.assertEqual(result.turn_count, 3)
             self.assertEqual(result.unknown_turn_count, 1)
+            self.assertFalse(result.source_text_restored)
             self.assertIn("[normalized]", result.output_path.name)
 
             document = Document(result.output_path)
@@ -96,6 +98,52 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             self.assertIn("Unknown", text)
             self.assertIn("text-only", text)
             self.assertIn("attachments", text)
+
+    def test_export_restores_manual_line_breaks_from_immutable_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "HAM GPT 2026-03-27 Lines.docx"
+            source_document = Document()
+            paragraph = source_document.add_paragraph()
+            paragraph.add_run("first code line")
+            paragraph.add_run().add_break()
+            paragraph.add_run("second code line")
+            source_document.save(source)
+            source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+
+            conversation = {
+                "source_filename": source.name,
+                "source_path": str(source),
+                "source_sha256": source_sha,
+                "title_hint": "Lines",
+                "parser_version": "legacy-docx-parser-v2",
+                "role_inference_version": "legacy-role-inference-v3",
+                "turn_builder_version": "legacy-turn-builder-v1",
+                "turns": [
+                    {
+                        "role": "assistant",
+                        "confidence": "high",
+                        "first_order": 0,
+                        "last_order": 0,
+                        "source_orders": [0],
+                        "content": "first code line second code line",
+                    }
+                ],
+            }
+
+            result = export_legacy_canonical_docx(
+                conversation,
+                root / "normalized",
+                overwrite=True,
+                docx_root=root,
+            )
+            self.assertTrue(result.source_text_restored)
+
+            document = Document(result.output_path)
+            text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+            self.assertIn("first code line", text)
+            self.assertIn("second code line", text)
+            self.assertIn("source Word blocks restored", text)
 
 
 if __name__ == "__main__":
