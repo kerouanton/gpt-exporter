@@ -6,12 +6,14 @@ import re
 from pathlib import Path
 
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
 
 from .docx import CHATGPT_HYPERLINK_SENTINEL, _iso_datetime, _sha256, parse_legacy_filename
 from .model import LEGACY_SCHEMA, LegacyBlock, LegacyConversation
 
 
-PARSER_VERSION = "legacy-docx-parser-v1"
+PARSER_VERSION = "legacy-docx-parser-v2"
 
 # These are deliberately weak language hints. They never assign a definitive
 # role; they only help detect that a capture may begin inside an assistant turn.
@@ -25,17 +27,81 @@ def _clean(value: str) -> str:
     return " ".join(value.split()).strip()
 
 
+def _length_emu(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _alignment_name(value) -> str | None:
+    if value is None:
+        return None
+    try:
+        return value.name
+    except AttributeError:
+        try:
+            return WD_ALIGN_PARAGRAPH(value).name
+        except (TypeError, ValueError):
+            return str(value)
+
+
+def _paragraph_features(paragraph) -> dict[str, object]:
+    """Extract Word evidence without interpreting it as a conversation role."""
+
+    formatting = paragraph.paragraph_format
+    p_pr = paragraph._p.pPr
+
+    shading_fill = None
+    has_borders = False
+    has_numbering = False
+    if p_pr is not None:
+        shading = p_pr.find(qn("w:shd"))
+        if shading is not None:
+            shading_fill = shading.get(qn("w:fill"))
+        has_borders = p_pr.find(qn("w:pBdr")) is not None
+        has_numbering = p_pr.find(qn("w:numPr")) is not None
+
+    runs = list(paragraph.runs)
+    return {
+        "alignment": _alignment_name(paragraph.alignment),
+        "left_indent_emu": _length_emu(formatting.left_indent),
+        "right_indent_emu": _length_emu(formatting.right_indent),
+        "first_line_indent_emu": _length_emu(formatting.first_line_indent),
+        "shading_fill": shading_fill,
+        "has_borders": has_borders,
+        "has_numbering": has_numbering,
+        "run_count": len(runs),
+        "bold_run_count": sum(1 for run in runs if run.bold is True),
+        "italic_run_count": sum(1 for run in runs if run.italic is True),
+        "hyperlink_count": len(paragraph._p.xpath(".//w:hyperlink")),
+    }
+
+
 def _iter_blocks(document):
     """Yield body paragraphs and tables in their original document order."""
 
+    previous_emitted_order = -1
     for order, item in enumerate(document.iter_inner_content()):
+        blank_blocks_before = max(0, order - previous_emitted_order - 1)
+
         if hasattr(item, "rows"):
             rows: list[str] = []
             for row in item.rows:
                 cells = [_clean(cell.text) for cell in row.cells]
                 rows.append(" | ".join(cells))
             text = "\n".join(row for row in rows if row.strip(" |"))
-            yield LegacyBlock(order=order, kind="table", text=text)
+            if not text:
+                continue
+            yield LegacyBlock(
+                order=order,
+                kind="table",
+                text=text,
+                blank_blocks_before=blank_blocks_before,
+            )
+            previous_emitted_order = order
             continue
 
         text = _clean(item.text)
@@ -51,7 +117,17 @@ def _iter_blocks(document):
             kind = "heading"
         else:
             kind = "paragraph"
-        yield LegacyBlock(order=order, kind=kind, text=text, style=style)
+
+        features = _paragraph_features(item)
+        yield LegacyBlock(
+            order=order,
+            kind=kind,
+            text=text,
+            style=style,
+            blank_blocks_before=blank_blocks_before,
+            **features,
+        )
+        previous_emitted_order = order
 
 
 def _first_conversation_block(blocks: tuple[LegacyBlock, ...]) -> LegacyBlock | None:
