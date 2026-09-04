@@ -10,7 +10,7 @@ from typing import Any
 from gpt_exporter.export.docx import export_docx
 
 
-CANONICAL_LEGACY_DOCX_VERSION = "legacy-canonical-docx-v1"
+CANONICAL_LEGACY_DOCX_VERSION = "legacy-canonical-docx-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +32,10 @@ def build_legacy_markdown(conversation: dict[str, Any]) -> str:
     The DOCX exporter receives the conversation title separately through its
     ``document_title`` argument.  Do not emit a Markdown H1 here, otherwise the
     rendered DOCX contains the title twice.
+
+    This renderer is deliberately text-only.  Images and embedded attachments
+    from the historical DOCX remain available only in that immutable source and
+    are not copied into this normalized derivative yet.
     """
     source_filename = str(conversation.get("source_filename") or "unknown").strip()
     source_sha = str(conversation.get("source_sha256") or "unknown").strip()
@@ -43,7 +47,9 @@ def build_legacy_markdown(conversation: dict[str, Any]) -> str:
     starts_mid = conversation.get("starts_mid_conversation")
 
     lines = [
-        "> **Legacy DOCX normalized derivative.** This document was reconstructed from an immutable historical Word capture. The historical DOCX remains the authoritative source.",
+        "> **Legacy DOCX normalized derivative (text-only).** This document was reconstructed from an immutable historical Word capture. The historical DOCX remains the authoritative source.",
+        "",
+        "> **Media scope:** images, embedded files, and other attachments from the historical DOCX are not included in this normalized derivative yet. Consult the source DOCX for those items.",
         "",
         "## Provenance",
         "",
@@ -127,7 +133,7 @@ def export_legacy_canonical_docx(
     *,
     overwrite: bool = False,
 ) -> CanonicalLegacyDocxResult:
-    """Export one normalized derivative without touching the historical DOCX."""
+    """Export one normalized text-only derivative without touching the historical DOCX."""
     output_dir = Path(output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / canonical_output_name(conversation)
