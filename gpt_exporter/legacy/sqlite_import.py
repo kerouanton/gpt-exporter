@@ -76,6 +76,43 @@ def _date_hint_iso(date_hint: Any) -> str | None:
     return value + "T00:00:00" if len(value) == 10 else value
 
 
+def validate_legacy_collection(
+    payload: dict[str, Any],
+    *,
+    docx_root: Path,
+) -> dict[str, int]:
+    """Validate every source path/hash and count turns without touching SQLite."""
+    conversations = payload.get("conversations")
+    if not isinstance(conversations, list):
+        raise ValueError("Expected normalized legacy turn collection")
+
+    counts = {"conversations": 0, "turns": 0, "failed": 0}
+    for conversation in conversations:
+        if not isinstance(conversation, dict):
+            counts["failed"] += 1
+            continue
+        source_filename = str(conversation.get("source_filename") or "").strip()
+        expected_sha = str(conversation.get("source_sha256") or "").lower().strip()
+        if not source_filename or len(expected_sha) != 64:
+            raise ValueError("Legacy conversation is missing source filename/SHA-256")
+        source = _resolve_source(docx_root, source_filename)
+        actual_sha = _sha256(source)
+        if actual_sha != expected_sha:
+            raise ValueError(
+                f"SHA-256 mismatch for {source_filename}: expected {expected_sha}, got {actual_sha}"
+            )
+        turns = conversation.get("turns")
+        if not isinstance(turns, list):
+            raise ValueError(f"Invalid normalized turns for {source_filename}")
+        counts["conversations"] += 1
+        counts["turns"] += sum(
+            1
+            for turn in turns
+            if isinstance(turn, dict) and str(turn.get("content") or "").strip()
+        )
+    return counts
+
+
 def import_legacy_conversation(
     connection: sqlite3.Connection,
     conversation: dict[str, Any],
