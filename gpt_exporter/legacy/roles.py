@@ -1,11 +1,11 @@
 """Conservative role inference for legacy ChatGPT DOCX blocks.
 
-Role inference is intentionally separated from DOCX parsing.  The raw v2 IR
+Role inference is intentionally separated from DOCX parsing. The raw v2 IR
 keeps Word evidence unchanged; this module annotates a derived copy.
 
 The real 42-document corpus showed that strong separators (two or more blank
 Word body blocks) are useful anchors but far too sparse to represent every
-conversation turn.  A classifier must therefore also react to one-blank
+conversation turn. A classifier must therefore also react to one-blank
 boundaries without treating every such boundary as a role change.
 """
 
@@ -17,11 +17,23 @@ from dataclasses import replace
 from .model import LegacyBlock
 
 
-ROLE_INFERENCE_VERSION = "legacy-role-inference-v2"
+ROLE_INFERENCE_VERSION = "legacy-role-inference-v3"
 
 ASSISTANT_OPENING_HINTS = re.compile(
     r"^(?:parfait|excellent|très bonne question|bonne idée|ton intuition|"
     r"alors oui|oui[,.… ]|exactement|en effet|tout à fait|tu as fait exactement)",
+    re.IGNORECASE,
+)
+
+# Corpus audit found a repeatable false-positive family: assistant answers often
+# end with an offer/next-step paragraph separated by one blank line. When the
+# following assistant answer is itself strongly recognizable, v2 could mistake
+# that tail for a short User turn in an Assistant/User/Assistant sandwich.
+ASSISTANT_TAIL_HINTS = re.compile(
+    r"^(?:si tu veux\b|quand tu veux\b|dès que\b|ensuite\s*:|"
+    r"étape suivante\b|prochaine étape\b|tu peux y aller\b|"
+    r"👉\s*(?:là tu\b|corrige\b|dis-moi\b)|"
+    r"très bien[,. ]|excellent choix\b)",
     re.IGNORECASE,
 )
 
@@ -62,7 +74,8 @@ def _assistant_anchor(block: LegacyBlock, *, strong: bool) -> tuple[str, str] | 
 def _strong_user_anchor(block: LegacyBlock) -> tuple[str, str] | None:
     if not _plain_paragraph(block):
         return None
-    if ASSISTANT_OPENING_HINTS.search(block.text.strip()):
+    text = block.text.strip()
+    if ASSISTANT_OPENING_HINTS.search(text) or ASSISTANT_TAIL_HINTS.search(text):
         return None
     if (
         block.blank_blocks_before >= 2
@@ -80,12 +93,17 @@ def _first_anchor(block: LegacyBlock) -> tuple[str, str] | None:
     if not _plain_paragraph(block):
         return None
 
-    assistant_like = bool(ASSISTANT_OPENING_HINTS.search(block.text.strip()))
+    text = block.text.strip()
+    assistant_like = bool(ASSISTANT_OPENING_HINTS.search(text))
     if block.blank_blocks_before >= 3:
         assistant = _assistant_anchor(block, strong=True)
         if assistant is not None:
             return assistant
-        if block.bold_run_count == 0 and not assistant_like:
+        if (
+            block.bold_run_count == 0
+            and not assistant_like
+            and not ASSISTANT_TAIL_HINTS.search(text)
+        ):
             return "user", "medium"
     return None
 
@@ -99,11 +117,11 @@ def _weak_user_sandwich(
     """Detect a short User turn between two Assistant regions.
 
     A plain single-run paragraph after one blank is not enough by itself: such
-    paragraphs also occur inside Assistant answers.  It becomes useful User
+    paragraphs also occur inside Assistant answers. It becomes useful User
     evidence when the preceding region is Assistant and the next non-sentinel
     block starts with a one-or-more-blank, independently recognizable
-    Assistant anchor.  This models the common ``assistant -> user -> assistant``
-    pattern without lexical classification of the User text.
+    Assistant anchor. Assistant-tail language is explicitly rejected because
+    the real corpus showed it to be a common false-positive family.
     """
 
     if current_role != "assistant":
@@ -113,7 +131,9 @@ def _weak_user_sandwich(
         return False
     if block.run_count != 1 or block.bold_run_count or block.italic_run_count:
         return False
-    if ASSISTANT_OPENING_HINTS.search(block.text.strip()):
+
+    text = block.text.strip()
+    if ASSISTANT_OPENING_HINTS.search(text) or ASSISTANT_TAIL_HINTS.search(text):
         return False
 
     for following in blocks[index + 1 :]:
@@ -131,13 +151,15 @@ def _weak_user_sandwich(
 
 
 def infer_roles(blocks: tuple[LegacyBlock, ...]) -> tuple[LegacyBlock, ...]:
-    """Annotate blocks while preferring ``unknown`` over long false propagation.
+    """Annotate blocks while preferring ``unknown`` over false propagation.
 
     Rules:
     - strong (>=2 blank) boundaries always start a fresh segment;
     - one-blank boundaries can start a clear Assistant anchor;
     - a weak User anchor is accepted only in an Assistant/User/Assistant
       structural sandwich;
+    - assistant-tail offers/next-step text are never promoted to User merely
+      because they are sandwiched between recognizable Assistant regions;
     - when a User-labelled region reaches an ambiguous one-blank boundary, it
       stops propagating and becomes unknown instead of painting the rest of the
       document User;
