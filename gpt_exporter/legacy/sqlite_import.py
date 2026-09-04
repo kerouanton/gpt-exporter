@@ -81,7 +81,6 @@ def import_legacy_conversation(
     conversation: dict[str, Any],
     *,
     docx_root: Path,
-    parser_version: str | None,
     force: bool = False,
 ) -> tuple[str, bool, int]:
     source_filename = str(conversation.get("source_filename") or "").strip()
@@ -112,6 +111,7 @@ def import_legacy_conversation(
 
     indexed_at = now_iso()
     source_mtime_ns = source.stat().st_mtime_ns
+    parser_version = str(conversation.get("parser_version") or "").strip() or None
     role_inference_version = conversation.get("role_inference_version")
     turn_builder_version = conversation.get("turn_builder_version")
     starts_mid = conversation.get("starts_mid_conversation")
@@ -150,6 +150,7 @@ def import_legacy_conversation(
 
         delete_message_index_rows(connection, conversation_id)
 
+        indexed_turns = 0
         for position, turn in enumerate(turns, start=1):
             if not isinstance(turn, dict):
                 continue
@@ -183,6 +184,7 @@ def import_legacy_conversation(
                 """,
                 (cursor.lastrowid, body, title, conversation_id, message_id, role),
             )
+            indexed_turns += 1
 
         connection.execute(
             """
@@ -221,7 +223,7 @@ def import_legacy_conversation(
             ),
         )
 
-    return conversation_id, True, len(turns)
+    return conversation_id, True, indexed_turns
 
 
 def import_legacy_collection(
@@ -249,7 +251,6 @@ def import_legacy_collection(
                     connection,
                     conversation,
                     docx_root=docx_root,
-                    parser_version=str(payload.get("parser_version") or "") or None,
                     force=force,
                 )
                 if changed:
