@@ -110,6 +110,17 @@ class LegacySQLiteImportTests(unittest.TestCase):
                 self.assertEqual(provenance["parser_version"], "legacy-docx-parser-v2")
                 self.assertEqual(provenance["category_hint"], "HAM")
 
+                category = connection.execute(
+                    """
+                    SELECT cat.name
+                    FROM conversation_categories AS cc
+                    JOIN categories AS cat ON cat.category_id = cc.category_id
+                    WHERE cc.conversation_id = ?
+                    """,
+                    (conversation_id,),
+                ).fetchone()
+                self.assertEqual(category["name"], "HAM")
+
                 fts_count = connection.execute(
                     "SELECT count(*) AS n FROM messages_fts WHERE conversation_id = ?",
                     (conversation_id,),
