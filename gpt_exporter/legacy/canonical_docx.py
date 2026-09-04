@@ -27,8 +27,12 @@ def _markdown_escape_line(value: str) -> str:
 
 
 def build_legacy_markdown(conversation: dict[str, Any]) -> str:
-    """Build a conservative Markdown document for one normalized legacy conversation."""
-    title = str(conversation.get("title_hint") or "Untitled legacy conversation").strip()
+    """Build a conservative Markdown document for one normalized legacy conversation.
+
+    The DOCX exporter receives the conversation title separately through its
+    ``document_title`` argument.  Do not emit a Markdown H1 here, otherwise the
+    rendered DOCX contains the title twice.
+    """
     source_filename = str(conversation.get("source_filename") or "unknown").strip()
     source_sha = str(conversation.get("source_sha256") or "unknown").strip()
     category = str(conversation.get("category_hint") or "").strip()
@@ -39,8 +43,6 @@ def build_legacy_markdown(conversation: dict[str, Any]) -> str:
     starts_mid = conversation.get("starts_mid_conversation")
 
     lines = [
-        f"# {title}",
-        "",
         "> **Legacy DOCX normalized derivative.** This document was reconstructed from an immutable historical Word capture. The historical DOCX remains the authoritative source.",
         "",
         "## Provenance",
