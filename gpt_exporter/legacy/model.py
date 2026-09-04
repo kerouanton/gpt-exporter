@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Literal
 
 
-LEGACY_SCHEMA = "gpt-exporter-legacy-conversation-v1"
+LEGACY_SCHEMA = "gpt-exporter-legacy-conversation-v2"
 LegacyRole = Literal["user", "assistant", "unknown"]
 LegacyBlockKind = Literal["paragraph", "heading", "table", "hyperlink_sentinel"]
 
@@ -21,6 +21,21 @@ class LegacyBlock:
     style: str | None = None
     role: LegacyRole = "unknown"
     role_confidence: str = "none"
+
+    # Word evidence retained for later role/turn inference.  These fields are
+    # observations only; none of them implies a role on its own.
+    blank_blocks_before: int = 0
+    alignment: str | None = None
+    left_indent_emu: int | None = None
+    right_indent_emu: int | None = None
+    first_line_indent_emu: int | None = None
+    shading_fill: str | None = None
+    has_borders: bool = False
+    has_numbering: bool = False
+    run_count: int = 0
+    bold_run_count: int = 0
+    italic_run_count: int = 0
+    hyperlink_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
