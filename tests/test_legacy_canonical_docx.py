@@ -57,6 +57,7 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
         markdown = build_legacy_markdown(self.conversation())
         self.assertIn("Legacy DOCX normalized derivative", markdown)
         self.assertIn(CANONICAL_LEGACY_DOCX_VERSION, markdown)
+        self.assertNotIn("# Analyse avec SSA3021X part1", markdown)
         self.assertIn("## User", markdown)
         self.assertIn("## Unknown", markdown)
         self.assertIn("## Assistant", markdown)
@@ -82,8 +83,13 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             self.assertIn("[normalized]", result.output_path.name)
 
             document = Document(result.output_path)
-            text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+            paragraphs = [paragraph.text for paragraph in document.paragraphs]
+            text = "\n".join(paragraphs)
             self.assertIn("Analyse avec SSA3021X part1", text)
+            self.assertEqual(
+                sum(paragraph.strip() == "Analyse avec SSA3021X part1" for paragraph in paragraphs),
+                1,
+            )
             self.assertIn("grands rangements", text)
             self.assertIn("Unknown", text)
 
