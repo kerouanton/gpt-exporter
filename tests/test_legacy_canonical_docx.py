@@ -53,9 +53,11 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             ],
         }
 
-    def test_markdown_preserves_provenance_and_unknown_turns(self) -> None:
+    def test_markdown_preserves_provenance_unknown_turns_and_text_only_scope(self) -> None:
         markdown = build_legacy_markdown(self.conversation())
-        self.assertIn("Legacy DOCX normalized derivative", markdown)
+        self.assertIn("Legacy DOCX normalized derivative (text-only)", markdown)
+        self.assertIn("images, embedded files, and other attachments", markdown)
+        self.assertIn("Consult the source DOCX", markdown)
         self.assertIn(CANONICAL_LEGACY_DOCX_VERSION, markdown)
         self.assertNotIn("# Analyse avec SSA3021X part1", markdown)
         self.assertIn("## User", markdown)
@@ -92,6 +94,8 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             )
             self.assertIn("grands rangements", text)
             self.assertIn("Unknown", text)
+            self.assertIn("text-only", text)
+            self.assertIn("attachments", text)
 
 
 if __name__ == "__main__":
