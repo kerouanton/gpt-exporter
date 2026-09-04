@@ -194,12 +194,15 @@ py build_legacy_canonical_docx.py legacy-docx-turns.json `
   --limit 1
 ```
 
-Current renderer version: `legacy-canonical-docx-v1`.
+Current renderer version: `legacy-canonical-docx-v2`.
+
+This renderer is intentionally **text-only**. Images, embedded files, and other attachments present in the historical DOCX are not copied into the normalized derivative in this pass. The generated document states that limitation explicitly and points back to the historical source DOCX, which remains authoritative for all media/attachment content.
 
 Each derived DOCX contains:
 
 - the normalized conversation title;
-- an explicit `Legacy DOCX normalized derivative` warning;
+- an explicit `Legacy DOCX normalized derivative (text-only)` warning;
+- an explicit media-scope warning;
 - source filename and SHA-256;
 - parser / role-inference / turn-builder / renderer versions;
 - category/date hints;
@@ -241,13 +244,14 @@ immutable historical DOCX
         -> conservative role inference v3
         -> normalized turns v1
         -> SQLite/FTS5 + provenance
-        -> optional normalized DOCX derivative
+        -> optional normalized DOCX derivative (text-only v2)
 ```
 
 The legacy DOCX remains the authoritative source. Derived IR/turn JSON and normalized DOCX files may be regenerated when parser or inference logic improves.
 
 ## Known limitations
 
+- the current normalized DOCX renderer intentionally does not copy images or embedded attachments from the historical DOCX;
 - attachments that were not embedded/preserved in the copied Word page cannot be recovered automatically;
 - 39 current turn regions remain deliberately `unknown` in the validated corpus;
 - some captures begin in the middle of an Assistant response;
