@@ -35,7 +35,6 @@ class LegacyDocxTests(unittest.TestCase):
         document.add_paragraph("question suivante")
         document.add_paragraph("")
         document.add_paragraph("Deuxième réponse.")
-        document.core_properties.created = None
         document.save(path)
         return path
 
@@ -57,6 +56,7 @@ class LegacyDocxTests(unittest.TestCase):
 
         self.assertEqual(metadata.category_hint, "HAM")
         self.assertEqual(metadata.date_hint, "2026-04-03")
+        self.assertEqual(metadata.title_hint, "BOM transverter 3.2-20 GHz")
         self.assertEqual(metadata.legacy_time_hint, "154435")
         self.assertFalse(metadata.normalized)
 
