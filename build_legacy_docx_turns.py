@@ -42,7 +42,9 @@ def main(argv: list[str] | None = None) -> int:
             totals[turn.role] += 1
         output_conversations.append({
             "source_filename": conversation.get("source_filename"),
+            "source_path": conversation.get("source_path"),
             "source_sha256": conversation.get("source_sha256"),
+            "parser_version": conversation.get("parser_version"),
             "title_hint": conversation.get("title_hint"),
             "category_hint": conversation.get("category_hint"),
             "date_hint": conversation.get("date_hint"),
@@ -57,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         "schema": TURN_SCHEMA + "-collection",
         "source_schema": payload.get("schema"),
         "source_count": len(output_conversations),
+        "parser_version": payload.get("parser_version"),
         "role_inference_version": payload.get("role_inference_version"),
         "turn_builder_version": TURN_BUILDER_VERSION,
         "turn_counts": totals,
