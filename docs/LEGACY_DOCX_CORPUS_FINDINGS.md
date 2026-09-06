@@ -41,17 +41,63 @@ Therefore:
 - incomplete starts must be explicitly representable;
 - unstructured fallback indexing must remain possible.
 
-## Phase 2 direction
+## Validated reconstruction result
 
-Recommended next parser stage:
+The corpus has been reconstructed into 654 normalized turns:
+
+```text
+User:      304
+Assistant: 311
+Unknown:    39
+Total:     654
+```
+
+The 42 historical DOCX sources have been imported successfully into the normal SQLite/FTS5 browser path. The original DOCX files remain immutable authoritative sources.
+
+## Media-preservation phase
+
+The normalized-DOCX renderer now performs source-assisted media recovery before using the normal GPT Exporter Markdown-to-DOCX renderer.
+
+Current path:
+
+```text
+legacy turn JSON + immutable source DOCX
+    -> restored Word block text
+    -> embedded relationship extraction
+    -> derived asset files
+    -> Markdown local image/attachment references
+    -> standard Markdown-to-DOCX renderer
+```
+
+The extractor recognizes:
+
+- DrawingML inline images;
+- historical VML image relationships;
+- embedded OLE/package relationships when the payload is physically present in the DOCX package.
+
+Assets are content-addressed and stored below the normalized output directory so repetitive Word package names such as `image1.png` cannot collide across conversations.
+
+The next corpus-level acceptance pass must compare all 42 historical DOCX files with their regenerated `[normalized].docx` derivatives and record at least:
+
+- source vs regenerated image counts;
+- exported embedded-attachment counts;
+- unresolved embedded relationship counts;
+- text/turn reconstruction differences already visible during manual review;
+- any external attachment links whose original bytes are not present in the Word package.
+
+A link to a historical attachment is not evidence that the attachment bytes are embedded in Word. Missing bytes must never be invented; the historical DOCX remains authoritative when recovery is impossible.
+
+## Preservation direction
+
+The legacy pipeline should continue to follow these rules:
 
 1. preserve the original DOCX unchanged and hash it;
-2. extract ordered blocks (paragraphs, tables, links, embedded-object references) instead of flattening to plain text;
-3. classify block features such as style, indentation, spacing, table adjacency, heading density, hyperlinks, and list/code characteristics;
-4. infer candidate turn boundaries with confidence scores rather than binary rules;
-5. assign roles only when evidence is strong enough;
-6. allow `unknown` role blocks and `starts_mid_conversation=true` when the beginning cannot be reconstructed safely;
-7. keep a full-text fallback so every legacy document remains searchable even when turn reconstruction is partial;
-8. only after corpus validation, synthesize the canonical derived representation and connect it to SQLite/FTS5.
+2. preserve ordered Word evidence separately from role inference;
+3. infer roles conservatively and retain `unknown` regions;
+4. keep normalized turns as a versioned JSON-derived representation;
+5. recover physically embedded assets without rewriting the source;
+6. feed reconstructed Markdown through the same DOCX renderer used by native GPT Exporter output;
+7. keep exported assets and normalized DOCX files derived/rebuildable;
+8. validate the full corpus before declaring media parity complete.
 
-The corpus confirms that legacy DOCX import is viable, but it should be modeled as provenance-preserving reconstruction rather than a lossless conversion from native ChatGPT export data.
+The corpus confirms that legacy DOCX import is viable, but it must remain provenance-preserving reconstruction rather than pretending to be a lossless native ChatGPT export conversion.
