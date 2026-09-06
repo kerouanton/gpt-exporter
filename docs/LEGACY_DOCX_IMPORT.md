@@ -2,7 +2,7 @@
 
 Historical ChatGPT conversations may exist only as `.docx` files created by copying the full ChatGPT web page into Microsoft Word. These files are valuable archive sources, but they are not equivalent to native ChatGPT JSON exports and must not be silently treated as such.
 
-For native conversations, the durable source remains the exported JSON/XZ and DOCX is a derived presentation format. For legacy conversations, the historical DOCX is the immutable source of evidence and all JSON/SQLite representations are derived from it.
+For native conversations, the durable source remains the exported JSON/XZ and DOCX is a derived presentation format. For legacy conversations, the historical DOCX is the immutable source of evidence and all JSON/SQLite/Markdown/normalized-DOCX representations are derived from it.
 
 ## Preferred filename convention
 
@@ -27,7 +27,7 @@ The filename supplies category/date/title hints. The source DOCX SHA-256 is the 
 Legacy import is deliberately non-destructive:
 
 - source DOCX files are never modified;
-- SHA-256 is verified before SQLite import;
+- SHA-256 is verified before SQLite import and before source-assisted reconstruction;
 - role inference is stored separately from raw Word evidence;
 - ambiguous regions remain `unknown` instead of being silently forced to User/Assistant;
 - SQLite conversation IDs are stable and derived from source SHA-256;
@@ -36,7 +36,9 @@ Legacy import is deliberately non-destructive:
 - import is idempotent and supports forced reindex without creating duplicates;
 - the GUI/CLI validation pass does not modify SQLite;
 - an SQLite backup is created before applied GUI/CLI imports;
-- normalized legacy DOCX files are written to a separate output directory and never replace historical sources.
+- normalized legacy DOCX files are written to a separate output directory and never replace historical sources;
+- embedded images and recoverable embedded packages are copied into a derived asset tree before rendering;
+- the final normalized DOCX is still produced by the normal GPT Exporter Markdown-to-DOCX engine rather than a legacy-specific Word renderer.
 
 ## Current validated corpus
 
@@ -50,6 +52,8 @@ Total turns:     654
 ```
 
 All 42 source hashes validate, all 654 turns are present in `messages`, and all 654 are present in FTS5. A live browser search has been verified against legacy-only text.
+
+Media/attachment parity must be revalidated after running the asset-preserving normalized-DOCX renderer over the complete corpus.
 
 ## Pipeline
 
@@ -139,6 +143,8 @@ py import_legacy_docx_turns.py legacy-docx-turns.json `
 
 Use `--force` when a newer importer needs to refresh metadata such as origin/category display without changing stable conversation IDs.
 
+For the already imported historical corpus this command is primarily a maintenance/rebuild path. Keep it available until the complete regenerated-DOCX corpus has been verified and for future reconstruction-version changes.
+
 ### 8. Verify the resulting index
 
 ```text
@@ -179,36 +185,63 @@ The GUI intentionally starts from `legacy-docx-turns.json`, not raw DOCX. It pro
 
 This keeps the validated reconstruction pipeline separate from the database write step.
 
-### 11. Generate normalized legacy DOCX derivatives
+### 11. Generate normalized legacy DOCX derivatives with assets
 
 ```powershell
 py build_legacy_canonical_docx.py legacy-docx-turns.json `
-  --output-dir legacy-normalized-docx
+  --docx-root "F:\GPT" `
+  --output-dir legacy-normalized-docx `
+  --overwrite
 ```
 
 For an initial visual smoke test, generate only one document:
 
 ```powershell
 py build_legacy_canonical_docx.py legacy-docx-turns.json `
+  --docx-root "F:\GPT" `
   --output-dir legacy-normalized-docx `
-  --limit 1
+  --limit 1 `
+  --overwrite
 ```
 
-Current renderer version: `legacy-canonical-docx-v2`.
+Current renderer version: `legacy-canonical-docx-v4`.
+Current asset exporter: `legacy-asset-export-v1`.
 
-This renderer is intentionally **text-only**. Images, embedded files, and other attachments present in the historical DOCX are not copied into the normalized derivative in this pass. The generated document states that limitation explicitly and points back to the historical source DOCX, which remains authoritative for all media/attachment content.
+The reconstruction path is deliberately shared with normal GPT Exporter output:
 
-Each derived DOCX contains:
+```text
+legacy-docx-turns.json
+        + immutable source DOCX
+        -> restored Word block text
+        -> exported assets
+        -> transient Markdown with local asset references
+        -> standard GPT Exporter Markdown-to-DOCX renderer
+        -> [normalized].docx
+```
 
-- the normalized conversation title;
-- an explicit `Legacy DOCX normalized derivative (text-only)` warning;
-- an explicit media-scope warning;
-- source filename and SHA-256;
-- parser / role-inference / turn-builder / renderer versions;
-- category/date hints;
-- one section per reconstructed User, Assistant or Unknown turn;
-- reconstruction confidence/source-order metadata when available;
-- an explicit warning when one or more turns remain `UNKNOWN`.
+Recoverable embedded assets are copied below:
+
+```text
+legacy-normalized-docx\assets\legacy\<source-sha-prefix>\
+```
+
+Asset filenames are content-addressed with SHA-256 prefixes so Word-internal names such as `image1.png` cannot collide between conversations.
+
+The renderer currently preserves:
+
+- original source Word block text when the immutable source DOCX is available;
+- reconstructed User / Assistant / Unknown turn boundaries from the validated JSON;
+- inline DrawingML images;
+- historical VML image relationships;
+- embedded OLE/package relationships when their bytes are present in the DOCX package;
+- source filename/SHA and reconstruction-version provenance;
+- local asset links through the same Markdown/DOCX path used by native GPT Exporter exports.
+
+Images are represented as ordinary local Markdown images and are therefore embedded by the normal DOCX renderer. Embedded package/OLE payloads are exported as local files and represented as ordinary local attachment links.
+
+A historical attachment that Word preserved only as an external hyperlink does not contain recoverable attachment bytes in the DOCX package. Such a file must not be invented. The historical DOCX remains authoritative whenever an embedded relationship cannot be recovered.
+
+The build command reports total exported assets, images, attachments and unresolved embedded relationships. A non-zero unresolved relationship count returns a non-zero validation status so incomplete corpus reconstruction is visible.
 
 Derived filenames end in:
 
@@ -242,18 +275,22 @@ Legacy path:
 immutable historical DOCX
         -> Word IR v2
         -> conservative role inference v3
-        -> normalized turns v1
+        -> normalized turns v1 (JSON)
         -> SQLite/FTS5 + provenance
-        -> optional normalized DOCX derivative (text-only v2)
+        -> source-assisted asset export
+        -> Markdown
+        -> standard GPT Exporter DOCX renderer
+        -> normalized DOCX + derived assets
 ```
 
-The legacy DOCX remains the authoritative source. Derived IR/turn JSON and normalized DOCX files may be regenerated when parser or inference logic improves.
+The legacy DOCX remains the authoritative source. Derived IR/turn JSON, exported assets and normalized DOCX files may be regenerated when parser, inference or rendering logic improves.
 
 ## Known limitations
 
-- the current normalized DOCX renderer intentionally does not copy images or embedded attachments from the historical DOCX;
-- attachments that were not embedded/preserved in the copied Word page cannot be recovered automatically;
+- attachments that were not embedded/preserved in the copied Word page cannot be reconstructed from nonexistent bytes;
+- external hyperlinks may identify a historical attachment without containing the attachment itself;
 - 39 current turn regions remain deliberately `unknown` in the validated corpus;
 - some captures begin in the middle of an Assistant response;
 - the legacy parser reconstructs searchable conversation structure, not the exact original ChatGPT DOM;
-- role inference is corpus-informed and versioned, so future parser versions may improve the reconstruction while preserving the original source and provenance.
+- role inference is corpus-informed and versioned, so future parser versions may improve the reconstruction while preserving the original source and provenance;
+- complete visual/media parity must be measured on the real 42-DOCX corpus after regenerating all normalized documents with the current renderer.
