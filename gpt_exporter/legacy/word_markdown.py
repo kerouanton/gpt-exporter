@@ -42,8 +42,15 @@ def _style_flag(style, attribute: str) -> bool | None:
     return None
 
 
-def _effective_run_flag(run, paragraph, attribute: str) -> bool:
-    """Resolve direct formatting plus character/paragraph style inheritance."""
+def _effective_run_flag(run, attribute: str) -> bool:
+    """Resolve direct formatting plus inherited character-style formatting.
+
+    Paragraph-style emphasis is intentionally not emitted as inline Markdown.
+    Structural paragraph semantics such as headings are represented by their
+    Markdown block syntax and rendered by the standard exporter style system.
+    Duplicating that emphasis around every run can create adjacent CommonMark
+    delimiters and changes representation without adding information.
+    """
     direct = getattr(run, attribute)
     if direct is not None:
         return bool(direct)
@@ -53,18 +60,10 @@ def _effective_run_flag(run, paragraph, attribute: str) -> bool:
     except (AttributeError, KeyError):
         character_style = None
     character_value = _style_flag(character_style, attribute)
-    if character_value is not None:
-        return character_value
-
-    try:
-        paragraph_style = paragraph.style
-    except (AttributeError, KeyError):
-        paragraph_style = None
-    paragraph_value = _style_flag(paragraph_style, attribute)
-    return bool(paragraph_value) if paragraph_value is not None else False
+    return bool(character_value) if character_value is not None else False
 
 
-def _run_markdown(run, paragraph) -> str:
+def _run_markdown(run) -> str:
     text = str(run.text or "")
     if not text:
         return ""
@@ -85,8 +84,8 @@ def _run_markdown(run, paragraph) -> str:
         return _escape_inline(text)
 
     core = _escape_inline(core)
-    bold = _effective_run_flag(run, paragraph, "bold")
-    italic = _effective_run_flag(run, paragraph, "italic")
+    bold = _effective_run_flag(run, "bold")
+    italic = _effective_run_flag(run, "italic")
     if bold and italic:
         core = f"***{core}***"
     elif bold:
@@ -106,7 +105,7 @@ def _paragraph_inline_markdown(paragraph) -> str:
         if local == "r":
             run = runs_by_xml.get(id(child))
             if run is not None:
-                value = _run_markdown(run, paragraph)
+                value = _run_markdown(run)
                 if value:
                     parts.append(value)
             continue
