@@ -182,7 +182,7 @@ def import_legacy_conversation(
                 title,
                 created_at,
                 created_at,
-                str(source),  # compatibility field; provenance table states the real source type
+                str(source),
                 source_mtime_ns,
                 str(source),
                 indexed_at,
@@ -228,9 +228,6 @@ def import_legacy_conversation(
             )
             indexed_turns += 1
 
-        # Filename-derived legacy categories are trustworthy metadata, not a
-        # semantic guess. Preserve any existing manual categories and add this
-        # assignment idempotently.
         if category_hint:
             category = get_or_create_category(connection, category_hint)
             connection.execute(
@@ -295,7 +292,8 @@ def import_legacy_collection(
 
     database_path.parent.mkdir(parents=True, exist_ok=True)
     counts = {"updated": 0, "unchanged": 0, "turns": 0, "failed": 0}
-    with connect_database(database_path) as connection:
+    connection = connect_database(database_path)
+    try:
         ensure_legacy_provenance_schema(connection)
         connection.commit()
         for conversation in conversations:
@@ -317,4 +315,6 @@ def import_legacy_collection(
             except (OSError, ValueError, sqlite3.Error):
                 counts["failed"] += 1
                 raise
+    finally:
+        connection.close()
     return counts
