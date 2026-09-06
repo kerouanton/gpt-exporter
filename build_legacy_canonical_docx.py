@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from gpt_exporter.legacy.canonical_docx_v6 import (
+from gpt_exporter.legacy.canonical_docx_v7 import (
     CANONICAL_LEGACY_DOCX_VERSION,
     export_legacy_canonical_docx,
 )
