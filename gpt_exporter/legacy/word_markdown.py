@@ -148,20 +148,23 @@ def _numbering_kind(document: Document, paragraph) -> tuple[str, int] | None:
     return ("bullet" if num_format == "bullet" else "ordered", level)
 
 
-def _table_cell(value: str) -> str:
-    return (
-        value.replace("\r\n", "\n")
-        .replace("\r", "\n")
-        .replace("\\", "\\\\")
-        .replace("|", "\\|")
-        .replace("\n", "<br>")
-        .strip()
-    )
+def _table_cell_markdown(cell) -> str:
+    """Preserve inline Markdown semantics inside a Word table cell."""
+    paragraphs: list[str] = []
+    for paragraph in cell.paragraphs:
+        value = _paragraph_inline_markdown(paragraph)
+        if value:
+            # Pipes delimit Markdown table cells. Hard line breaks cannot span a
+            # physical Markdown table row, so use the same <br> convention as
+            # ordinary ChatGPT Markdown exports for meaningful intra-cell lines.
+            value = value.replace("|", "\\|").replace("  \n", "<br>")
+            paragraphs.append(value)
+    return "<br>".join(paragraphs).strip()
 
 
 def _table_markdown(table) -> str:
     rows = [
-        [_table_cell(cell.text) for cell in row.cells]
+        [_table_cell_markdown(cell) for cell in row.cells]
         for row in table.rows
         if any(str(cell.text).strip() for cell in row.cells)
     ]
