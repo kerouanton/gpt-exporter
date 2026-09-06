@@ -5,6 +5,7 @@ print(f"The filename of this script is: {file_name}")
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from legacy_import_gui import backup_database
@@ -15,7 +16,7 @@ class LegacyImportGuiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             database = root / "index.sqlite"
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.execute("CREATE TABLE sample (value TEXT NOT NULL)")
                 connection.execute("INSERT INTO sample (value) VALUES ('legacy')")
                 connection.commit()
@@ -26,7 +27,7 @@ class LegacyImportGuiTests(unittest.TestCase):
             self.assertTrue(backup.is_file())
             self.assertNotEqual(backup, database)
 
-            with sqlite3.connect(backup) as connection:
+            with closing(sqlite3.connect(backup)) as connection:
                 value = connection.execute("SELECT value FROM sample").fetchone()[0]
             self.assertEqual(value, "legacy")
 
