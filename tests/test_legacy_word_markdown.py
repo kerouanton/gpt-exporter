@@ -35,7 +35,10 @@ class LegacyWordMarkdownTests(unittest.TestCase):
             table.cell(0, 0).text = "Key"
             table.cell(0, 1).text = "Value"
             table.cell(1, 0).text = "A"
-            table.cell(1, 1).text = "B"
+            cell = table.cell(1, 1)
+            cell.text = ""
+            cell.paragraphs[0].add_run("important").bold = True
+            cell.paragraphs[0].add_run(" value")
             document.save(source)
 
             blocks = source_block_markdown(source)
@@ -46,7 +49,7 @@ class LegacyWordMarkdownTests(unittest.TestCase):
             self.assertIn("1. numbered *italic*", rendered)
             self.assertIn("first line  \nsecond line", rendered)
             self.assertIn("| Key | Value |", rendered)
-            self.assertIn("| A | B |", rendered)
+            self.assertIn("| A | **important** value |", rendered)
 
 
 if __name__ == "__main__":
