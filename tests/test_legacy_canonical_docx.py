@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from docx import Document
+from PIL import Image
 
 from gpt_exporter.legacy.canonical_docx import (
     CANONICAL_LEGACY_DOCX_VERSION,
@@ -54,12 +55,11 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             ],
         }
 
-    def test_markdown_preserves_provenance_unknown_turns_and_text_only_scope(self) -> None:
+    def test_markdown_preserves_provenance_and_unknown_turns(self) -> None:
         markdown = build_legacy_markdown(self.conversation())
-        self.assertIn("Legacy DOCX normalized derivative (text-only)", markdown)
-        self.assertIn("images, embedded files, and other attachments", markdown)
-        self.assertIn("Consult the source DOCX", markdown)
+        self.assertIn("Legacy DOCX normalized derivative", markdown)
         self.assertIn(CANONICAL_LEGACY_DOCX_VERSION, markdown)
+        self.assertIn("Asset exporter", markdown)
         self.assertNotIn("# Analyse avec SSA3021X part1", markdown)
         self.assertIn("## User", markdown)
         self.assertIn("## Unknown", markdown)
@@ -84,6 +84,7 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             self.assertEqual(result.turn_count, 3)
             self.assertEqual(result.unknown_turn_count, 1)
             self.assertFalse(result.source_text_restored)
+            self.assertEqual(result.asset_count, 0)
             self.assertIn("[normalized]", result.output_path.name)
 
             document = Document(result.output_path)
@@ -96,8 +97,6 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             )
             self.assertIn("grands rangements", text)
             self.assertIn("Unknown", text)
-            self.assertIn("text-only", text)
-            self.assertIn("attachments", text)
 
     def test_export_restores_manual_line_breaks_from_immutable_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -145,6 +144,57 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             self.assertIn("first code line", text)
             self.assertIn("second code line", text)
             self.assertIn("source Word blocks restored", text)
+
+    def test_export_preserves_inline_image_via_assets_and_standard_renderer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_path = root / "source-image.png"
+            Image.new("RGB", (24, 16), "white").save(image_path)
+
+            source = root / "HAM GPT 2026-04-03 Media.docx"
+            source_document = Document()
+            paragraph = source_document.add_paragraph("spectrum result")
+            paragraph.add_run().add_picture(str(image_path))
+            source_document.save(source)
+            source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+
+            conversation = {
+                "source_filename": source.name,
+                "source_sha256": source_sha,
+                "title_hint": "Media",
+                "parser_version": "legacy-docx-parser-v2",
+                "role_inference_version": "legacy-role-inference-v3",
+                "turn_builder_version": "legacy-turn-builder-v1",
+                "turns": [
+                    {
+                        "role": "assistant",
+                        "confidence": "high",
+                        "first_order": 0,
+                        "last_order": 0,
+                        "source_orders": [0],
+                        "content": "spectrum result",
+                    }
+                ],
+            }
+
+            output_dir = root / "normalized"
+            result = export_legacy_canonical_docx(
+                conversation,
+                output_dir,
+                overwrite=True,
+                docx_root=root,
+            )
+
+            self.assertEqual(result.asset_count, 1)
+            self.assertEqual(result.image_count, 1)
+            self.assertEqual(result.attachment_count, 0)
+            self.assertEqual(result.unresolved_asset_count, 0)
+            exported_assets = list((output_dir / "assets" / "legacy").rglob("*.png"))
+            self.assertEqual(len(exported_assets), 1)
+
+            normalized = Document(result.output_path)
+            self.assertEqual(len(normalized.inline_shapes), 1)
+            self.assertIn("spectrum result", "\n".join(p.text for p in normalized.paragraphs))
 
     def test_explicit_docx_root_refuses_missing_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
