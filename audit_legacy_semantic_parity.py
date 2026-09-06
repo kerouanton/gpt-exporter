@@ -13,7 +13,9 @@ import csv
 import hashlib
 import json
 import re
+import time
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 from docx import Document
@@ -23,6 +25,10 @@ NORMALIZED_SUFFIX = " [normalized]"
 IMAGE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 OLE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject"
 PACKAGE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"
+
+
+def _stamp() -> str:
+    return datetime.now().astimezone().strftime("%H:%M:%S")
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -45,11 +51,7 @@ def _style_name(paragraph) -> str:
 
 
 def _heading_count(document: Document) -> int:
-    return sum(
-        1
-        for paragraph in document.paragraphs
-        if _style_name(paragraph).casefold().startswith(("heading ", "titre "))
-    )
+    return sum(1 for paragraph in document.paragraphs if _style_name(paragraph).casefold().startswith(("heading ", "titre ")))
 
 
 def _list_count(document: Document) -> int:
@@ -80,13 +82,11 @@ def _normalized_text(value: str) -> str:
 
 
 def _style_flag(style, attribute: str, cache: dict[tuple[int, str], bool | None]) -> bool | None:
-    """Resolve a font boolean through a Word style's base-style chain, cached."""
     if style is None:
         return None
     key = (id(style), attribute)
     if key in cache:
         return cache[key]
-
     visited: set[int] = set()
     current = style
     result: bool | None = None
@@ -103,22 +103,14 @@ def _style_flag(style, attribute: str, cache: dict[tuple[int, str], bool | None]
             current = current.base_style
         except (AttributeError, KeyError):
             current = None
-
     cache[key] = result
     return result
 
 
-def _effective_run_flag(
-    run,
-    paragraph,
-    attribute: str,
-    cache: dict[tuple[int, str], bool | None],
-) -> bool:
-    """Resolve direct formatting plus cached character/paragraph style inheritance."""
+def _effective_run_flag(run, paragraph, attribute: str, cache: dict[tuple[int, str], bool | None]) -> bool:
     direct = getattr(run, attribute)
     if direct is not None:
         return bool(direct)
-
     try:
         character_style = run.style
     except (AttributeError, KeyError):
@@ -126,7 +118,6 @@ def _effective_run_flag(
     character_value = _style_flag(character_style, attribute, cache)
     if character_value is not None:
         return character_value
-
     try:
         paragraph_style = paragraph.style
     except (AttributeError, KeyError):
@@ -136,7 +127,6 @@ def _effective_run_flag(
 
 
 def _emphasis_spans(document: Document, attribute: str) -> Counter[str]:
-    """Collect contiguous effectively emphasized text, independent of run boundaries."""
     spans: Counter[str] = Counter()
     style_cache: dict[tuple[int, str], bool | None] = {}
     for paragraph in _all_paragraphs(document):
@@ -160,7 +150,6 @@ def _emphasis_spans(document: Document, attribute: str) -> Counter[str]:
 
 
 def _missing_emphasis(source: Counter[str], normalized: Counter[str]) -> list[str]:
-    """Report source emphasized spans absent from normalized emphasized content."""
     normalized_spans = [value.casefold() for value in normalized]
     missing: list[str] = []
     for source_text in source:
@@ -171,13 +160,7 @@ def _missing_emphasis(source: Counter[str], normalized: Counter[str]) -> list[st
 
 
 def _literal_br_cells(document: Document) -> int:
-    return sum(
-        1
-        for table in document.tables
-        for row in table.rows
-        for cell in row.cells
-        if "<br>" in cell.text.casefold()
-    )
+    return sum(1 for table in document.tables for row in table.rows for cell in row.cells if "<br>" in cell.text.casefold())
 
 
 def _relationship_payloads(path: Path) -> tuple[list[str], list[str]]:
@@ -224,19 +207,15 @@ def _normalized_path(output_dir: Path, source: Path) -> Path:
 def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, object]:
     source_doc = Document(source)
     normalized_doc = Document(normalized)
-
     source_images, source_attachments = _relationship_payloads(source)
     normalized_images, _ = _relationship_payloads(normalized)
-
     source_sha = _sha256_file(source)
     asset_dir = output_dir / "assets" / "legacy" / source_sha[:16]
     exported_hashes = _asset_hashes(asset_dir)
-
     source_bold = _emphasis_spans(source_doc, "bold")
     normalized_bold = _emphasis_spans(normalized_doc, "bold")
     source_italic = _emphasis_spans(source_doc, "italic")
     normalized_italic = _emphasis_spans(normalized_doc, "italic")
-
     source_tables = len(source_doc.tables)
     normalized_tables = len(normalized_doc.tables)
     source_headings = _heading_count(source_doc)
@@ -246,11 +225,9 @@ def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, ob
     source_links = _hyperlink_count(source_doc)
     normalized_links = _hyperlink_count(normalized_doc)
     literal_br_cells = _literal_br_cells(normalized_doc)
-
     missing_asset_hashes = sorted((set(source_images) | set(source_attachments)) - exported_hashes)
     missing_bold = _missing_emphasis(source_bold, normalized_bold)
     missing_italic = _missing_emphasis(source_italic, normalized_italic)
-
     failures: list[str] = []
     warnings: list[str] = []
     if normalized_tables < source_tables:
@@ -271,76 +248,59 @@ def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, ob
         warnings.append(f"italic spans not found: {len(missing_italic)}")
     if literal_br_cells:
         warnings.append(f"literal <br> text in {literal_br_cells} table cell(s)")
-
     status = "FAIL" if failures else ("WARN" if warnings else "PASS")
     return {
-        "source": source.name,
-        "normalized": normalized.name,
-        "status": status,
-        "source_tables": source_tables,
-        "normalized_tables": normalized_tables,
-        "source_headings": source_headings,
-        "normalized_headings": normalized_headings,
-        "source_lists": source_lists,
-        "normalized_lists": normalized_lists,
-        "source_hyperlinks": source_links,
-        "normalized_hyperlinks": normalized_links,
-        "source_images": len(source_images),
-        "normalized_images": len(normalized_images),
+        "source": source.name, "normalized": normalized.name, "status": status,
+        "source_tables": source_tables, "normalized_tables": normalized_tables,
+        "source_headings": source_headings, "normalized_headings": normalized_headings,
+        "source_lists": source_lists, "normalized_lists": normalized_lists,
+        "source_hyperlinks": source_links, "normalized_hyperlinks": normalized_links,
+        "source_images": len(source_images), "normalized_images": len(normalized_images),
         "source_attachments": len(source_attachments),
         "exported_asset_files": len([p for p in asset_dir.rglob("*") if p.is_file()]) if asset_dir.is_dir() else 0,
         "literal_br_cells": literal_br_cells,
-        "missing_bold_examples": missing_bold,
-        "missing_italic_examples": missing_italic,
-        "failures": failures,
-        "warnings": warnings,
+        "missing_bold_examples": missing_bold, "missing_italic_examples": missing_italic,
+        "failures": failures, "warnings": warnings,
     }
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Audit semantic parity of legacy normalized DOCX files")
-    parser.add_argument("--source-dir", type=Path, required=True, help="Directory containing immutable historical DOCX files")
-    parser.add_argument("--normalized-dir", type=Path, required=True, help="Directory containing [normalized].docx files and assets/")
+    parser.add_argument("--source-dir", type=Path, required=True)
+    parser.add_argument("--normalized-dir", type=Path, required=True)
     parser.add_argument("--json", type=Path, default=Path("legacy-semantic-audit.json"))
     parser.add_argument("--csv", type=Path, default=Path("legacy-semantic-audit.csv"))
     args = parser.parse_args(argv)
-
     source_dir = args.source_dir.expanduser().resolve()
     output_dir = args.normalized_dir.expanduser().resolve()
     sources = sorted(path for path in source_dir.glob("*.docx") if NORMALIZED_SUFFIX not in path.stem)
-
     results: list[dict[str, object]] = []
     missing_normalized: list[str] = []
-    for source in sources:
+    total_started = time.perf_counter()
+    for index, source in enumerate(sources, start=1):
         normalized = _normalized_path(output_dir, source)
         if not normalized.is_file():
             missing_normalized.append(normalized.name)
             continue
+        started = time.perf_counter()
+        print(f"[{_stamp()}] START {index:02}/{len(sources):02} {source.name}", flush=True)
         result = audit_pair(source, normalized, output_dir)
+        elapsed = time.perf_counter() - started
         results.append(result)
-        print(f"{result['status']:4}  {source.name}")
+        print(f"[{_stamp()}] {result['status']:4}  {elapsed:7.2f}s {source.name}", flush=True)
         for problem in result["failures"]:
             print(f"      FAIL: {problem}")
         for warning in result["warnings"]:
             print(f"      WARN: {warning}")
-
     summary = {
-        "source_count": len(sources),
-        "audited_count": len(results),
-        "missing_normalized": missing_normalized,
+        "source_count": len(sources), "audited_count": len(results), "missing_normalized": missing_normalized,
         "pass": sum(result["status"] == "PASS" for result in results),
         "warn": sum(result["status"] == "WARN" for result in results),
         "fail": sum(result["status"] == "FAIL" for result in results),
     }
     payload = {"schema": "gpt-exporter-legacy-semantic-audit-v4", "summary": summary, "results": results}
     args.json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-    fieldnames = [
-        "source", "normalized", "status", "source_tables", "normalized_tables",
-        "source_headings", "normalized_headings", "source_lists", "normalized_lists",
-        "source_hyperlinks", "normalized_hyperlinks", "source_images", "normalized_images",
-        "source_attachments", "exported_asset_files", "literal_br_cells", "failures", "warnings",
-    ]
+    fieldnames = ["source", "normalized", "status", "source_tables", "normalized_tables", "source_headings", "normalized_headings", "source_lists", "normalized_lists", "source_hyperlinks", "normalized_hyperlinks", "source_images", "normalized_images", "source_attachments", "exported_asset_files", "literal_br_cells", "failures", "warnings"]
     with args.csv.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -349,19 +309,17 @@ def main(argv: list[str] | None = None) -> int:
             row["failures"] = "; ".join(result["failures"])
             row["warnings"] = "; ".join(result["warnings"])
             writer.writerow(row)
-
-    print()
-    print("Semantic audit summary")
-    print("======================")
+    total_elapsed = time.perf_counter() - total_started
+    print("\nSemantic audit summary\n======================")
     print(f"Sources : {summary['source_count']}")
     print(f"Audited : {summary['audited_count']}")
     print(f"PASS    : {summary['pass']}")
     print(f"WARN    : {summary['warn']}")
     print(f"FAIL    : {summary['fail']}")
     print(f"Missing : {len(missing_normalized)}")
+    print(f"Elapsed : {total_elapsed:.2f}s")
     print(f"JSON    : {args.json.resolve()}")
     print(f"CSV     : {args.csv.resolve()}")
-
     return 1 if summary["fail"] or missing_normalized else 0
 
 
