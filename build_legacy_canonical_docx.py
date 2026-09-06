@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
+from datetime import datetime
 from pathlib import Path
 
 from gpt_exporter.legacy.canonical_docx_v9 import (
@@ -15,6 +17,10 @@ from gpt_exporter.legacy.canonical_docx_v9 import (
 
 file_name = os.path.basename(__file__)
 print(f"The filename of this script is: {file_name}")
+
+
+def _stamp() -> str:
+    return datetime.now().astimezone().strftime("%H:%M:%S")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,16 +68,21 @@ def main(argv: list[str] | None = None) -> int:
     image_count = 0
     attachment_count = 0
     unresolved_asset_count = 0
+    total_started = time.perf_counter()
 
-    for conversation in selected:
+    for index, conversation in enumerate(selected, start=1):
         if not isinstance(conversation, dict):
             continue
+        source_name = str(conversation.get("source_file") or conversation.get("title") or f"conversation {index}")
+        started = time.perf_counter()
+        print(f"[{_stamp()}] START {index:02}/{len(selected):02} {source_name}", flush=True)
         result = export_legacy_canonical_docx(
             conversation,
             output_dir,
             overwrite=args.overwrite,
             docx_root=docx_root,
         )
+        elapsed = time.perf_counter() - started
         total_turns += result.turn_count
         unknown_turns += result.unknown_turn_count
         restored += int(result.source_text_restored)
@@ -81,15 +92,17 @@ def main(argv: list[str] | None = None) -> int:
         unresolved_asset_count += result.unresolved_asset_count
         if result.skipped:
             skipped += 1
-            print(f"Skipped existing: {result.output_path.name}")
+            print(f"[{_stamp()}] DONE  {index:02}/{len(selected):02} {elapsed:7.2f}s Skipped: {result.output_path.name}", flush=True)
         else:
             created += 1
             print(
-                f"Created: {result.output_path.name} "
+                f"[{_stamp()}] DONE  {index:02}/{len(selected):02} {elapsed:7.2f}s Created: {result.output_path.name} "
                 f"(images={result.image_count}, attachments={result.attachment_count}, "
-                f"unresolved={result.unresolved_asset_count})"
+                f"unresolved={result.unresolved_asset_count})",
+                flush=True,
             )
 
+    total_elapsed = time.perf_counter() - total_started
     print(f"Canonical renderer: {CANONICAL_LEGACY_DOCX_VERSION}")
     print(f"Created DOCX: {created}")
     print(f"Skipped DOCX: {skipped}")
@@ -100,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  images: {image_count}")
     print(f"  attachments: {attachment_count}")
     print(f"Unresolved embedded relationships: {unresolved_asset_count}")
+    print(f"Total elapsed: {total_elapsed:.2f}s")
     print(f"Output directory: {output_dir}")
     return 0 if unresolved_asset_count == 0 else 2
 
