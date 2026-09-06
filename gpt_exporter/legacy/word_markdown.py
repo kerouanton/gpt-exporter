@@ -40,16 +40,15 @@ def _run_markdown(run) -> str:
 def _paragraph_inline_markdown(paragraph) -> str:
     """Preserve run emphasis, hyperlinks and manual Word line breaks."""
     parts: list[str] = []
+    runs_by_xml = {id(run._r): run for run in paragraph.runs}
     for child in paragraph._p:
         local = child.tag.rsplit("}", 1)[-1]
         if local == "r":
-            # Find the python-docx Run corresponding to this XML run.
-            run = next((candidate for candidate in paragraph.runs if candidate._r is child), None)
+            run = runs_by_xml.get(id(child))
             if run is not None:
                 value = _run_markdown(run)
                 if value:
                     parts.append(value)
-            # python-docx run.text already contains tabs/newlines for w:tab/w:br.
             continue
         if local == "hyperlink":
             rid = child.get(qn("r:id"))
@@ -64,26 +63,34 @@ def _paragraph_inline_markdown(paragraph) -> str:
             elif label:
                 parts.append(_escape_inline(label))
     text = "".join(parts)
-    # A manual line break inside a Word paragraph becomes a Markdown hard break.
     return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "  \n").strip()
 
 
-def _heading_level(paragraph) -> int | None:
+def _style_name(paragraph) -> str:
     try:
-        name = str(paragraph.style.name or "").strip()
+        return str(paragraph.style.name or "").strip()
     except (AttributeError, KeyError):
-        return None
-    match = _HEADING_RE.match(name)
+        return ""
+
+
+def _heading_level(paragraph) -> int | None:
+    match = _HEADING_RE.match(_style_name(paragraph))
     if not match:
         return None
     return max(1, min(int(match.group(1)), 6))
 
 
 def _numbering_kind(document: Document, paragraph) -> tuple[str, int] | None:
-    """Resolve paragraph numPr to bullet/ordered and indentation level."""
+    """Resolve paragraph numbering, including style-based Word lists."""
     p_pr = paragraph._p.pPr
     if p_pr is None or p_pr.numPr is None:
+        style = _style_name(paragraph).casefold()
+        if "list bullet" in style or "liste à puces" in style:
+            return ("bullet", 0)
+        if "list number" in style or "liste num" in style:
+            return ("ordered", 0)
         return None
+
     num_pr = p_pr.numPr
     num_id = num_pr.numId
     ilvl = num_pr.ilvl
