@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Literal
 
 
-LEGACY_SCHEMA = "gpt-exporter-legacy-conversation-v2"
+LEGACY_SCHEMA = "gpt-exporter-legacy-conversation-v3"
 LegacyRole = Literal["user", "assistant", "unknown"]
 LegacyBlockKind = Literal["paragraph", "heading", "table", "hyperlink_sentinel"]
 
@@ -21,6 +21,10 @@ class LegacyBlock:
     style: str | None = None
     role: LegacyRole = "unknown"
     role_confidence: str = "none"
+
+    # Tables keep both searchable flattened text and their real cell matrix.
+    # Empty for non-table blocks and for IR created before schema v3.
+    table_rows: tuple[tuple[str, ...], ...] = ()
 
     # Word evidence retained for later role/turn inference.  These fields are
     # observations only; none of them implies a role on its own.
