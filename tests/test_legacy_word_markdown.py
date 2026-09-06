@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
 
 from gpt_exporter.legacy.word_markdown import source_block_markdown
 
@@ -36,6 +37,16 @@ class LegacyWordMarkdownTests(unittest.TestCase):
             spaced.add_run(" emphasized ").bold = True
             spaced.add_run("after")
 
+            inherited_bold = document.styles.add_style("Inherited Bold", WD_STYLE_TYPE.CHARACTER)
+            inherited_bold.font.bold = True
+            inherited_italic = document.styles.add_style("Inherited Italic", WD_STYLE_TYPE.CHARACTER)
+            inherited_italic.font.italic = True
+            inherited = document.add_paragraph()
+            inherited.add_run("styled ")
+            inherited.add_run("bold by style").style = inherited_bold
+            inherited.add_run(" and ")
+            inherited.add_run("italic by style").style = inherited_italic
+
             table = document.add_table(rows=2, cols=2)
             table.cell(0, 0).text = "Key"
             table.cell(0, 1).text = "Value"
@@ -55,6 +66,7 @@ class LegacyWordMarkdownTests(unittest.TestCase):
             self.assertIn("first line  \nsecond line", rendered)
             self.assertIn("before **emphasized** after", rendered)
             self.assertNotIn("** emphasized **", rendered)
+            self.assertIn("styled **bold by style** and *italic by style*", rendered)
             self.assertIn("| Key | Value |", rendered)
             self.assertIn("| A | **important** value |", rendered)
 
