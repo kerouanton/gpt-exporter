@@ -11,7 +11,7 @@ from docx.oxml.ns import qn
 
 _HEADING_RE = re.compile(r"^(?:heading|titre)\s*(\d+)$", re.IGNORECASE)
 _FENCE_LINE_RE = re.compile(r"^\s*(`{3,})([^`]*)\s*$")
-_STYLE_FLAG_CACHE: dict[tuple[int, str], bool | None] = {}
+_STYLE_FLAG_CACHE: dict[tuple[str, str], bool | None] = {}
 
 
 def _escape_inline(text: str) -> str:
@@ -25,21 +25,35 @@ def _escape_inline(text: str) -> str:
     )
 
 
+def _style_key(style) -> str:
+    """Return a stable identifier for one Word style."""
+    try:
+        return str(style.style_id or style.name or "")
+    except (AttributeError, KeyError):
+        return ""
+
+
 def _style_flag(style, attribute: str) -> bool | None:
     """Resolve a font boolean through a Word style's base-style chain, cached."""
     if style is None:
         return None
 
-    key = (id(style._element), attribute)
+    style_key = _style_key(style)
+    if not style_key:
+        return None
+    key = (style_key, attribute)
     cached = _STYLE_FLAG_CACHE.get(key, ...)
     if cached is not ...:
         return cached
 
-    visited: set[int] = set()
+    visited: set[str] = set()
     current = style
     result: bool | None = None
-    while current is not None and id(current._element) not in visited:
-        visited.add(id(current._element))
+    while current is not None:
+        current_key = _style_key(current)
+        if not current_key or current_key in visited:
+            break
+        visited.add(current_key)
         try:
             value = getattr(current.font, attribute)
         except (AttributeError, KeyError):
