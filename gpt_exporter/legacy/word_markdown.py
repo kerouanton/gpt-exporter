@@ -80,6 +80,12 @@ def _heading_level(paragraph) -> int | None:
     return max(1, min(int(match.group(1)), 6))
 
 
+def _children_by_tag(element, tag: str):
+    """Find direct OOXML children using fully-qualified names, not XPath prefixes."""
+    qualified = qn(tag)
+    return [child for child in element if child.tag == qualified]
+
+
 def _numbering_kind(document: Document, paragraph) -> tuple[str, int] | None:
     """Resolve paragraph numbering, including style-based Word lists."""
     p_pr = paragraph._p.pPr
@@ -106,22 +112,38 @@ def _numbering_kind(document: Document, paragraph) -> tuple[str, int] | None:
         level = 0
 
     numbering = document.part.numbering_part.element
-    nums = numbering.xpath(f"./w:num[@w:numId='{num_id_value}']")
+    nums = [
+        node for node in _children_by_tag(numbering, "w:num")
+        if node.get(qn("w:numId")) == str(num_id_value)
+    ]
     if not nums:
         return ("ordered", level)
-    abstract_id_nodes = nums[0].xpath("./w:abstractNumId")
+
+    abstract_id_nodes = _children_by_tag(nums[0], "w:abstractNumId")
     if not abstract_id_nodes:
         return ("ordered", level)
     abstract_id = abstract_id_nodes[0].get(qn("w:val"))
-    abstracts = numbering.xpath(f"./w:abstractNum[@w:abstractNumId='{abstract_id}']")
+
+    abstracts = [
+        node for node in _children_by_tag(numbering, "w:abstractNum")
+        if node.get(qn("w:abstractNumId")) == abstract_id
+    ]
     if not abstracts:
         return ("ordered", level)
-    levels = abstracts[0].xpath(f"./w:lvl[@w:ilvl='{level}']")
+
+    levels = [
+        node for node in _children_by_tag(abstracts[0], "w:lvl")
+        if node.get(qn("w:ilvl")) == str(level)
+    ]
     if not levels:
-        levels = abstracts[0].xpath("./w:lvl[@w:ilvl='0']")
+        levels = [
+            node for node in _children_by_tag(abstracts[0], "w:lvl")
+            if node.get(qn("w:ilvl")) == "0"
+        ]
     if not levels:
         return ("ordered", level)
-    formats = levels[0].xpath("./w:numFmt")
+
+    formats = _children_by_tag(levels[0], "w:numFmt")
     num_format = formats[0].get(qn("w:val")) if formats else "decimal"
     return ("bullet" if num_format == "bullet" else "ordered", level)
 
