@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from gpt_exporter.legacy.canonical_docx_v9 import (
+from gpt_exporter.legacy.canonical_docx_v10 import (
     CANONICAL_LEGACY_DOCX_VERSION,
     export_legacy_canonical_docx,
 )
