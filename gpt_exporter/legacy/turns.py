@@ -8,8 +8,8 @@ from typing import Literal
 from .model import LegacyBlock, LegacyRole
 
 
-TURN_SCHEMA = "gpt-exporter-legacy-turns-v1"
-TURN_BUILDER_VERSION = "legacy-turn-builder-v1"
+TURN_SCHEMA = "gpt-exporter-legacy-turns-v2"
+TURN_BUILDER_VERSION = "legacy-turn-builder-v2"
 TurnConfidence = Literal["high", "medium", "low", "none"]
 
 _CONFIDENCE_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
@@ -28,17 +28,17 @@ class LegacyTurn:
     last_order: int
     source_orders: tuple[int, ...]
     block_kinds: tuple[str, ...]
+    tables: tuple[dict[str, object], ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         result = asdict(self)
         result["source_orders"] = list(self.source_orders)
         result["block_kinds"] = list(self.block_kinds)
+        result["tables"] = [dict(table) for table in self.tables]
         return result
 
 
 def _confidence(blocks: list[LegacyBlock]) -> TurnConfidence:
-    """Use the strongest evidence present anywhere in the reconstructed turn."""
-
     best = "none"
     for block in blocks:
         candidate = block.role_confidence
@@ -48,21 +48,20 @@ def _confidence(blocks: list[LegacyBlock]) -> TurnConfidence:
 
 
 def _render_block(block: LegacyBlock) -> str:
-    """Render searchable turn text while retaining light structural cues."""
-
-    text = block.text.strip()
-    if not text:
-        return ""
-    if block.kind == "heading":
-        return text
-    if block.kind == "table":
-        return text
-    return text
+    return block.text.strip()
 
 
 def _turn(index: int, role: LegacyRole, blocks: list[LegacyBlock]) -> LegacyTurn:
     rendered = [_render_block(block) for block in blocks]
     content = "\n\n".join(part for part in rendered if part)
+    tables = tuple(
+        {
+            "order": block.order,
+            "rows": [list(row) for row in block.table_rows],
+        }
+        for block in blocks
+        if block.kind == "table" and block.table_rows
+    )
     return LegacyTurn(
         index=index,
         role=role,
@@ -73,17 +72,11 @@ def _turn(index: int, role: LegacyRole, blocks: list[LegacyBlock]) -> LegacyTurn
         last_order=blocks[-1].order,
         source_orders=tuple(block.order for block in blocks),
         block_kinds=tuple(block.kind for block in blocks),
+        tables=tables,
     )
 
 
 def build_turns(blocks: tuple[LegacyBlock, ...]) -> tuple[LegacyTurn, ...]:
-    """Merge contiguous same-role classified blocks into normalized turns.
-
-    Hyperlink sentinels are provenance wrappers rather than conversation
-    content and are excluded. Unknown regions are intentionally preserved as
-    first-class turns; they are never silently merged into User or Assistant.
-    """
-
     turns: list[LegacyTurn] = []
     current_role: LegacyRole | None = None
     current_blocks: list[LegacyBlock] = []
