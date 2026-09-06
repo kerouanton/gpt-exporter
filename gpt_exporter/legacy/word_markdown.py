@@ -27,14 +27,31 @@ def _run_markdown(run) -> str:
     text = str(run.text or "")
     if not text:
         return ""
-    text = _escape_inline(text)
+
+    # CommonMark emphasis delimiters cannot reliably open/close next to
+    # whitespace. Word often splits one emphasized span into runs that carry a
+    # leading or trailing space, so keep that whitespace outside the Markdown
+    # markers while preserving the visible text exactly.
+    leading_match = re.match(r"^\s*", text)
+    trailing_match = re.search(r"\s*$", text)
+    leading = leading_match.group(0) if leading_match else ""
+    trailing = trailing_match.group(0) if trailing_match else ""
+    start = len(leading)
+    end = len(text) - len(trailing) if trailing else len(text)
+    core = text[start:end]
+
+    if not core:
+        return _escape_inline(text)
+
+    core = _escape_inline(core)
     if run.bold is True and run.italic is True:
-        return f"***{text}***"
-    if run.bold is True:
-        return f"**{text}**"
-    if run.italic is True:
-        return f"*{text}*"
-    return text
+        core = f"***{core}***"
+    elif run.bold is True:
+        core = f"**{core}**"
+    elif run.italic is True:
+        core = f"*{core}*"
+
+    return f"{leading}{core}{trailing}"
 
 
 def _paragraph_inline_markdown(paragraph) -> str:
