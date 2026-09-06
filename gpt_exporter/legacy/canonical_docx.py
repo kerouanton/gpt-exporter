@@ -21,7 +21,7 @@ from gpt_exporter.legacy.assets import (
 )
 
 
-CANONICAL_LEGACY_DOCX_VERSION = "legacy-canonical-docx-v4"
+CANONICAL_LEGACY_DOCX_VERSION = "legacy-canonical-docx-v5"
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,12 +38,48 @@ class CanonicalLegacyDocxResult:
 
 
 def _markdown_escape_line(value: str) -> str:
-    """Avoid accidental top-level Markdown syntax in metadata values."""
     return value.replace("\r", " ").replace("\n", " ").strip()
 
 
 def _markdown_label(value: str) -> str:
     return value.replace("[", "(").replace("]", ")").replace("\r", " ").replace("\n", " ").strip()
+
+
+def _markdown_table_cell(value: str) -> str:
+    return (
+        value.replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("\n", "<br>")
+        .strip()
+    )
+
+
+def _markdown_table(rows: list[list[str]]) -> str:
+    """Render a Word table as GitHub/CommonMark table syntax.
+
+    Markdown tables require a header row. Word captures do not expose whether
+    row 1 was semantically a header, so the first physical row is preserved as
+    the Markdown header rather than inventing a new row.
+    """
+    cleaned = [
+        [_markdown_table_cell(cell) for cell in row]
+        for row in rows
+        if any(str(cell).strip() for cell in row)
+    ]
+    if not cleaned:
+        return ""
+    width = max(len(row) for row in cleaned)
+    normalized = [row + [""] * (width - len(row)) for row in cleaned]
+    header = normalized[0]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join("---" for _ in range(width)) + " |",
+    ]
+    for row in normalized[1:]:
+        lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(lines)
 
 
 def _sha256(path: Path) -> str:
@@ -70,7 +106,6 @@ def _resolve_source_docx(
     conversation: dict[str, Any],
     docx_root: Path | None,
 ) -> Path | None:
-    """Locate the immutable historical DOCX used to restore text and assets."""
     source_filename = str(conversation.get("source_filename") or "").strip()
 
     if docx_root is not None:
@@ -103,20 +138,20 @@ def _resolve_source_docx(
     return None
 
 
-def _source_block_texts(source_docx: Path) -> dict[int, str]:
-    """Read source Word block text without collapsing manual line breaks."""
+def _source_block_markdown(source_docx: Path) -> dict[int, str]:
+    """Restore source blocks while preserving Word tables as Markdown tables."""
     document = Document(source_docx)
     result: dict[int, str] = {}
     for order, item in enumerate(document.iter_inner_content()):
         if hasattr(item, "rows"):
-            rows: list[str] = []
-            for row in item.rows:
-                cells = [cell.text.strip() for cell in row.cells]
-                rows.append(" | ".join(cells))
-            text = "\n".join(row for row in rows if row.strip(" |"))
+            rows = [
+                [cell.text for cell in row.cells]
+                for row in item.rows
+            ]
+            text = _markdown_table(rows)
         else:
             text = str(item.text or "")
-        text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+            text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
         if text:
             result[order] = text
     return result
@@ -144,13 +179,6 @@ def _assign_assets_to_turns(
     turns: list[dict[str, Any]],
     assets: tuple[LegacyAsset, ...],
 ) -> dict[int, list[LegacyAsset]]:
-    """Assign media-only Word blocks to the nearest reconstructed turn.
-
-    Assets inside a turn's known Word span are exact.  An asset in a gap is
-    conservatively attached to the preceding turn (or the first turn when it
-    precedes all reconstructed content), preserving document order without
-    inventing a new User/Assistant role.
-    """
     assignments: dict[int, list[LegacyAsset]] = {index: [] for index in range(len(turns))}
     if not turns:
         return assignments
@@ -176,14 +204,48 @@ def _assign_assets_to_turns(
     return assignments
 
 
+def _tables_from_turn_json(turn: dict[str, Any]) -> dict[int, str]:
+    """Read structured tables from turns-v2 when no source DOCX is available."""
+    result: dict[int, str] = {}
+    raw_tables = turn.get("tables")
+    if not isinstance(raw_tables, list):
+        return result
+    for raw in raw_tables:
+        if not isinstance(raw, dict) or not isinstance(raw.get("order"), int):
+            continue
+        raw_rows = raw.get("rows")
+        if not isinstance(raw_rows, list):
+            continue
+        rows = [
+            [str(cell) for cell in row]
+            for row in raw_rows
+            if isinstance(row, list)
+        ]
+        markdown = _markdown_table(rows)
+        if markdown:
+            result[int(raw["order"])] = markdown
+    return result
+
+
 def _turn_body(
     turn: dict[str, Any],
     source_blocks: dict[int, str] | None,
     assets: list[LegacyAsset],
     markdown_base: Path | None,
 ) -> str:
-    """Restore Word block text and interleave exported assets by source order."""
+    """Restore Word blocks and interleave tables/assets by source order."""
     if source_blocks is None:
+        table_blocks = _tables_from_turn_json(turn)
+        if table_blocks:
+            # turns-v2 retains exact table structure. The flattened content is
+            # still the search representation; without source blocks we append
+            # structured tables explicitly rather than silently losing them.
+            body = str(turn.get("content") or "").strip()
+            table_text = "\n\n".join(table_blocks[order] for order in sorted(table_blocks))
+            media = ""
+            if assets and markdown_base is not None:
+                media = "\n\n".join(_asset_markdown(asset, markdown_base) for asset in assets)
+            return "\n\n".join(part for part in (body, table_text, media) if part)
         body = str(turn.get("content") or "").strip()
         if assets and markdown_base is not None:
             media = "\n\n".join(_asset_markdown(asset, markdown_base) for asset in assets)
@@ -222,12 +284,6 @@ def build_legacy_markdown(
     asset_export: LegacyAssetExport | None = None,
     markdown_base: Path | None = None,
 ) -> str:
-    """Build Markdown consumed by the normal GPT Exporter DOCX renderer.
-
-    Text and role boundaries come from the validated legacy-turn JSON.  When
-    the immutable source DOCX is available, original Word block text is re-read
-    and exported images/embedded packages are interleaved by Word block order.
-    """
     source_filename = str(conversation.get("source_filename") or "unknown").strip()
     source_sha = str(conversation.get("source_sha256") or "unknown").strip()
     category = str(conversation.get("category_hint") or "").strip()
@@ -236,7 +292,7 @@ def build_legacy_markdown(
     role_version = str(conversation.get("role_inference_version") or "unknown").strip()
     turn_version = str(conversation.get("turn_builder_version") or "unknown").strip()
     starts_mid = conversation.get("starts_mid_conversation")
-    source_blocks = _source_block_texts(source_docx) if source_docx is not None else None
+    source_blocks = _source_block_markdown(source_docx) if source_docx is not None else None
     assets = asset_export.assets if asset_export is not None else ()
 
     lines = [
@@ -275,31 +331,22 @@ def build_legacy_markdown(
 
     unknown_count = sum(str(turn.get("role") or "unknown") == "unknown" for turn in turns)
     if unknown_count:
-        lines.extend(
-            [
-                "",
-                f"> **Reconstruction note:** {unknown_count} turn(s) remain `UNKNOWN` because the historical Word evidence was not strong enough to assign a role safely.",
-            ]
-        )
+        lines.extend([
+            "",
+            f"> **Reconstruction note:** {unknown_count} turn(s) remain `UNKNOWN` because the historical Word evidence was not strong enough to assign a role safely.",
+        ])
     if asset_export is not None and asset_export.unresolved_relationships:
-        lines.extend(
-            [
-                "",
-                f"> **Asset note:** {len(asset_export.unresolved_relationships)} embedded relationship(s) could not be exported and remain available only in the historical DOCX.",
-            ]
-        )
+        lines.extend([
+            "",
+            f"> **Asset note:** {len(asset_export.unresolved_relationships)} embedded relationship(s) could not be exported and remain available only in the historical DOCX.",
+        ])
 
     lines.extend(["", "---", ""])
 
     role_titles = {"user": "User", "assistant": "Assistant", "unknown": "Unknown"}
     emitted = 0
     for index, turn in enumerate(turns):
-        body = _turn_body(
-            turn,
-            source_blocks,
-            assigned_assets.get(index, []),
-            markdown_base,
-        )
+        body = _turn_body(turn, source_blocks, assigned_assets.get(index, []), markdown_base)
         if not body:
             continue
         role = str(turn.get("role") or "unknown").strip().lower()
@@ -338,7 +385,6 @@ def export_legacy_canonical_docx(
     overwrite: bool = False,
     docx_root: Path | None = None,
 ) -> CanonicalLegacyDocxResult:
-    """Export one reconstructed derivative through JSON -> Markdown -> DOCX."""
     output_dir = Path(output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / canonical_output_name(conversation)
@@ -369,9 +415,6 @@ def export_legacy_canonical_docx(
             source_sha256=source_sha,
         )
 
-    # Keep Markdown transient, but place it below output_dir so all asset links
-    # are ordinary relative paths.  The existing Markdown -> DOCX converter is
-    # therefore used unchanged for both native and legacy rendering.
     with tempfile.TemporaryDirectory(prefix=".legacy-md-", dir=output_dir) as temporary:
         markdown_path = Path(temporary) / "conversation.md"
         markdown = build_legacy_markdown(
