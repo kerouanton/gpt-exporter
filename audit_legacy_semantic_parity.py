@@ -2,14 +2,15 @@
 
 This intentionally does NOT compare pagination or Word-specific styling. It
 checks only information that GPT Exporter's modern Markdown -> DOCX pipeline
-can represent: text structure, headings, lists, emphasis, hyperlinks, tables,
-and recoverable embedded assets.
+can represent: text structure, headings, lists, inline emphasis, hyperlinks,
+tables, and recoverable embedded assets.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import gc
 import hashlib
 import json
 import re
@@ -51,7 +52,11 @@ def _style_name(paragraph) -> str:
 
 
 def _heading_count(document: Document) -> int:
-    return sum(1 for paragraph in document.paragraphs if _style_name(paragraph).casefold().startswith(("heading ", "titre ")))
+    return sum(
+        1
+        for paragraph in document.paragraphs
+        if _style_name(paragraph).casefold().startswith(("heading ", "titre "))
+    )
 
 
 def _list_count(document: Document) -> int:
@@ -81,17 +86,41 @@ def _normalized_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def _style_flag(style, attribute: str, cache: dict[tuple[int, str], bool | None]) -> bool | None:
+def _style_key(style) -> str:
+    """Return a stable key for python-docx style proxy objects."""
+    try:
+        style_id = str(style.style_id or "")
+    except (AttributeError, KeyError):
+        style_id = ""
+    if style_id:
+        return style_id
+    try:
+        return str(style.name or "")
+    except (AttributeError, KeyError):
+        return ""
+
+
+def _style_flag(
+    style,
+    attribute: str,
+    cache: dict[tuple[str, str], bool | None],
+) -> bool | None:
+    """Resolve a character-style font boolean through its base-style chain."""
     if style is None:
         return None
-    key = (id(style), attribute)
+
+    key = (_style_key(style), attribute)
     if key in cache:
         return cache[key]
-    visited: set[int] = set()
+
+    visited: set[str] = set()
     current = style
     result: bool | None = None
-    while current is not None and id(current) not in visited:
-        visited.add(id(current))
+    while current is not None:
+        current_key = _style_key(current)
+        if current_key in visited:
+            break
+        visited.add(current_key)
         try:
             value = getattr(current.font, attribute)
         except (AttributeError, KeyError):
@@ -103,50 +132,70 @@ def _style_flag(style, attribute: str, cache: dict[tuple[int, str], bool | None]
             current = current.base_style
         except (AttributeError, KeyError):
             current = None
+
     cache[key] = result
     return result
 
 
-def _effective_run_flag(run, paragraph, attribute: str, cache: dict[tuple[int, str], bool | None]) -> bool:
+def _effective_inline_flag(
+    run,
+    attribute: str,
+    cache: dict[tuple[str, str], bool | None],
+) -> bool:
+    """Resolve inline emphasis exactly as the legacy Markdown converter does.
+
+    Direct run formatting and inherited character-style formatting are inline
+    semantics. Paragraph-style formatting is deliberately excluded: headings,
+    lists and other paragraph semantics are represented by Markdown block
+    structure and rendered by the standard DOCX style system.
+    """
     direct = getattr(run, attribute)
     if direct is not None:
         return bool(direct)
+
     try:
         character_style = run.style
     except (AttributeError, KeyError):
         character_style = None
     character_value = _style_flag(character_style, attribute, cache)
-    if character_value is not None:
-        return character_value
-    try:
-        paragraph_style = paragraph.style
-    except (AttributeError, KeyError):
-        paragraph_style = None
-    paragraph_value = _style_flag(paragraph_style, attribute, cache)
-    return bool(paragraph_value) if paragraph_value is not None else False
+    return bool(character_value) if character_value is not None else False
 
 
-def _emphasis_spans(document: Document, attribute: str) -> Counter[str]:
-    spans: Counter[str] = Counter()
-    style_cache: dict[tuple[int, str], bool | None] = {}
+def _flush_span(parts: list[str], target: Counter[str]) -> None:
+    if not parts:
+        return
+    value = _normalized_text("".join(parts))
+    if len(value) >= 2:
+        target[value] += 1
+    parts.clear()
+
+
+def _emphasis_spans(document: Document) -> tuple[Counter[str], Counter[str]]:
+    """Collect bold and italic inline spans in one pass through all runs."""
+    bold_spans: Counter[str] = Counter()
+    italic_spans: Counter[str] = Counter()
+    style_cache: dict[tuple[str, str], bool | None] = {}
+
     for paragraph in _all_paragraphs(document):
-        current: list[str] = []
+        current_bold: list[str] = []
+        current_italic: list[str] = []
         for run in paragraph.runs:
-            enabled = _effective_run_flag(run, paragraph, attribute, style_cache)
             text = str(run.text or "")
-            if enabled:
-                current.append(text)
-                continue
-            if current:
-                value = _normalized_text("".join(current))
-                if len(value) >= 2:
-                    spans[value] += 1
-                current = []
-        if current:
-            value = _normalized_text("".join(current))
-            if len(value) >= 2:
-                spans[value] += 1
-    return spans
+
+            if _effective_inline_flag(run, "bold", style_cache):
+                current_bold.append(text)
+            else:
+                _flush_span(current_bold, bold_spans)
+
+            if _effective_inline_flag(run, "italic", style_cache):
+                current_italic.append(text)
+            else:
+                _flush_span(current_italic, italic_spans)
+
+        _flush_span(current_bold, bold_spans)
+        _flush_span(current_italic, italic_spans)
+
+    return bold_spans, italic_spans
 
 
 def _missing_emphasis(source: Counter[str], normalized: Counter[str]) -> list[str]:
@@ -154,17 +203,26 @@ def _missing_emphasis(source: Counter[str], normalized: Counter[str]) -> list[st
     missing: list[str] = []
     for source_text in source:
         needle = source_text.casefold()
-        if not any(needle in candidate or candidate in needle for candidate in normalized_spans if candidate):
+        if not any(
+            needle in candidate or candidate in needle
+            for candidate in normalized_spans
+            if candidate
+        ):
             missing.append(source_text)
     return missing[:20]
 
 
 def _literal_br_cells(document: Document) -> int:
-    return sum(1 for table in document.tables for row in table.rows for cell in row.cells if "<br>" in cell.text.casefold())
+    return sum(
+        1
+        for table in document.tables
+        for row in table.rows
+        for cell in row.cells
+        if "<br>" in cell.text.casefold()
+    )
 
 
-def _relationship_payloads(path: Path) -> tuple[list[str], list[str]]:
-    document = Document(path)
+def _relationship_payloads(document: Document) -> tuple[list[str], list[str]]:
     images: list[str] = []
     attachments: list[str] = []
     seen: set[tuple[str, str]] = set()
@@ -205,17 +263,25 @@ def _normalized_path(output_dir: Path, source: Path) -> Path:
 
 
 def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, object]:
+    phase_started = time.perf_counter()
     source_doc = Document(source)
     normalized_doc = Document(normalized)
-    source_images, source_attachments = _relationship_payloads(source)
-    normalized_images, _ = _relationship_payloads(normalized)
+    open_elapsed = time.perf_counter() - phase_started
+
+    phase_started = time.perf_counter()
+    source_images, source_attachments = _relationship_payloads(source_doc)
+    normalized_images, _ = _relationship_payloads(normalized_doc)
     source_sha = _sha256_file(source)
     asset_dir = output_dir / "assets" / "legacy" / source_sha[:16]
     exported_hashes = _asset_hashes(asset_dir)
-    source_bold = _emphasis_spans(source_doc, "bold")
-    normalized_bold = _emphasis_spans(normalized_doc, "bold")
-    source_italic = _emphasis_spans(source_doc, "italic")
-    normalized_italic = _emphasis_spans(normalized_doc, "italic")
+    assets_elapsed = time.perf_counter() - phase_started
+
+    phase_started = time.perf_counter()
+    source_bold, source_italic = _emphasis_spans(source_doc)
+    normalized_bold, normalized_italic = _emphasis_spans(normalized_doc)
+    emphasis_elapsed = time.perf_counter() - phase_started
+
+    phase_started = time.perf_counter()
     source_tables = len(source_doc.tables)
     normalized_tables = len(normalized_doc.tables)
     source_headings = _heading_count(source_doc)
@@ -225,9 +291,13 @@ def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, ob
     source_links = _hyperlink_count(source_doc)
     normalized_links = _hyperlink_count(normalized_doc)
     literal_br_cells = _literal_br_cells(normalized_doc)
+    structure_elapsed = time.perf_counter() - phase_started
+
+    phase_started = time.perf_counter()
     missing_asset_hashes = sorted((set(source_images) | set(source_attachments)) - exported_hashes)
     missing_bold = _missing_emphasis(source_bold, normalized_bold)
     missing_italic = _missing_emphasis(source_italic, normalized_italic)
+
     failures: list[str] = []
     warnings: list[str] = []
     if normalized_tables < source_tables:
@@ -248,20 +318,44 @@ def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, ob
         warnings.append(f"italic spans not found: {len(missing_italic)}")
     if literal_br_cells:
         warnings.append(f"literal <br> text in {literal_br_cells} table cell(s)")
+
     status = "FAIL" if failures else ("WARN" if warnings else "PASS")
-    return {
-        "source": source.name, "normalized": normalized.name, "status": status,
-        "source_tables": source_tables, "normalized_tables": normalized_tables,
-        "source_headings": source_headings, "normalized_headings": normalized_headings,
-        "source_lists": source_lists, "normalized_lists": normalized_lists,
-        "source_hyperlinks": source_links, "normalized_hyperlinks": normalized_links,
-        "source_images": len(source_images), "normalized_images": len(normalized_images),
+    compare_elapsed = time.perf_counter() - phase_started
+
+    result = {
+        "source": source.name,
+        "normalized": normalized.name,
+        "status": status,
+        "source_tables": source_tables,
+        "normalized_tables": normalized_tables,
+        "source_headings": source_headings,
+        "normalized_headings": normalized_headings,
+        "source_lists": source_lists,
+        "normalized_lists": normalized_lists,
+        "source_hyperlinks": source_links,
+        "normalized_hyperlinks": normalized_links,
+        "source_images": len(source_images),
+        "normalized_images": len(normalized_images),
         "source_attachments": len(source_attachments),
         "exported_asset_files": len([p for p in asset_dir.rglob("*") if p.is_file()]) if asset_dir.is_dir() else 0,
         "literal_br_cells": literal_br_cells,
-        "missing_bold_examples": missing_bold, "missing_italic_examples": missing_italic,
-        "failures": failures, "warnings": warnings,
+        "missing_bold_examples": missing_bold,
+        "missing_italic_examples": missing_italic,
+        "failures": failures,
+        "warnings": warnings,
+        "timing_open_s": round(open_elapsed, 3),
+        "timing_assets_s": round(assets_elapsed, 3),
+        "timing_emphasis_s": round(emphasis_elapsed, 3),
+        "timing_structure_s": round(structure_elapsed, 3),
+        "timing_compare_s": round(compare_elapsed, 3),
     }
+
+    # Drop the large lxml/python-docx trees before returning. Cyclic structures
+    # can otherwise accumulate and trigger very long GC pauses between files.
+    del source_doc
+    del normalized_doc
+    gc.collect()
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -271,36 +365,57 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", type=Path, default=Path("legacy-semantic-audit.json"))
     parser.add_argument("--csv", type=Path, default=Path("legacy-semantic-audit.csv"))
     args = parser.parse_args(argv)
+
     source_dir = args.source_dir.expanduser().resolve()
     output_dir = args.normalized_dir.expanduser().resolve()
     sources = sorted(path for path in source_dir.glob("*.docx") if NORMALIZED_SUFFIX not in path.stem)
     results: list[dict[str, object]] = []
     missing_normalized: list[str] = []
     total_started = time.perf_counter()
+
     for index, source in enumerate(sources, start=1):
         normalized = _normalized_path(output_dir, source)
         if not normalized.is_file():
             missing_normalized.append(normalized.name)
             continue
+
         started = time.perf_counter()
         print(f"[{_stamp()}] START {index:02}/{len(sources):02} {source.name}", flush=True)
         result = audit_pair(source, normalized, output_dir)
         elapsed = time.perf_counter() - started
         results.append(result)
-        print(f"[{_stamp()}] {result['status']:4}  {elapsed:7.2f}s {source.name}", flush=True)
+
+        print(
+            f"[{_stamp()}] {result['status']:4}  {elapsed:7.2f}s {source.name} "
+            f"[open={result['timing_open_s']:.2f}s assets={result['timing_assets_s']:.2f}s "
+            f"emphasis={result['timing_emphasis_s']:.2f}s structure={result['timing_structure_s']:.2f}s "
+            f"compare={result['timing_compare_s']:.2f}s]",
+            flush=True,
+        )
         for problem in result["failures"]:
             print(f"      FAIL: {problem}")
         for warning in result["warnings"]:
             print(f"      WARN: {warning}")
+
     summary = {
-        "source_count": len(sources), "audited_count": len(results), "missing_normalized": missing_normalized,
+        "source_count": len(sources),
+        "audited_count": len(results),
+        "missing_normalized": missing_normalized,
         "pass": sum(result["status"] == "PASS" for result in results),
         "warn": sum(result["status"] == "WARN" for result in results),
         "fail": sum(result["status"] == "FAIL" for result in results),
     }
-    payload = {"schema": "gpt-exporter-legacy-semantic-audit-v4", "summary": summary, "results": results}
+    payload = {"schema": "gpt-exporter-legacy-semantic-audit-v5", "summary": summary, "results": results}
     args.json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    fieldnames = ["source", "normalized", "status", "source_tables", "normalized_tables", "source_headings", "normalized_headings", "source_lists", "normalized_lists", "source_hyperlinks", "normalized_hyperlinks", "source_images", "normalized_images", "source_attachments", "exported_asset_files", "literal_br_cells", "failures", "warnings"]
+
+    fieldnames = [
+        "source", "normalized", "status", "source_tables", "normalized_tables",
+        "source_headings", "normalized_headings", "source_lists", "normalized_lists",
+        "source_hyperlinks", "normalized_hyperlinks", "source_images", "normalized_images",
+        "source_attachments", "exported_asset_files", "literal_br_cells",
+        "timing_open_s", "timing_assets_s", "timing_emphasis_s", "timing_structure_s",
+        "timing_compare_s", "failures", "warnings",
+    ]
     with args.csv.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -309,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
             row["failures"] = "; ".join(result["failures"])
             row["warnings"] = "; ".join(result["warnings"])
             writer.writerow(row)
+
     total_elapsed = time.perf_counter() - total_started
     print("\nSemantic audit summary\n======================")
     print(f"Sources : {summary['source_count']}")
