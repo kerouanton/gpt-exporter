@@ -78,6 +78,37 @@ class LegacyWordMarkdownTests(unittest.TestCase):
             self.assertIn("| Key | Value |", rendered)
             self.assertIn("| A | **important** value |", rendered)
 
+    def test_contains_malformed_raw_markdown_fences_inside_word_paragraph(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "legacy-fence.docx"
+            document = Document()
+
+            raw = document.add_paragraph()
+            raw.add_run(
+                "# Example\n\n"
+                "```bash\n"
+                "```bash\n"
+                "cat > root_openssl.cnf << 'EOF'\n"
+                "default_ca = CA_default\n"
+                "EOF"
+            )
+
+            after = document.add_paragraph()
+            after.add_run("copiable-collable directement").bold = True
+            document.save(source)
+
+            blocks = source_block_markdown(source)
+            values = list(blocks.values())
+            raw_markdown = values[0]
+            after_markdown = values[1]
+
+            self.assertIn("# Example", raw_markdown)
+            self.assertIn("root_openssl.cnf", raw_markdown)
+            self.assertNotIn("root\\_openssl.cnf", raw_markdown)
+            self.assertEqual(raw_markdown.count("```bash"), 1)
+            self.assertTrue(raw_markdown.rstrip().endswith("```"))
+            self.assertIn("**copiable-collable directement**", after_markdown)
+
 
 if __name__ == "__main__":
     unittest.main()
