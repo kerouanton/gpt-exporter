@@ -21,15 +21,15 @@ class LegacyRoleInferenceTests(unittest.TestCase):
         self.assertEqual(inferred[1].role_confidence, "medium")
         self.assertEqual(inferred[2].role, "assistant")
 
-    def test_formatted_assistant_after_strong_gap_is_assistant_anchor(self) -> None:
+    def test_first_formatted_block_after_two_blanks_remains_unknown(self) -> None:
         blocks = (
             LegacyBlock(order=10, kind="paragraph", text="Parfait — là on voit", style="Normal", blank_blocks_before=2, run_count=3, bold_run_count=1),
             LegacyBlock(order=11, kind="heading", text="Analyse", style="Heading 1"),
         )
         inferred = infer_roles(blocks)
-        self.assertEqual(inferred[0].role, "assistant")
-        self.assertEqual(inferred[0].role_confidence, "high")
-        self.assertEqual(inferred[1].role, "assistant")
+        self.assertEqual(inferred[0].role, "unknown")
+        self.assertEqual(inferred[0].role_confidence, "none")
+        self.assertEqual(inferred[1].role, "unknown")
 
     def test_ambiguous_strong_boundary_resets_to_unknown(self) -> None:
         blocks = (
