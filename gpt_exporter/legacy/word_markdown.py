@@ -10,6 +10,7 @@ from docx.oxml.ns import qn
 
 
 _HEADING_RE = re.compile(r"^(?:heading|titre)\s*(\d+)$", re.IGNORECASE)
+_STYLE_FLAG_CACHE: dict[tuple[int, str], bool | None] = {}
 
 
 def _escape_inline(text: str) -> str:
@@ -24,22 +25,34 @@ def _escape_inline(text: str) -> str:
 
 
 def _style_flag(style, attribute: str) -> bool | None:
-    """Resolve a font boolean through a Word style's base-style chain."""
+    """Resolve a font boolean through a Word style's base-style chain, cached."""
+    if style is None:
+        return None
+
+    key = (id(style._element), attribute)
+    cached = _STYLE_FLAG_CACHE.get(key, ...)
+    if cached is not ...:
+        return cached
+
     visited: set[int] = set()
     current = style
-    while current is not None and id(current) not in visited:
-        visited.add(id(current))
+    result: bool | None = None
+    while current is not None and id(current._element) not in visited:
+        visited.add(id(current._element))
         try:
             value = getattr(current.font, attribute)
         except (AttributeError, KeyError):
             value = None
         if value is not None:
-            return bool(value)
+            result = bool(value)
+            break
         try:
             current = current.base_style
         except (AttributeError, KeyError):
             current = None
-    return None
+
+    _STYLE_FLAG_CACHE[key] = result
+    return result
 
 
 def _effective_run_flag(run, attribute: str) -> bool:
@@ -241,6 +254,7 @@ def _table_markdown(table) -> str:
 
 def source_block_markdown(source_docx: Path) -> dict[int, str]:
     """Return body blocks preserving semantic formatting while normalizing layout."""
+    _STYLE_FLAG_CACHE.clear()
     document = Document(source_docx)
     result: dict[int, str] = {}
     for order, item in enumerate(document.iter_inner_content()):
