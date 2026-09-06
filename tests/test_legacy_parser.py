@@ -24,9 +24,11 @@ class LegacyParserTests(unittest.TestCase):
         document.add_heading("Structured answer", level=2)
         body = document.add_paragraph("Body text")
         body.add_run(" italic").italic = True
-        table = document.add_table(rows=1, cols=2)
+        table = document.add_table(rows=2, cols=2)
         table.cell(0, 0).text = "A"
         table.cell(0, 1).text = "B"
+        table.cell(1, 0).text = "C"
+        table.cell(1, 1).text = "D"
         document.save(path)
         return path
 
@@ -51,6 +53,7 @@ class LegacyParserTests(unittest.TestCase):
             self.assertEqual(conversation.blocks[1].kind, "paragraph")
             self.assertEqual(conversation.blocks[2].kind, "heading")
             self.assertEqual(conversation.blocks[-1].kind, "table")
+            self.assertEqual(conversation.blocks[-1].table_rows, (("A", "B"), ("C", "D")))
             self.assertTrue(all(block.role == "unknown" for block in conversation.blocks))
             self.assertIsNone(conversation.starts_mid_conversation)
 
@@ -69,12 +72,10 @@ class LegacyParserTests(unittest.TestCase):
 
             self.assertTrue(conversation.starts_mid_conversation)
             self.assertEqual(conversation.starts_mid_conversation_confidence, "medium")
-            self.assertTrue(
-                any("assistant continuation" in note for note in conversation.notes)
-            )
+            self.assertTrue(any("assistant continuation" in note for note in conversation.notes))
             self.assertTrue(all(block.role == "unknown" for block in conversation.blocks))
 
-    def test_to_dict_is_json_ready(self) -> None:
+    def test_to_dict_is_json_ready_and_keeps_table_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "IT GPT 2026-03-27 Test.docx"
             self._write_docx(path, first_text="plain opening")
@@ -86,6 +87,7 @@ class LegacyParserTests(unittest.TestCase):
             self.assertIsInstance(payload["notes"], list)
             self.assertIn("blank_blocks_before", payload["blocks"][1])
             self.assertIn("run_count", payload["blocks"][1])
+            self.assertEqual(payload["blocks"][-1]["table_rows"], (("A", "B"), ("C", "D")))
 
 
 if __name__ == "__main__":
