@@ -1,4 +1,4 @@
-"""Conservative Phase-2 parser for historical ChatGPT DOCX copies."""
+"""Conservative parser for historical ChatGPT DOCX copies."""
 
 from __future__ import annotations
 
@@ -13,10 +13,8 @@ from .docx import CHATGPT_HYPERLINK_SENTINEL, _iso_datetime, _sha256, parse_lega
 from .model import LEGACY_SCHEMA, LegacyBlock, LegacyConversation
 
 
-PARSER_VERSION = "legacy-docx-parser-v2"
+PARSER_VERSION = "legacy-docx-parser-v3"
 
-# These are deliberately weak language hints. They never assign a definitive
-# role; they only help detect that a capture may begin inside an assistant turn.
 ASSISTANT_OPENING_HINTS = re.compile(
     r"^(?:parfait|très bonne question|bonne idée|ton intuition|alors oui|oui[,. ]|exactement|en effet|tout à fait|tu as fait exactement)",
     re.IGNORECASE,
@@ -49,8 +47,6 @@ def _alignment_name(value) -> str | None:
 
 
 def _paragraph_features(paragraph) -> dict[str, object]:
-    """Extract Word evidence without interpreting it as a conversation role."""
-
     formatting = paragraph.paragraph_format
     p_pr = paragraph._p.pPr
 
@@ -80,25 +76,30 @@ def _paragraph_features(paragraph) -> dict[str, object]:
     }
 
 
-def _iter_blocks(document):
-    """Yield body paragraphs and tables in their original document order."""
+def _table_rows(table) -> tuple[tuple[str, ...], ...]:
+    rows: list[tuple[str, ...]] = []
+    for row in table.rows:
+        cells = tuple(_clean(cell.text) for cell in row.cells)
+        if any(cells):
+            rows.append(cells)
+    return tuple(rows)
 
+
+def _iter_blocks(document):
     previous_emitted_order = -1
     for order, item in enumerate(document.iter_inner_content()):
         blank_blocks_before = max(0, order - previous_emitted_order - 1)
 
         if hasattr(item, "rows"):
-            rows: list[str] = []
-            for row in item.rows:
-                cells = [_clean(cell.text) for cell in row.cells]
-                rows.append(" | ".join(cells))
-            text = "\n".join(row for row in rows if row.strip(" |"))
-            if not text:
+            table_rows = _table_rows(item)
+            if not table_rows:
                 continue
+            text = "\n".join(" | ".join(row) for row in table_rows)
             yield LegacyBlock(
                 order=order,
                 kind="table",
                 text=text,
+                table_rows=table_rows,
                 blank_blocks_before=blank_blocks_before,
             )
             previous_emitted_order = order
@@ -147,14 +148,11 @@ def _classify_start(block: LegacyBlock | None) -> tuple[bool | None, str, list[s
         notes.append("first visible block resembles an assistant continuation")
         return True, "medium", notes
 
-    # A plain first block is not proof that the capture starts with a user turn.
     notes.append("first visible block role remains unresolved")
     return None, "low", notes
 
 
 def parse_legacy_conversation(path: Path | str) -> LegacyConversation:
-    """Build a versioned, read-only intermediate representation from DOCX."""
-
     source = Path(path).expanduser().resolve()
     if not source.is_file():
         raise FileNotFoundError(source)
