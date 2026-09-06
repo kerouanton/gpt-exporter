@@ -66,15 +66,20 @@ def _relationship_ids(element) -> tuple[str, ...]:
     """Return embedded image/OLE relationship IDs referenced by one body block."""
 
     ids: list[str] = []
-    for node in element.xpath(".//a:blip"):
+
+    # python-docx registers the DrawingML ``a`` namespace, but historical Word
+    # documents may also use VML ``v:imagedata`` and Office ``o:OLEObject``.
+    # Those prefixes are not registered by all python-docx versions, so use
+    # local-name() and read the relationship attributes through ``qn``.
+    for node in element.xpath(".//*[local-name()='blip']"):
         relationship_id = node.get(qn("r:embed"))
         if relationship_id:
             ids.append(relationship_id)
-    for node in element.xpath(".//v:imagedata"):
+    for node in element.xpath(".//*[local-name()='imagedata']"):
         relationship_id = node.get(qn("r:id"))
         if relationship_id:
             ids.append(relationship_id)
-    for node in element.xpath(".//o:OLEObject"):
+    for node in element.xpath(".//*[local-name()='OLEObject']"):
         relationship_id = node.get(qn("r:id"))
         if relationship_id:
             ids.append(relationship_id)
