@@ -79,10 +79,17 @@ def _normalized_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def _style_flag(style, attribute: str) -> bool | None:
-    """Resolve a font boolean through a Word style's base-style chain."""
+def _style_flag(style, attribute: str, cache: dict[tuple[int, str], bool | None]) -> bool | None:
+    """Resolve a font boolean through a Word style's base-style chain, cached."""
+    if style is None:
+        return None
+    key = (id(style), attribute)
+    if key in cache:
+        return cache[key]
+
     visited: set[int] = set()
     current = style
+    result: bool | None = None
     while current is not None and id(current) not in visited:
         visited.add(id(current))
         try:
@@ -90,16 +97,24 @@ def _style_flag(style, attribute: str) -> bool | None:
         except (AttributeError, KeyError):
             value = None
         if value is not None:
-            return bool(value)
+            result = bool(value)
+            break
         try:
             current = current.base_style
         except (AttributeError, KeyError):
             current = None
-    return None
+
+    cache[key] = result
+    return result
 
 
-def _effective_run_flag(run, paragraph, attribute: str) -> bool:
-    """Resolve direct formatting plus character/paragraph style inheritance."""
+def _effective_run_flag(
+    run,
+    paragraph,
+    attribute: str,
+    cache: dict[tuple[int, str], bool | None],
+) -> bool:
+    """Resolve direct formatting plus cached character/paragraph style inheritance."""
     direct = getattr(run, attribute)
     if direct is not None:
         return bool(direct)
@@ -108,7 +123,7 @@ def _effective_run_flag(run, paragraph, attribute: str) -> bool:
         character_style = run.style
     except (AttributeError, KeyError):
         character_style = None
-    character_value = _style_flag(character_style, attribute)
+    character_value = _style_flag(character_style, attribute, cache)
     if character_value is not None:
         return character_value
 
@@ -116,17 +131,18 @@ def _effective_run_flag(run, paragraph, attribute: str) -> bool:
         paragraph_style = paragraph.style
     except (AttributeError, KeyError):
         paragraph_style = None
-    paragraph_value = _style_flag(paragraph_style, attribute)
+    paragraph_value = _style_flag(paragraph_style, attribute, cache)
     return bool(paragraph_value) if paragraph_value is not None else False
 
 
 def _emphasis_spans(document: Document, attribute: str) -> Counter[str]:
     """Collect contiguous effectively emphasized text, independent of run boundaries."""
     spans: Counter[str] = Counter()
+    style_cache: dict[tuple[int, str], bool | None] = {}
     for paragraph in _all_paragraphs(document):
         current: list[str] = []
         for run in paragraph.runs:
-            enabled = _effective_run_flag(run, paragraph, attribute)
+            enabled = _effective_run_flag(run, paragraph, attribute, style_cache)
             text = str(run.text or "")
             if enabled:
                 current.append(text)
@@ -316,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
         "warn": sum(result["status"] == "WARN" for result in results),
         "fail": sum(result["status"] == "FAIL" for result in results),
     }
-    payload = {"schema": "gpt-exporter-legacy-semantic-audit-v3", "summary": summary, "results": results}
+    payload = {"schema": "gpt-exporter-legacy-semantic-audit-v4", "summary": summary, "results": results}
     args.json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     fieldnames = [
