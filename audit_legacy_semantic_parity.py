@@ -45,7 +45,11 @@ def _style_name(paragraph) -> str:
 
 
 def _heading_count(document: Document) -> int:
-    return sum(1 for p in document.paragraphs if _style_name(p).casefold().startswith(("heading ", "titre ")))
+    return sum(
+        1
+        for paragraph in document.paragraphs
+        if _style_name(paragraph).casefold().startswith(("heading ", "titre "))
+    )
 
 
 def _list_count(document: Document) -> int:
@@ -68,25 +72,44 @@ def _all_paragraphs(document: Document):
 
 
 def _hyperlink_count(document: Document) -> int:
-    return sum(len(p._p.xpath(".//w:hyperlink")) for p in _all_paragraphs(document))
+    return sum(len(paragraph._p.xpath(".//w:hyperlink")) for paragraph in _all_paragraphs(document))
 
 
-def _emphasis_phrases(document: Document, attribute: str) -> Counter[str]:
-    phrases: Counter[str] = Counter()
+def _normalized_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _emphasis_spans(document: Document, attribute: str) -> Counter[str]:
+    """Collect contiguous emphasized text, independent of Word run boundaries."""
+    spans: Counter[str] = Counter()
     for paragraph in _all_paragraphs(document):
+        current: list[str] = []
         for run in paragraph.runs:
-            if getattr(run, attribute) is True:
-                text = re.sub(r"\s+", " ", str(run.text or "")).strip()
-                if len(text) >= 2:
-                    phrases[text] += 1
-    return phrases
+            enabled = getattr(run, attribute) is True
+            text = str(run.text or "")
+            if enabled:
+                current.append(text)
+                continue
+            if current:
+                value = _normalized_text("".join(current))
+                if len(value) >= 2:
+                    spans[value] += 1
+                current = []
+        if current:
+            value = _normalized_text("".join(current))
+            if len(value) >= 2:
+                spans[value] += 1
+    return spans
 
 
 def _missing_emphasis(source: Counter[str], normalized: Counter[str]) -> list[str]:
-    # Run boundaries are allowed to change through Markdown. Exact multiplicity
-    # is therefore advisory; only phrases absent altogether are reported.
-    normalized_text = "\n".join(normalized.elements()).casefold()
-    missing = [text for text in source if text.casefold() not in normalized_text]
+    """Report source emphasized spans absent from normalized emphasized content."""
+    normalized_spans = [value.casefold() for value in normalized]
+    missing: list[str] = []
+    for source_text in source:
+        needle = source_text.casefold()
+        if not any(needle in candidate or candidate in needle for candidate in normalized_spans if candidate):
+            missing.append(source_text)
     return missing[:20]
 
 
@@ -149,13 +172,13 @@ def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, ob
     normalized_images, _ = _relationship_payloads(normalized)
 
     source_sha = _sha256_file(source)
-    asset_dir = output_dir / "assets" / "legacy" / source_sha[:12]
+    asset_dir = output_dir / "assets" / "legacy" / source_sha[:16]
     exported_hashes = _asset_hashes(asset_dir)
 
-    source_bold = _emphasis_phrases(source_doc, "bold")
-    normalized_bold = _emphasis_phrases(normalized_doc, "bold")
-    source_italic = _emphasis_phrases(source_doc, "italic")
-    normalized_italic = _emphasis_phrases(normalized_doc, "italic")
+    source_bold = _emphasis_spans(source_doc, "bold")
+    normalized_bold = _emphasis_spans(normalized_doc, "bold")
+    source_italic = _emphasis_spans(source_doc, "italic")
+    normalized_italic = _emphasis_spans(normalized_doc, "italic")
 
     source_tables = len(source_doc.tables)
     normalized_tables = len(normalized_doc.tables)
@@ -186,9 +209,9 @@ def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, ob
     if normalized_links < source_links:
         warnings.append(f"hyperlinks {normalized_links} < {source_links}")
     if missing_bold:
-        warnings.append(f"bold phrases not found: {len(missing_bold)}")
+        warnings.append(f"bold spans not found: {len(missing_bold)}")
     if missing_italic:
-        warnings.append(f"italic phrases not found: {len(missing_italic)}")
+        warnings.append(f"italic spans not found: {len(missing_italic)}")
     if literal_br_cells:
         warnings.append(f"literal <br> text in {literal_br_cells} table cell(s)")
 
@@ -252,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         "warn": sum(result["status"] == "WARN" for result in results),
         "fail": sum(result["status"] == "FAIL" for result in results),
     }
-    payload = {"schema": "gpt-exporter-legacy-semantic-audit-v1", "summary": summary, "results": results}
+    payload = {"schema": "gpt-exporter-legacy-semantic-audit-v2", "summary": summary, "results": results}
     args.json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     fieldnames = [
