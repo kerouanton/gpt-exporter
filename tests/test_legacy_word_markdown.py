@@ -31,14 +31,19 @@ class LegacyWordMarkdownTests(unittest.TestCase):
             paragraph.add_run().add_break()
             paragraph.add_run("second line")
 
+            spaced = document.add_paragraph()
+            spaced.add_run("before")
+            spaced.add_run(" emphasized ").bold = True
+            spaced.add_run("after")
+
             table = document.add_table(rows=2, cols=2)
             table.cell(0, 0).text = "Key"
             table.cell(0, 1).text = "Value"
             table.cell(1, 0).text = "A"
             cell = table.cell(1, 1)
             cell.text = ""
-            cell.paragraphs[0].add_run("important").bold = True
-            cell.paragraphs[0].add_run(" value")
+            cell.paragraphs[0].add_run("important ").bold = True
+            cell.paragraphs[0].add_run("value")
             document.save(source)
 
             blocks = source_block_markdown(source)
@@ -48,6 +53,8 @@ class LegacyWordMarkdownTests(unittest.TestCase):
             self.assertIn("- bullet **bold**", rendered)
             self.assertIn("1. numbered *italic*", rendered)
             self.assertIn("first line  \nsecond line", rendered)
+            self.assertIn("before **emphasized** after", rendered)
+            self.assertNotIn("** emphasized **", rendered)
             self.assertIn("| Key | Value |", rendered)
             self.assertIn("| A | **important** value |", rendered)
 
