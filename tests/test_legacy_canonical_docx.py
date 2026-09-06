@@ -31,27 +31,9 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             "turn_builder_version": "legacy-turn-builder-v1",
             "starts_mid_conversation": False,
             "turns": [
-                {
-                    "role": "user",
-                    "confidence": "high",
-                    "first_order": 3,
-                    "last_order": 3,
-                    "content": "salut josh. on continue nos grands rangements !",
-                },
-                {
-                    "role": "unknown",
-                    "confidence": "none",
-                    "first_order": 5,
-                    "last_order": 8,
-                    "content": "Salut 🙂 Parfait, mission grand rangement activée.",
-                },
-                {
-                    "role": "assistant",
-                    "confidence": "medium",
-                    "first_order": 10,
-                    "last_order": 20,
-                    "content": "Parfait — on continue.",
-                },
+                {"role": "user", "confidence": "high", "first_order": 3, "last_order": 3, "content": "salut josh. on continue nos grands rangements !"},
+                {"role": "unknown", "confidence": "none", "first_order": 5, "last_order": 8, "content": "Salut 🙂 Parfait, mission grand rangement activée."},
+                {"role": "assistant", "confidence": "medium", "first_order": 10, "last_order": 20, "content": "Parfait — on continue."},
             ],
         }
 
@@ -75,11 +57,7 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
     def test_export_creates_readable_docx_in_separate_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output_dir = Path(temporary) / "normalized"
-            result = export_legacy_canonical_docx(
-                self.conversation(),
-                output_dir,
-                overwrite=True,
-            )
+            result = export_legacy_canonical_docx(self.conversation(), output_dir, overwrite=True)
             self.assertTrue(result.output_path.is_file())
             self.assertEqual(result.turn_count, 3)
             self.assertEqual(result.unknown_turn_count, 1)
@@ -91,10 +69,7 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             paragraphs = [paragraph.text for paragraph in document.paragraphs]
             text = "\n".join(paragraphs)
             self.assertIn("Analyse avec SSA3021X part1", text)
-            self.assertEqual(
-                sum(paragraph.strip() == "Analyse avec SSA3021X part1" for paragraph in paragraphs),
-                1,
-            )
+            self.assertEqual(sum(paragraph.strip() == "Analyse avec SSA3021X part1" for paragraph in paragraphs), 1)
             self.assertIn("grands rangements", text)
             self.assertIn("Unknown", text)
 
@@ -119,31 +94,51 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
                 "parser_version": "legacy-docx-parser-v2",
                 "role_inference_version": "legacy-role-inference-v3",
                 "turn_builder_version": "legacy-turn-builder-v1",
-                "turns": [
-                    {
-                        "role": "assistant",
-                        "confidence": "high",
-                        "first_order": 0,
-                        "last_order": 0,
-                        "source_orders": [0],
-                        "content": "first code line second code line",
-                    }
-                ],
+                "turns": [{"role": "assistant", "confidence": "high", "first_order": 0, "last_order": 0, "source_orders": [0], "content": "first code line second code line"}],
             }
 
-            result = export_legacy_canonical_docx(
-                conversation,
-                root / "normalized",
-                overwrite=True,
-                docx_root=root,
-            )
+            result = export_legacy_canonical_docx(conversation, root / "normalized", overwrite=True, docx_root=root)
             self.assertTrue(result.source_text_restored)
-
             document = Document(result.output_path)
             text = "\n".join(paragraph.text for paragraph in document.paragraphs)
             self.assertIn("first code line", text)
             self.assertIn("second code line", text)
             self.assertIn("source Word blocks restored", text)
+
+    def test_export_preserves_word_table_as_real_docx_table(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "HAM GPT 2026-04-03 Table.docx"
+            source_document = Document()
+            source_document.add_paragraph("ACPR results")
+            table = source_document.add_table(rows=3, cols=3)
+            values = [
+                ["Canal", "Puissance", "Relatif"],
+                ["Main Channel", "-54.66 dBm", "—"],
+                ["Left Adjacent", "-38.84 dBm", "-15.82 dBc"],
+            ]
+            for row_index, row in enumerate(values):
+                for column_index, value in enumerate(row):
+                    table.cell(row_index, column_index).text = value
+            source_document.save(source)
+            source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+
+            conversation = {
+                "source_filename": source.name,
+                "source_sha256": source_sha,
+                "title_hint": "Table",
+                "parser_version": "legacy-docx-parser-v2",
+                "role_inference_version": "legacy-role-inference-v3",
+                "turn_builder_version": "legacy-turn-builder-v1",
+                "turns": [{"role": "assistant", "confidence": "high", "first_order": 0, "last_order": 1, "source_orders": [0, 1], "content": "ACPR results\n\nCanal | Puissance | Relatif"}],
+            }
+
+            result = export_legacy_canonical_docx(conversation, root / "normalized", overwrite=True, docx_root=root)
+            normalized = Document(result.output_path)
+            self.assertEqual(len(normalized.tables), 1)
+            self.assertEqual(normalized.tables[0].cell(0, 0).text, "Canal")
+            self.assertEqual(normalized.tables[0].cell(1, 1).text, "-54.66 dBm")
+            self.assertEqual(normalized.tables[0].cell(2, 2).text, "-15.82 dBc")
 
     def test_export_preserves_inline_image_via_assets_and_standard_renderer(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -165,26 +160,11 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
                 "parser_version": "legacy-docx-parser-v2",
                 "role_inference_version": "legacy-role-inference-v3",
                 "turn_builder_version": "legacy-turn-builder-v1",
-                "turns": [
-                    {
-                        "role": "assistant",
-                        "confidence": "high",
-                        "first_order": 0,
-                        "last_order": 0,
-                        "source_orders": [0],
-                        "content": "spectrum result",
-                    }
-                ],
+                "turns": [{"role": "assistant", "confidence": "high", "first_order": 0, "last_order": 0, "source_orders": [0], "content": "spectrum result"}],
             }
 
             output_dir = root / "normalized"
-            result = export_legacy_canonical_docx(
-                conversation,
-                output_dir,
-                overwrite=True,
-                docx_root=root,
-            )
-
+            result = export_legacy_canonical_docx(conversation, output_dir, overwrite=True, docx_root=root)
             self.assertEqual(result.asset_count, 1)
             self.assertEqual(result.image_count, 1)
             self.assertEqual(result.attachment_count, 0)
@@ -201,12 +181,7 @@ class LegacyCanonicalDocxTests(unittest.TestCase):
             root = Path(temporary)
             conversation = self.conversation()
             with self.assertRaises(FileNotFoundError):
-                export_legacy_canonical_docx(
-                    conversation,
-                    root / "normalized",
-                    overwrite=True,
-                    docx_root=root,
-                )
+                export_legacy_canonical_docx(conversation, root / "normalized", overwrite=True, docx_root=root)
 
 
 if __name__ == "__main__":
