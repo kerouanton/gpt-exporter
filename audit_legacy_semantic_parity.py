@@ -13,12 +13,10 @@ import csv
 import hashlib
 import json
 import re
-import zipfile
 from collections import Counter
 from pathlib import Path
 
 from docx import Document
-from docx.oxml.ns import qn
 
 
 NORMALIZED_SUFFIX = " [normalized]"
@@ -61,13 +59,21 @@ def _list_count(document: Document) -> int:
     return count
 
 
+def _all_paragraphs(document: Document):
+    yield from document.paragraphs
+    for table in document.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                yield from cell.paragraphs
+
+
 def _hyperlink_count(document: Document) -> int:
-    return sum(len(p._p.xpath(".//w:hyperlink")) for p in document.paragraphs)
+    return sum(len(p._p.xpath(".//w:hyperlink")) for p in _all_paragraphs(document))
 
 
 def _emphasis_phrases(document: Document, attribute: str) -> Counter[str]:
     phrases: Counter[str] = Counter()
-    for paragraph in document.paragraphs:
+    for paragraph in _all_paragraphs(document):
         for run in paragraph.runs:
             if getattr(run, attribute) is True:
                 text = re.sub(r"\s+", " ", str(run.text or "")).strip()
@@ -82,6 +88,16 @@ def _missing_emphasis(source: Counter[str], normalized: Counter[str]) -> list[st
     normalized_text = "\n".join(normalized.elements()).casefold()
     missing = [text for text in source if text.casefold() not in normalized_text]
     return missing[:20]
+
+
+def _literal_br_cells(document: Document) -> int:
+    return sum(
+        1
+        for table in document.tables
+        for row in table.rows
+        for cell in row.cells
+        if "<br>" in cell.text.casefold()
+    )
 
 
 def _relationship_payloads(path: Path) -> tuple[list[str], list[str]]:
@@ -149,6 +165,7 @@ def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, ob
     normalized_lists = _list_count(normalized_doc)
     source_links = _hyperlink_count(source_doc)
     normalized_links = _hyperlink_count(normalized_doc)
+    literal_br_cells = _literal_br_cells(normalized_doc)
 
     missing_asset_hashes = sorted((set(source_images) | set(source_attachments)) - exported_hashes)
     missing_bold = _missing_emphasis(source_bold, normalized_bold)
@@ -172,6 +189,8 @@ def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, ob
         warnings.append(f"bold phrases not found: {len(missing_bold)}")
     if missing_italic:
         warnings.append(f"italic phrases not found: {len(missing_italic)}")
+    if literal_br_cells:
+        warnings.append(f"literal <br> text in {literal_br_cells} table cell(s)")
 
     status = "FAIL" if failures else ("WARN" if warnings else "PASS")
     return {
@@ -190,6 +209,7 @@ def audit_pair(source: Path, normalized: Path, output_dir: Path) -> dict[str, ob
         "normalized_images": len(normalized_images),
         "source_attachments": len(source_attachments),
         "exported_asset_files": len([p for p in asset_dir.rglob("*") if p.is_file()]) if asset_dir.is_dir() else 0,
+        "literal_br_cells": literal_br_cells,
         "missing_bold_examples": missing_bold,
         "missing_italic_examples": missing_italic,
         "failures": failures,
@@ -239,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
         "source", "normalized", "status", "source_tables", "normalized_tables",
         "source_headings", "normalized_headings", "source_lists", "normalized_lists",
         "source_hyperlinks", "normalized_hyperlinks", "source_images", "normalized_images",
-        "source_attachments", "exported_asset_files", "failures", "warnings",
+        "source_attachments", "exported_asset_files", "literal_br_cells", "failures", "warnings",
     ]
     with args.csv.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
