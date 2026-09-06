@@ -10,6 +10,7 @@ from docx.oxml.ns import qn
 
 
 _HEADING_RE = re.compile(r"^(?:heading|titre)\s*(\d+)$", re.IGNORECASE)
+_FENCE_LINE_RE = re.compile(r"^\s*(`{3,})([^`]*)\s*$")
 _STYLE_FLAG_CACHE: dict[tuple[int, str], bool | None] = {}
 
 
@@ -109,8 +110,77 @@ def _run_markdown(run) -> str:
     return f"{leading}{core}{trailing}"
 
 
+def _has_fence_line(text: str) -> bool:
+    return any(_FENCE_LINE_RE.match(line) for line in text.splitlines())
+
+
+def _normalize_raw_markdown_fences(text: str) -> str:
+    """Keep historical raw Markdown intact while containing malformed fences.
+
+    Some legacy Word captures contain whole Markdown fragments in one Normal
+    paragraph. In those fragments, opening fences may be duplicated and the
+    closing fence may be absent because the historical renderer flattened the
+    original response into Word. Letting such a fence escape the Word paragraph
+    causes the modern Markdown renderer to swallow later turns as code.
+
+    A Word paragraph is therefore a hard containment boundary for a recovered
+    raw-Markdown fence: duplicate consecutive opening fences are collapsed and
+    any still-open fence is closed at the end of that Word paragraph.
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+    output: list[str] = []
+    open_marker: str | None = None
+    open_line: str | None = None
+
+    for line in lines:
+        match = _FENCE_LINE_RE.match(line)
+        if match is None:
+            output.append(line)
+            continue
+
+        marker = match.group(1)
+        info = match.group(2).strip()
+        canonical = marker + info
+
+        if open_marker is None:
+            open_marker = marker
+            open_line = canonical
+            output.append(canonical)
+            continue
+
+        # Historical captures sometimes duplicate the exact opening fence on
+        # the next line (e.g. ```bash / ```bash). It cannot be a valid closing
+        # fence because it carries an info string, so discard the duplicate.
+        if info and canonical == open_line:
+            continue
+
+        # A valid closing fence has no info string and at least as many
+        # backticks as the opener.
+        if not info and len(marker) >= len(open_marker):
+            output.append(open_marker)
+            open_marker = None
+            open_line = None
+            continue
+
+        output.append(line)
+
+    if open_marker is not None:
+        output.append(open_marker)
+
+    return "\n".join(output).strip()
+
+
 def _paragraph_inline_markdown(paragraph) -> str:
     """Preserve run emphasis, hyperlinks and meaningful manual Word line breaks."""
+    raw_text = str(paragraph.text or "")
+    if raw_text and _has_fence_line(raw_text):
+        # This is already serialized Markdown captured inside one Word
+        # paragraph. Re-escaping underscores/asterisks/backticks would corrupt
+        # code and Markdown semantics, so preserve it verbatim except for local
+        # fence containment repairs.
+        return _normalize_raw_markdown_fences(raw_text)
+
     parts: list[str] = []
     runs_by_xml = {id(run._r): run for run in paragraph.runs}
     for child in paragraph._p:
