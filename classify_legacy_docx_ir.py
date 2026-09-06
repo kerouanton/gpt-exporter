@@ -2,7 +2,7 @@ import os
 file_name = os.path.basename(__file__)
 print(f"The filename of this script is: {file_name}")
 
-"""Annotate legacy DOCX IR v2 with conservative User/Assistant roles."""
+"""Annotate legacy DOCX IR with conservative User/Assistant roles."""
 
 import argparse
 import json
@@ -19,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Ambiguous segments remain role=unknown."
         )
     )
-    parser.add_argument("input", type=Path, help="legacy-docx-ir-v2.json")
+    parser.add_argument("input", type=Path, help="legacy DOCX IR JSON")
     parser.add_argument(
         "--output",
         type=Path,
@@ -41,13 +41,6 @@ def _block_from_dict(payload: dict[str, object]) -> LegacyBlock:
 
 
 def _role_runs(blocks: tuple[LegacyBlock, ...]) -> list[dict[str, object]]:
-    """Collapse contiguous classified blocks into turn-like role runs.
-
-    These are deliberately called role runs rather than turns: the classifier
-    may still miss a weak speaker transition, but the runs are a much more
-    useful validation unit than raw Word block totals.
-    """
-
     runs: list[dict[str, object]] = []
     current: dict[str, object] | None = None
 
@@ -102,8 +95,9 @@ def classify_payload(payload: dict[str, object]) -> tuple[dict[str, object], dic
         inferred = infer_roles(tuple(_block_from_dict(block) for block in raw_blocks))
         blocks = []
         for block in inferred:
-            item = dict(block.__dict__) if hasattr(block, "__dict__") else {
-                name: getattr(block, name) for name in LegacyBlock.__dataclass_fields__
+            item = {
+                name: getattr(block, name)
+                for name in LegacyBlock.__dataclass_fields__
             }
             blocks.append(item)
             role_counts[block.role] += 1
@@ -139,7 +133,7 @@ def classify_payload(payload: dict[str, object]) -> tuple[dict[str, object], dic
         )
 
     result = dict(payload)
-    result["schema"] = "gpt-exporter-legacy-conversation-v2-classified-collection"
+    result["schema"] = "gpt-exporter-legacy-conversation-v3-classified-collection"
     result["role_inference_version"] = ROLE_INFERENCE_VERSION
     result["role_counts"] = role_counts
     result["role_confidence_counts"] = confidence_counts
