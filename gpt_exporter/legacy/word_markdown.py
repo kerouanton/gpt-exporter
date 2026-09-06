@@ -37,28 +37,8 @@ def _run_markdown(run) -> str:
     return text
 
 
-def _preserve_manual_breaks(text: str) -> str:
-    """Convert Word manual breaks to Markdown hard breaks without losing edge breaks.
-
-    CommonMark discards a hard break at the start/end of a paragraph because
-    there is no visible inline content on one side.  Historical ChatGPT Word
-    captures do contain such breaks.  A non-breaking space is used only as an
-    invisible anchor when a break is otherwise at a paragraph edge.
-    """
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    if "\n" not in text:
-        return text.strip()
-
-    if text.startswith("\n"):
-        text = "\u00a0" + text
-    if text.endswith("\n"):
-        text = text + "\u00a0"
-
-    return text.replace("\n", "  \n").strip(" \t")
-
-
 def _paragraph_inline_markdown(paragraph) -> str:
-    """Preserve run emphasis, hyperlinks and manual Word line breaks."""
+    """Preserve run emphasis, hyperlinks and meaningful manual Word line breaks."""
     parts: list[str] = []
     runs_by_xml = {id(run._r): run for run in paragraph.runs}
     for child in paragraph._p:
@@ -82,7 +62,8 @@ def _paragraph_inline_markdown(paragraph) -> str:
                 parts.append(f"[{_escape_inline(label)}]({target})")
             elif label:
                 parts.append(_escape_inline(label))
-    return _preserve_manual_breaks("".join(parts))
+    text = "".join(parts)
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "  \n").strip()
 
 
 def _style_name(paragraph) -> str:
@@ -97,6 +78,12 @@ def _heading_level(paragraph) -> int | None:
     if not match:
         return None
     return max(1, min(int(match.group(1)), 6))
+
+
+def _children_by_tag(element, tag: str):
+    """Find direct OOXML children using fully-qualified names, not XPath prefixes."""
+    qualified = qn(tag)
+    return [child for child in element if child.tag == qualified]
 
 
 def _numbering_kind(document: Document, paragraph) -> tuple[str, int] | None:
@@ -125,45 +112,39 @@ def _numbering_kind(document: Document, paragraph) -> tuple[str, int] | None:
         level = 0
 
     numbering = document.part.numbering_part.element
-    num_tag = qn("w:num")
-    abstract_num_id_tag = qn("w:abstractNumId")
-    abstract_num_tag = qn("w:abstractNum")
-    level_tag = qn("w:lvl")
-    num_format_tag = qn("w:numFmt")
-    num_id_attr = qn("w:numId")
-    abstract_num_id_attr = qn("w:abstractNumId")
-    level_attr = qn("w:ilvl")
-    value_attr = qn("w:val")
-
-    nums = [node for node in numbering.findall(num_tag) if node.get(num_id_attr) == str(num_id_value)]
+    nums = [
+        node for node in _children_by_tag(numbering, "w:num")
+        if node.get(qn("w:numId")) == str(num_id_value)
+    ]
     if not nums:
         return ("ordered", level)
-    abstract_id_nodes = nums[0].findall(abstract_num_id_tag)
+
+    abstract_id_nodes = _children_by_tag(nums[0], "w:abstractNumId")
     if not abstract_id_nodes:
         return ("ordered", level)
-    abstract_id = abstract_id_nodes[0].get(value_attr)
+    abstract_id = abstract_id_nodes[0].get(qn("w:val"))
+
     abstracts = [
-        node
-        for node in numbering.findall(abstract_num_tag)
-        if node.get(abstract_num_id_attr) == str(abstract_id)
+        node for node in _children_by_tag(numbering, "w:abstractNum")
+        if node.get(qn("w:abstractNumId")) == abstract_id
     ]
     if not abstracts:
         return ("ordered", level)
+
     levels = [
-        node
-        for node in abstracts[0].findall(level_tag)
-        if node.get(level_attr) == str(level)
+        node for node in _children_by_tag(abstracts[0], "w:lvl")
+        if node.get(qn("w:ilvl")) == str(level)
     ]
     if not levels:
         levels = [
-            node
-            for node in abstracts[0].findall(level_tag)
-            if node.get(level_attr) == "0"
+            node for node in _children_by_tag(abstracts[0], "w:lvl")
+            if node.get(qn("w:ilvl")) == "0"
         ]
     if not levels:
         return ("ordered", level)
-    formats = levels[0].findall(num_format_tag)
-    num_format = formats[0].get(value_attr) if formats else "decimal"
+
+    formats = _children_by_tag(levels[0], "w:numFmt")
+    num_format = formats[0].get(qn("w:val")) if formats else "decimal"
     return ("bullet" if num_format == "bullet" else "ordered", level)
 
 
@@ -197,7 +178,7 @@ def _table_markdown(table) -> str:
 
 
 def source_block_markdown(source_docx: Path) -> dict[int, str]:
-    """Return body blocks preserving headings, lists, emphasis, breaks and tables."""
+    """Return body blocks preserving semantic formatting while normalizing layout."""
     document = Document(source_docx)
     result: dict[int, str] = {}
     for order, item in enumerate(document.iter_inner_content()):
