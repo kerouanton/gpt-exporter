@@ -46,7 +46,7 @@ class LegacyTurnBuilderTests(unittest.TestCase):
         self.assertNotIn(0, turns[0].source_orders)
 
     def test_turn_builder_version_is_explicit(self) -> None:
-        self.assertEqual(TURN_BUILDER_VERSION, "legacy-turn-builder-v1")
+        self.assertEqual(TURN_BUILDER_VERSION, "legacy-turn-builder-v2")
 
 
 if __name__ == "__main__":
