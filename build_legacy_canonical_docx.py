@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from gpt_exporter.legacy.canonical_docx import (
+from gpt_exporter.legacy.canonical_docx_v6 import (
     CANONICAL_LEGACY_DOCX_VERSION,
     export_legacy_canonical_docx,
 )
@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "Optional root containing immutable historical DOCX files. When supplied, "
-            "the renderer restores original Word text and exports embedded assets."
+            "the renderer restores original Word structure and exports embedded assets."
         ),
     )
     parser.add_argument("--overwrite", action="store_true", help="Replace existing normalized derivatives")
@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Skipped DOCX: {skipped}")
     print(f"Rendered turns: {total_turns}")
     print(f"Unknown turns preserved: {unknown_turns}")
-    print(f"Source Word text restored: {restored}/{len(selected)}")
+    print(f"Source Word structure restored: {restored}/{len(selected)}")
     print(f"Exported assets: {asset_count}")
     print(f"  images: {image_count}")
     print(f"  attachments: {attachment_count}")
