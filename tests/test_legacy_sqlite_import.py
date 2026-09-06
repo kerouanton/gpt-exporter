@@ -5,6 +5,7 @@ print(f"The filename of this script is: {file_name}")
 import hashlib
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from gpt_exporter.legacy.sqlite_import import (
@@ -82,7 +83,7 @@ class LegacySQLiteImportTests(unittest.TestCase):
             self.assertEqual(counts["turns"], 3)
 
             conversation_id = legacy_conversation_id(sha)
-            with connect_database(database) as connection:
+            with closing(connect_database(database)) as connection:
                 ensure_legacy_provenance_schema(connection)
                 row = connection.execute(
                     "SELECT title, source_json_path, docx_path, primary_origin_type FROM conversations WHERE conversation_id = ?",
@@ -169,7 +170,7 @@ class LegacySQLiteImportTests(unittest.TestCase):
             database = root / "index.sqlite"
             import_legacy_collection(payload, database_path=database, docx_root=docx_root)
             conversation_id = legacy_conversation_id(sha)
-            with connect_database(database) as connection:
+            with closing(connect_database(database)) as connection:
                 connection.execute(
                     "UPDATE conversations SET primary_origin_type = 'standard' WHERE conversation_id = ?",
                     (conversation_id,),
@@ -182,7 +183,7 @@ class LegacySQLiteImportTests(unittest.TestCase):
                 docx_root=docx_root,
                 force=True,
             )
-            with connect_database(database) as connection:
+            with closing(connect_database(database)) as connection:
                 origin = connection.execute(
                     "SELECT primary_origin_type FROM conversations WHERE conversation_id = ?",
                     (conversation_id,),
