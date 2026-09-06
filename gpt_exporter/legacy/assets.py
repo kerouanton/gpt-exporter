@@ -1,8 +1,8 @@
 """Extract embedded media from immutable legacy DOCX sources.
 
-The historical DOCX remains authoritative.  This module copies relationship
+The historical DOCX remains authoritative. This module copies relationship
 payloads into a derived asset tree and records the Word body-block order where
-each relationship was referenced.  It never rewrites the source document.
+each relationship was referenced. It never rewrites the source document.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ LEGACY_ASSET_EXPORT_VERSION = "legacy-asset-export-v1"
 _IMAGE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 _OLE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject"
 _PACKAGE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"
+_SUPPORTED_REL_TYPES = {_IMAGE_REL, _OLE_REL, _PACKAGE_REL}
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,30 +63,41 @@ def _safe_filename(value: str) -> str:
     return value or "asset.bin"
 
 
-def _relationship_ids(element) -> tuple[str, ...]:
-    """Return embedded image/OLE relationship IDs referenced by one body block."""
+def _candidate_relationship_ids(rels) -> set[str]:
+    """Return only relationship IDs that could contain supported legacy assets."""
+    candidates: set[str] = set()
+    for relationship_id, relationship in rels.items():
+        reltype = str(getattr(relationship, "reltype", ""))
+        target_part = getattr(relationship, "target_part", None)
+        content_type = str(getattr(target_part, "content_type", "")) if target_part is not None else ""
+        if reltype in _SUPPORTED_REL_TYPES or content_type.lower().startswith("image/"):
+            candidates.add(str(relationship_id))
+    return candidates
+
+
+def _relationship_ids(element, candidates: set[str]) -> tuple[str, ...]:
+    """Return supported asset relationship IDs referenced by one body block.
+
+    This deliberately avoids three XPath queries per Word body block. Once the
+    document relationship table tells us which rIds can possibly be assets, a
+    single lightweight descendant traversal is enough to locate their body
+    occurrences and preserve block order.
+    """
+    if not candidates:
+        return ()
 
     ids: list[str] = []
-
-    # python-docx registers the DrawingML ``a`` namespace, but historical Word
-    # documents may also use VML ``v:imagedata`` and Office ``o:OLEObject``.
-    # Those prefixes are not registered by all python-docx versions, so use
-    # local-name() and read the relationship attributes through ``qn``.
-    for node in element.xpath(".//*[local-name()='blip']"):
-        relationship_id = node.get(qn("r:embed"))
-        if relationship_id:
-            ids.append(relationship_id)
-    for node in element.xpath(".//*[local-name()='imagedata']"):
-        relationship_id = node.get(qn("r:id"))
-        if relationship_id:
-            ids.append(relationship_id)
-    for node in element.xpath(".//*[local-name()='OLEObject']"):
-        relationship_id = node.get(qn("r:id"))
-        if relationship_id:
+    for node in element.iter():
+        local = node.tag.rsplit("}", 1)[-1]
+        if local == "blip":
+            relationship_id = node.get(qn("r:embed"))
+        elif local in {"imagedata", "OLEObject"}:
+            relationship_id = node.get(qn("r:id"))
+        else:
+            continue
+        if relationship_id and relationship_id in candidates:
             ids.append(relationship_id)
 
-    # Preserve occurrence order while preventing one XML construct from
-    # exporting the same relationship twice inside a block.
     return tuple(dict.fromkeys(ids))
 
 
@@ -139,8 +151,15 @@ def extract_legacy_assets(
     asset_root = Path(asset_root).expanduser().resolve()
     document = Document(source_docx)
     rels = document.part.rels
-    conversation_root = asset_root / source_sha256[:16]
+    candidate_ids = _candidate_relationship_ids(rels)
 
+    # Most historical conversations contain no embedded media. Avoid walking
+    # tens of thousands of Word body blocks when the relationship table proves
+    # there is nothing to export.
+    if not candidate_ids:
+        return LegacyAssetExport(assets=(), unresolved_relationships=())
+
+    conversation_root = asset_root / source_sha256[:16]
     exported: list[LegacyAsset] = []
     unresolved: list[tuple[int, str]] = []
     written: dict[str, Path] = {}
@@ -149,7 +168,7 @@ def extract_legacy_assets(
         element = getattr(item, "_element", None)
         if element is None:
             continue
-        for relationship_id in _relationship_ids(element):
+        for relationship_id in _relationship_ids(element, candidate_ids):
             relationship = rels.get(relationship_id)
             if relationship is None:
                 unresolved.append((order, relationship_id))
