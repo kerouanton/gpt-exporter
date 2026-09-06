@@ -79,13 +79,54 @@ def _normalized_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _style_flag(style, attribute: str) -> bool | None:
+    """Resolve a font boolean through a Word style's base-style chain."""
+    visited: set[int] = set()
+    current = style
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        try:
+            value = getattr(current.font, attribute)
+        except (AttributeError, KeyError):
+            value = None
+        if value is not None:
+            return bool(value)
+        try:
+            current = current.base_style
+        except (AttributeError, KeyError):
+            current = None
+    return None
+
+
+def _effective_run_flag(run, paragraph, attribute: str) -> bool:
+    """Resolve direct formatting plus character/paragraph style inheritance."""
+    direct = getattr(run, attribute)
+    if direct is not None:
+        return bool(direct)
+
+    try:
+        character_style = run.style
+    except (AttributeError, KeyError):
+        character_style = None
+    character_value = _style_flag(character_style, attribute)
+    if character_value is not None:
+        return character_value
+
+    try:
+        paragraph_style = paragraph.style
+    except (AttributeError, KeyError):
+        paragraph_style = None
+    paragraph_value = _style_flag(paragraph_style, attribute)
+    return bool(paragraph_value) if paragraph_value is not None else False
+
+
 def _emphasis_spans(document: Document, attribute: str) -> Counter[str]:
-    """Collect contiguous emphasized text, independent of Word run boundaries."""
+    """Collect contiguous effectively emphasized text, independent of run boundaries."""
     spans: Counter[str] = Counter()
     for paragraph in _all_paragraphs(document):
         current: list[str] = []
         for run in paragraph.runs:
-            enabled = getattr(run, attribute) is True
+            enabled = _effective_run_flag(run, paragraph, attribute)
             text = str(run.text or "")
             if enabled:
                 current.append(text)
@@ -275,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         "warn": sum(result["status"] == "WARN" for result in results),
         "fail": sum(result["status"] == "FAIL" for result in results),
     }
-    payload = {"schema": "gpt-exporter-legacy-semantic-audit-v2", "summary": summary, "results": results}
+    payload = {"schema": "gpt-exporter-legacy-semantic-audit-v3", "summary": summary, "results": results}
     args.json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     fieldnames = [
