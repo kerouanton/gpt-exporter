@@ -47,6 +47,11 @@ class LegacyWordMarkdownTests(unittest.TestCase):
             inherited.add_run(" and ")
             inherited.add_run("italic by style").style = inherited_italic
 
+            bold_paragraph_style = document.styles.add_style("Bold Paragraph", WD_STYLE_TYPE.PARAGRAPH)
+            bold_paragraph_style.font.bold = True
+            styled_paragraph = document.add_paragraph(style=bold_paragraph_style)
+            styled_paragraph.add_run("paragraph style bold")
+
             table = document.add_table(rows=2, cols=2)
             table.cell(0, 0).text = "Key"
             table.cell(0, 1).text = "Value"
@@ -61,12 +66,15 @@ class LegacyWordMarkdownTests(unittest.TestCase):
             rendered = "\n\n".join(blocks.values())
 
             self.assertIn("## Structured heading", rendered)
+            self.assertNotIn("## **Structured heading**", rendered)
             self.assertIn("- bullet **bold**", rendered)
             self.assertIn("1. numbered *italic*", rendered)
             self.assertIn("first line  \nsecond line", rendered)
             self.assertIn("before **emphasized** after", rendered)
             self.assertNotIn("** emphasized **", rendered)
             self.assertIn("styled **bold by style** and *italic by style*", rendered)
+            self.assertIn("paragraph style bold", rendered)
+            self.assertNotIn("**paragraph style bold**", rendered)
             self.assertIn("| Key | Value |", rendered)
             self.assertIn("| A | **important** value |", rendered)
 
