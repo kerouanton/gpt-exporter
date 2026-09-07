@@ -4,8 +4,8 @@ print(f"The filename of this script is: {file_name}")
 
 import unittest
 
-import archive_gui_workflow as workflow
-from gpt_exporter.resources import collector_path, read_collector_source
+from gpt_exporter.providers.gpt.resources import collector_path, read_collector_source
+from gpt_exporter.providers.gpt.ui import archive_workflow as workflow
 
 
 class PackagedCollectorResourceTests(unittest.TestCase):
