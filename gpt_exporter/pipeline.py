@@ -1,16 +1,30 @@
-"""Compatibility facade for the ChatGPT provider archive pipeline.
+"""Lazy compatibility facade for the ChatGPT provider archive pipeline.
 
 Provider-specific implementation lives in ``gpt_exporter.providers.gpt.pipeline``.
-New code must import the provider module directly.  This facade deliberately
-preserves the former public/module-level surface during the transition.
+New code must import the provider module directly. Importing this compatibility
+module does not load or select a concrete provider.
 """
 
-from gpt_exporter.providers.gpt import pipeline as _implementation
+
+def _implementation():
+    from gpt_exporter.providers.gpt import pipeline as implementation
+    return implementation
 
 
-for _name in dir(_implementation):
-    if not _name.startswith("_"):
-        globals()[_name] = getattr(_implementation, _name)
+def archive_bundle(*args, **kwargs):
+    return _implementation().archive_bundle(*args, **kwargs)
 
 
-__all__ = [name for name in globals() if not name.startswith("_")]
+def clear_generated_data(*args, **kwargs):
+    return _implementation().clear_generated_data(*args, **kwargs)
+
+
+def migrate_legacy_data(*args, **kwargs):
+    return _implementation().migrate_legacy_data(*args, **kwargs)
+
+
+def __getattr__(name: str):
+    return getattr(_implementation(), name)
+
+
+__all__ = ["archive_bundle", "clear_generated_data", "migrate_legacy_data"]

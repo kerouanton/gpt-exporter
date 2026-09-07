@@ -73,21 +73,23 @@ jobs:
       - name: Verify packaged resources
         shell: pwsh
         run: |
-          $resourceRoot = ".\dist\GPT Exporter\_internal\gpt_exporter\resources"
-          $required = @(
-              "HELP.md",
-              "HISTORY.md",
-              "collect_chatgpt_archive.js"
-          )
-
-          foreach ($name in $required) {
-              $path = Join-Path $resourceRoot $name
+          $genericResourceRoot = ".\dist\GPT Exporter\_internal\gpt_exporter\resources"
+          foreach ($name in @("HELP.md", "HISTORY.md")) {
+              $path = Join-Path $genericResourceRoot $name
               if (-not (Test-Path $path -PathType Leaf)) {
                   throw "Required packaged resource is missing: $path"
               }
               if ((Get-Item $path).Length -le 0) {
                   throw "Required packaged resource is empty: $path"
               }
+          }
+
+          $collector = ".\dist\GPT Exporter\_internal\gpt_exporter\providers\gpt\resources\collect_chatgpt_archive.js"
+          if (-not (Test-Path $collector -PathType Leaf)) {
+              throw "Required GPT provider resource is missing: $collector"
+          }
+          if ((Get-Item $collector).Length -le 0) {
+              throw "Required GPT provider resource is empty: $collector"
           }
 
           Write-Host "Packaged resources OK"

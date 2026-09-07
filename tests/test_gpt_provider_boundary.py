@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -25,6 +27,24 @@ class GPTProviderBoundaryTests(unittest.TestCase):
         self.assertFalse(
             (REPOSITORY_ROOT / "gpt_exporter" / "archive" / "_legacy_importer.py").exists()
         )
+
+    def test_pipeline_compatibility_import_does_not_load_provider(self) -> None:
+        script = "\n".join(
+            [
+                "import sys",
+                "import gpt_exporter.pipeline",
+                "assert not any(name.startswith('gpt_exporter.providers.gpt') for name in sys.modules)",
+            ]
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=REPOSITORY_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout, "")
 
     def test_provider_modules_are_importable(self) -> None:
         from gpt_exporter.providers.gpt import pipeline

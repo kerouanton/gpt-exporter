@@ -15,7 +15,7 @@ WINDOWS_DOWNLOADS = USER_PROFILE / "Downloads"
 
 REQUIRED_FILES = (
     "archive_chats.py",
-    "collect_chatgpt_archive.js",
+    "gpt_exporter/providers/gpt/resources/collect_chatgpt_archive.js",
     "import_browser_bundle.py",
     "inventory_media.py",
     "build_asset_manifest.py",
@@ -113,7 +113,7 @@ def check_source_bundle() -> None:
         print("  1. Open your web browser and go to https://chatgpt.com/")
         print("  2. Press F12 to open Developer Tools.")
         print("  3. Open the Console tab.")
-        print("  4. Copy the complete contents of collect_chatgpt_archive.js.")
+        print("  4. Copy the complete contents of gpt_exporter/providers/gpt/resources/collect_chatgpt_archive.js.")
         print("  5. Paste the script into the console and run it.")
         print("  6. Leave the downloaded chatgpt-archive-source.json in Windows Downloads.")
         print("  7. Run archive_chats.py; it will process the file there and delete it after success.")

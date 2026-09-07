@@ -16,7 +16,6 @@ RESOURCE_DIRECTORY = ROOT / "gpt_exporter" / "resources"
 RESOURCE_NAMES = (
     "HELP.md",
     "HISTORY.md",
-    "collect_chatgpt_archive.js",
 )
 GPT_RESOURCE_DIRECTORY = ROOT / "gpt_exporter" / "providers" / "gpt" / "resources"
 GPT_RESOURCE_NAMES = ("collect_chatgpt_archive.js",)

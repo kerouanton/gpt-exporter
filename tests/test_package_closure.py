@@ -69,22 +69,25 @@ class PackageClosureTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(completed.stdout, "")
 
-    def test_provider_collector_matches_source_collector(self) -> None:
-        # Compare text rather than raw checkout bytes. Git may materialize LF or
-        # CRLF differently depending on the local Windows configuration.
-        source = (REPOSITORY_ROOT / "collect_chatgpt_archive.js").read_text(
-            encoding="utf-8"
-        )
-        packaged = (
+    def test_chatgpt_collector_exists_only_under_provider(self) -> None:
+        provider_collector = (
             REPOSITORY_ROOT
             / "gpt_exporter"
             / "providers"
             / "gpt"
             / "resources"
             / "collect_chatgpt_archive.js"
-        ).read_text(encoding="utf-8")
-
-        self.assertEqual(packaged, source)
+        )
+        self.assertTrue(provider_collector.is_file())
+        self.assertFalse((REPOSITORY_ROOT / "collect_chatgpt_archive.js").exists())
+        self.assertFalse(
+            (
+                REPOSITORY_ROOT
+                / "gpt_exporter"
+                / "resources"
+                / "collect_chatgpt_archive.js"
+            ).exists()
+        )
 
 
 if __name__ == "__main__":
