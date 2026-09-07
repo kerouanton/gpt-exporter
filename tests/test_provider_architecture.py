@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import lzma
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -77,12 +79,18 @@ class ProviderArchitectureTests(unittest.TestCase):
         self.assertEqual([message.content for message in result.messages], ["hello", "world"])
         self.assertEqual(result.metadata["default_model_slug"], "synthetic-model")
 
-    def test_core_package_imports_without_loading_gpt_provider(self) -> None:
-        import sys
-        import gpt_exporter.core  # noqa: F401
-
-        self.assertNotIn("gpt_exporter.providers.gpt", sys.modules)
-        self.assertNotIn("gpt_exporter.providers.gpt.provider", sys.modules)
+    def test_core_import_in_fresh_process_does_not_load_gpt_provider(self) -> None:
+        script = (
+            "import sys; import gpt_exporter.core; "
+            "raise SystemExit(int(any(name.startswith('gpt_exporter.providers.gpt') "
+            "for name in sys.modules)))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":
