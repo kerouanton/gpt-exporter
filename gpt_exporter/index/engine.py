@@ -1,13 +1,8 @@
-"""In-process archive indexing API for GPT Exporter.
+"""In-process archive indexing API.
 
-The public v2.9 boundary keeps GUI/CLI callers independent from repository-root
-scripts.  The v2.8 index implementation is retained package-locally while the
-adapter provides explicit paths, structured results, and deterministic resource
-cleanup.
-
-Unlike the historical ``with connect_database(...)`` pattern, this adapter
-closes the SQLite connection explicitly.  That matters for in-process GUI use
-on Windows, where an unclosed handle can otherwise remain alive after indexing.
+The adapter supports both historical ChatGPT JSON/XZ exports and the
+provider-neutral canonical conversation schema. Concrete provider parsing stays
+outside the core index path; canonical inputs are indexed directly.
 """
 
 from __future__ import annotations
@@ -21,6 +16,9 @@ from functools import lru_cache
 from pathlib import Path
 from types import ModuleType
 from typing import Callable
+
+from gpt_exporter.core.serialization import try_read_canonical_conversation
+from gpt_exporter.index.canonical import index_canonical_conversation
 
 
 ProgressCallback = Callable[[str], None]
@@ -59,7 +57,7 @@ class IndexUpdateResult:
 
 @lru_cache(maxsize=1)
 def _implementation() -> ModuleType:
-    """Load the package-local v2.8 indexer without its import diagnostic."""
+    """Load the package-local historical ChatGPT indexer without diagnostics."""
 
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured):
@@ -72,6 +70,31 @@ def _emit(progress: ProgressCallback | None, message: str) -> None:
         progress(message)
 
 
+def _index_source(
+    connection,
+    implementation: ModuleType,
+    json_path: Path,
+    archive_root: Path,
+    *,
+    force: bool,
+) -> bool:
+    canonical = try_read_canonical_conversation(json_path)
+    if canonical is not None:
+        return index_canonical_conversation(
+            connection,
+            canonical,
+            source_path=json_path,
+            archive_root=archive_root,
+            force=force,
+        )
+    return implementation.index_one(
+        connection,
+        json_path,
+        archive_root,
+        force=force,
+    )
+
+
 def update_index(
     archive_root: Path | str,
     *,
@@ -80,13 +103,7 @@ def update_index(
     force: bool = False,
     progress: ProgressCallback | None = None,
 ) -> IndexUpdateResult:
-    """Create or incrementally update an archive SQLite index in-process.
-
-    Per-conversation source decoding/validation failures retain the historical
-    behavior: they are recorded and processing continues. Structural SQLite
-    failures are deliberately not caught here, matching the v2.8 indexer: they
-    propagate to the caller so archive/GUI layers take their failure paths.
-    """
+    """Create or incrementally update the archive SQLite index in-process."""
 
     implementation = _implementation()
     archive_root = Path(archive_root).expanduser().resolve()
@@ -108,10 +125,7 @@ def update_index(
 
     resolved_database.parent.mkdir(parents=True, exist_ok=True)
     json_files = sorted(resolved_downloads.rglob("*.json.xz"))
-    _emit(
-        progress,
-        f"Found {len(json_files)} compressed conversation JSON files",
-    )
+    _emit(progress, f"Found {len(json_files)} compressed conversation JSON files")
 
     if not json_files:
         return IndexUpdateResult(
@@ -132,8 +146,9 @@ def update_index(
     try:
         for json_path in json_files:
             try:
-                changed = implementation.index_one(
+                changed = _index_source(
                     connection,
+                    implementation,
                     json_path,
                     archive_root,
                     force=force,
