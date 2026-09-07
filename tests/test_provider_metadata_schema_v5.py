@@ -4,6 +4,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from gpt_exporter.index.storage import SCHEMA_VERSION, connect_database, upsert_provider_metadata
@@ -22,7 +23,7 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
     def test_fresh_schema_contains_no_chatgpt_columns(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "fresh.sqlite"
-            with connect_database(database) as connection:
+            with closing(connect_database(database)) as connection:
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
                 columns = {
                     row["name"]
@@ -115,7 +116,7 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
             finally:
                 connection.close()
 
-            with connect_database(database) as migrated:
+            with closing(connect_database(database)) as migrated:
                 version = migrated.execute("PRAGMA user_version").fetchone()[0]
                 columns = {
                     row["name"]
@@ -149,7 +150,7 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
     def test_provider_metadata_table_accepts_non_gpt_provider(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "discord.sqlite"
-            with connect_database(database) as connection:
+            with closing(connect_database(database)) as connection:
                 connection.execute(
                     """
                     INSERT INTO conversations (
