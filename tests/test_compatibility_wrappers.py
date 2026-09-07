@@ -19,7 +19,7 @@ class CompatibilityWrapperTests(unittest.TestCase):
                 "import_bundle",
             ),
             "export_markdown": (
-                "gpt_exporter.export._legacy_markdown",
+                "gpt_exporter.providers.gpt.export._native_markdown",
                 "reconstruct_active_path",
             ),
             "export_docx": (
