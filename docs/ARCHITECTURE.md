@@ -30,7 +30,7 @@ CanonicalAsset
 
 The canonical model contains only cross-provider concepts. Provider-only fields belong in provider metadata and must not become required core fields merely because one provider exposes them.
 
-Examples of ChatGPT-only source concepts include `mapping`, `current_node`, gizmo/Custom GPT identifiers, ChatGPT project/origin details, model slugs, browser asset pointers, and `chatgpt-archive-source.json`. A future Discord provider can expose guild/channel/thread metadata without changing the canonical model.
+Examples of ChatGPT-only source concepts include `mapping`, `current_node`, gizmo/Custom GPT identifiers, ChatGPT project/origin details, model slugs, browser asset pointers, and `chatgpt-archive-source.json`. A future Discord provider can expose guild/channel/thread metadata without changing the canonical model or shared SQLite schema.
 
 ## Current package ownership
 
@@ -44,7 +44,7 @@ gpt_exporter\
 ├── index\
 │   ├── engine.py                # provider-neutral canonical index orchestration
 │   ├── canonical.py             # CanonicalConversation -> SQLite
-│   └── storage.py               # shared SQLite storage
+│   └── storage.py               # shared provider-neutral SQLite schema v5
 │
 ├── export\
 │   ├── markdown.py              # canonical Markdown + lazy compatibility facade
@@ -113,6 +113,38 @@ Provider code owns:
 - provider-specific GUI actions and command-line workflows;
 - provider-specific historical migrations.
 
+## Provider-neutral SQLite schema v5
+
+Schema v5 removes the final ChatGPT-specific fields from the shared `conversations` table. Provider metadata is stored generically in:
+
+```text
+conversation_provider_metadata
+    conversation_id
+    provider_id
+    metadata_json
+    updated_at
+```
+
+The v4 fields:
+
+```text
+gizmo_id
+gizmo_type
+conversation_template_id
+conversation_origin
+default_model_slug
+```
+
+are migrated into `conversation_provider_metadata` with `provider_id = 'gpt'` and are no longer columns of the shared schema.
+
+The migration is covered by tests that verify:
+
+- all five legacy values are preserved;
+- the five GPT columns disappear from `conversations`;
+- child-table foreign keys remain valid after the table replacement;
+- `PRAGMA foreign_key_check` returns no errors;
+- another provider such as Discord can store its own metadata without any schema change.
+
 ## Legacy ChatGPT DOCX migration
 
 The historical 42-conversation DOCX migration is closed. Its canonical promotion was verified from JSON only with:
@@ -139,22 +171,6 @@ Some historical public imports remain outside `providers\gpt` so existing script
 
 New code should call provider APIs directly when performing provider-specific work.
 
-## Remaining SQLite v4 compatibility debt
-
-SQLite schema version 4 still contains nullable historical columns in `conversations`:
-
-```text
-gizmo_id
-gizmo_type
-conversation_template_id
-conversation_origin
-default_model_slug
-```
-
-These fields are not required by the canonical engine and do not prevent the provider-removal resilience test from passing, but they are still ChatGPT-specific knowledge in shared storage. Therefore they are the remaining structural exception to the strict provider-neutrality goal.
-
-They should be removed in a dedicated schema-v5 migration, with provider metadata stored through a generic provider-metadata mechanism. That migration must be separate from code relocation so database compatibility, browser queries, rebuild behavior, and rollback can be tested explicitly.
-
 ## Architecture acceptance criteria
 
 A provider-neutral engine must satisfy all of the following:
@@ -167,6 +183,7 @@ A provider-neutral engine must satisfy all of the following:
 5. Export it to canonical Markdown.
 6. Use shared resources/UI helpers.
 7. No shared engine module imports a concrete provider as a runtime prerequisite.
+8. No provider-specific fields are required by the shared SQLite schema.
 ```
 
 Provider compatibility facades may fail when their provider has deliberately been removed; the engine itself must not.

@@ -9,8 +9,9 @@ import io
 
 
 with contextlib.redirect_stdout(io.StringIO()):
-    from gpt_exporter.providers.gpt.indexing import _native_indexer as _implementation
+    from gpt_exporter.providers.gpt.indexing import cli as _provider_cli
 
+_implementation = _provider_cli.implementation
 
 for _name in dir(_implementation):
     if not _name.startswith("_"):
@@ -19,4 +20,4 @@ for _name in dir(_implementation):
 
 if __name__ == "__main__":
     _implementation.__file__ = __file__
-    raise SystemExit(_implementation.main())
+    raise SystemExit(_provider_cli.main())
