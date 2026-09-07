@@ -23,7 +23,7 @@ class CompatibilityWrapperTests(unittest.TestCase):
                 "reconstruct_active_path",
             ),
             "export_docx": (
-                "gpt_exporter.export._legacy_docx",
+                "gpt_exporter.export._markdown_docx_v28",
                 "convert_markdown_to_docx",
             ),
             "index_chatgpt_archive": (
@@ -53,6 +53,20 @@ class CompatibilityWrapperTests(unittest.TestCase):
                     completed.stdout,
                     f"The filename of this script is: {module_name}.py\n",
                 )
+
+    def test_legacy_docx_module_name_is_compatibility_alias_only(self) -> None:
+        script = (
+            "from gpt_exporter.export import _legacy_docx, _markdown_docx_v28; "
+            "assert _legacy_docx is _markdown_docx_v28"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=REPOSITORY_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_root_compatibility_clis_keep_help_entry_points(self) -> None:
         for script_name in (
