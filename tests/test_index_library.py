@@ -67,99 +67,84 @@ class IndexLibraryTests(unittest.TestCase):
                         "id": "message-assistant",
                         "author": {"role": "assistant"},
                         "create_time": 1_700_000_020.0,
-                        "content": {
-                            "content_type": "text",
-                            "parts": [answer],
-                        },
+                        "content": {"content_type": "text", "parts": [answer]},
                         "metadata": {},
                     },
                 },
             },
         }
         path = downloads / filename
-        with lzma.open(path, "wt", encoding="utf-8", preset=6) as handle:
-            json.dump(conversation, handle, ensure_ascii=False)
+        with lzma.open(path, "wt", encoding="utf-8") as handle:
+            json.dump(conversation, handle)
         return path
 
     def test_incremental_update_returns_structured_counts_and_closes_database(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             archive_root = Path(temporary) / "archive"
-            self._write_conversation(archive_root)
-            database_path = archive_root / "conversations-index.sqlite"
+            source = self._write_conversation(archive_root)
 
             first = update_index(archive_root)
             second = update_index(archive_root)
 
+            self.assertTrue(first.success)
             self.assertEqual(first.total_files, 1)
             self.assertEqual(first.updated, 1)
             self.assertEqual(first.unchanged_or_skipped, 0)
             self.assertEqual(first.failed, 0)
-            self.assertTrue(first.success)
+            self.assertEqual(first.downloads_dir, source.parent.resolve())
+            self.assertEqual(
+                first.database_path,
+                (archive_root / "conversations-index.sqlite").resolve(),
+            )
+
+            self.assertTrue(second.success)
+            self.assertEqual(second.total_files, 1)
             self.assertEqual(second.updated, 0)
             self.assertEqual(second.unchanged_or_skipped, 1)
             self.assertEqual(second.failed, 0)
 
-            moved = database_path.with_name("moved.sqlite")
-            database_path.replace(moved)
-            moved.replace(database_path)
-            self.assertTrue(database_path.is_file())
+            moved = first.database_path.with_name("moved.sqlite")
+            first.database_path.replace(moved)
+            moved.replace(first.database_path)
+            self.assertTrue(first.database_path.is_file())
 
     def test_incremental_update_preserves_project_category_and_tag_assignments(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             archive_root = Path(temporary) / "archive"
             source = self._write_conversation(archive_root)
             database_path = archive_root / "conversations-index.sqlite"
+
             update_index(archive_root)
+            import index_chatgpt_archive as indexer
 
-            with closing(sqlite3.connect(database_path)) as connection:
-                connection.execute("PRAGMA foreign_keys = ON")
-                connection.execute(
-                    "INSERT INTO categories(name, description, created_at) VALUES (?, NULL, ?)",
-                    ("Category A", "2026-01-01T00:00:00+00:00"),
-                )
-                connection.execute(
-                    "INSERT INTO tags(name, description, created_at) VALUES (?, NULL, ?)",
-                    ("Tag A", "2026-01-01T00:00:00+00:00"),
-                )
-                connection.execute(
-                    "INSERT INTO work_projects(name, description, created_at) VALUES (?, NULL, ?)",
-                    ("Project A", "2026-01-01T00:00:00+00:00"),
-                )
-                connection.execute(
-                    "INSERT INTO conversation_categories(conversation_id, category_id, assigned_at) "
-                    "SELECT ?, category_id, ? FROM categories WHERE name = ?",
-                    (
-                        "conv-index-library-001",
-                        "2026-01-01T00:00:00+00:00",
-                        "Category A",
-                    ),
-                )
-                connection.execute(
-                    "INSERT INTO conversation_tags(conversation_id, tag_id, assigned_at) "
-                    "SELECT ?, tag_id, ? FROM tags WHERE name = ?",
-                    (
-                        "conv-index-library-001",
-                        "2026-01-01T00:00:00+00:00",
-                        "Tag A",
-                    ),
-                )
-                connection.execute(
-                    "INSERT INTO conversation_work_projects(conversation_id, project_id, assigned_at) "
-                    "SELECT ?, project_id, ? FROM work_projects WHERE name = ?",
-                    (
-                        "conv-index-library-001",
-                        "2026-01-01T00:00:00+00:00",
-                        "Project A",
-                    ),
-                )
-                connection.commit()
+            with closing(indexer.connect_database(database_path)) as connection:
+                category = indexer.get_or_create_category(connection, "Research")
+                tag = indexer.get_or_create_tag(connection, "Important")
+                project = indexer.get_or_create_work_project(connection, "Migration")
+                with connection:
+                    connection.execute(
+                        "INSERT INTO conversation_categories (conversation_id, category_id, assigned_at) VALUES (?, ?, ?)",
+                        ("conv-index-library-001", category["category_id"], indexer.now_iso()),
+                    )
+                    connection.execute(
+                        "INSERT INTO conversation_tags (conversation_id, tag_id, assigned_at) VALUES (?, ?, ?)",
+                        ("conv-index-library-001", tag["tag_id"], indexer.now_iso()),
+                    )
+                    connection.execute(
+                        "INSERT INTO conversation_work_projects (conversation_id, project_id, assigned_at) VALUES (?, ?, ?)",
+                        ("conv-index-library-001", project["project_id"], indexer.now_iso()),
+                    )
 
-            current = source.stat().st_mtime_ns
-            os.utime(source, ns=(current + 2_000_000_000, current + 2_000_000_000))
+            self._write_conversation(
+                archive_root,
+                answer="Synthetic indexed answer changed",
+            )
+            source.touch()
             result = update_index(archive_root)
+            self.assertTrue(result.success)
             self.assertEqual(result.updated, 1)
 
-            with closing(sqlite3.connect(database_path)) as connection:
+            with closing(indexer.connect_database(database_path)) as connection:
                 category_count = connection.execute(
                     "SELECT COUNT(*) FROM conversation_categories WHERE conversation_id = ?",
                     ("conv-index-library-001",),
@@ -201,11 +186,9 @@ class IndexLibraryTests(unittest.TestCase):
             archive_root = Path(temporary) / "archive"
             self._write_conversation(archive_root)
             database_path = archive_root / "conversations-index.sqlite"
-            implementation = index_engine._implementation()
 
-            with mock.patch.object(
-                implementation,
-                "index_one",
+            with mock.patch(
+                "gpt_exporter.providers.gpt.indexing.index_native_conversation",
                 side_effect=sqlite3.OperationalError("database is locked"),
             ):
                 with self.assertRaises(sqlite3.OperationalError):
