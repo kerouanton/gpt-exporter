@@ -11,6 +11,7 @@ from gpt_exporter.index.storage import (
     delete_message_index_rows,
     get_or_create_category,
     now_iso,
+    upsert_provider_metadata,
 )
 
 CANONICAL_SOURCE_SCHEMA = "gpt-exporter-canonical-index-source-v1"
@@ -63,10 +64,8 @@ def index_canonical_conversation(
             INSERT INTO conversations (
                 conversation_id, title, created_at, updated_at,
                 source_json_path, source_mtime_ns, docx_path, indexed_at,
-                primary_origin_type, primary_origin_id,
-                gizmo_id, gizmo_type, conversation_template_id,
-                conversation_origin, default_model_slug
-            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'standard', NULL, NULL, NULL, NULL, NULL, NULL)
+                primary_origin_type, primary_origin_id
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'standard', NULL)
             ON CONFLICT(conversation_id) DO UPDATE SET
                 title = excluded.title,
                 created_at = excluded.created_at,
@@ -85,6 +84,13 @@ def index_canonical_conversation(
                 source_mtime_ns,
                 indexed_at,
             ),
+        )
+
+        upsert_provider_metadata(
+            connection,
+            conversation.conversation_id,
+            conversation.provider_id,
+            conversation.metadata,
         )
 
         delete_message_index_rows(connection, conversation.conversation_id)
