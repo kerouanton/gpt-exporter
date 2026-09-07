@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
-import archive_gui_workflow as workflow
+from gpt_exporter.providers.gpt.ui import archive_workflow as workflow
 
 
 class ArchiveGuiWorkflowTests(unittest.TestCase):
