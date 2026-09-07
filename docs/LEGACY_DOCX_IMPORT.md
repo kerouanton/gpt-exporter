@@ -70,6 +70,12 @@ Canonical DOCX renderer: legacy-canonical-docx-v10
 Semantic audit:          gpt-exporter-legacy-semantic-audit-v5
 ```
 
+## Archived maintenance tools
+
+The one-time reconstruction project is complete. Its command-line and diagnostic scripts are retained under `tools/legacy/` instead of the repository root. Run them from the repository root with `py -m tools.legacy.<module>`.
+
+The reusable `gpt_exporter.legacy` package remains part of the application because it contains indexing/import and rendering support for legacy conversations already present in the archive.
+
 ## Normal maintenance workflow
 
 Once the canonical archive layout exists, routine commands no longer need `F:\GPT`, a turns JSON in the repository, or an output directory in the working tree.
@@ -77,13 +83,13 @@ Once the canonical archive layout exists, routine commands no longer need `F:\GP
 ### Validate the legacy import
 
 ```powershell
-py import_legacy_docx_turns.py
+py -m tools.legacy.import_legacy_docx_turns
 ```
 
 Dry-run remains the default. To apply:
 
 ```powershell
-py import_legacy_docx_turns.py --apply
+py -m tools.legacy.import_legacy_docx_turns --apply
 ```
 
 The command defaults to the canonical turns JSON and source DOCX directories. `--docx-root`, `--database` and an explicit positional turns JSON can still override them.
@@ -91,7 +97,7 @@ The command defaults to the canonical turns JSON and source DOCX directories. `-
 ### Rebuild normalized DOCX derivatives
 
 ```powershell
-py build_legacy_canonical_docx.py --overwrite
+py -m tools.legacy.build_legacy_canonical_docx --overwrite
 ```
 
 This reads the canonical turns JSON and immutable legacy sources, then writes to the canonical `legacy\normalized-docx` directory. Existing output is preserved unless `--overwrite` is supplied.
@@ -99,13 +105,13 @@ This reads the canonical turns JSON and immutable legacy sources, then writes to
 ### Rebuild the complete SQLite index including legacy conversations
 
 ```powershell
-py rebuild_archive_with_legacy.py
+py -m tools.legacy.rebuild_archive_with_legacy
 ```
 
 This is a dry-run validation. To perform the rebuild:
 
 ```powershell
-py rebuild_archive_with_legacy.py --apply
+py -m tools.legacy.rebuild_archive_with_legacy --apply
 ```
 
 The native archive paths keep their normal defaults and the legacy turns/source paths use the canonical legacy subtree.
@@ -113,10 +119,10 @@ The native archive paths keep their normal defaults and the legacy turns/source 
 ### GUI import
 
 ```powershell
-py legacy_import_gui.py
+py -m tools.legacy.legacy_import_gui
 ```
 
-The GUI now opens with the canonical turns JSON and source DOCX directory already selected. Paths remain editable when an alternate archive is intentionally being used.
+The GUI opens with the canonical turns JSON and source DOCX directory already selected. Paths remain editable when an alternate archive is intentionally being used.
 
 ## Reconstruction pipeline
 
@@ -136,19 +142,20 @@ Representable semantics include headings, lists, direct and character-style bold
 
 ## Historical reconstruction commands
 
-The lower-level corpus tools remain available for diagnostics or a future parser/inference migration:
+The lower-level corpus tools remain available under `tools/legacy/` for diagnostics or a future parser/inference migration:
 
 ```text
-scan_legacy_docx.py
-build_legacy_docx_ir.py
-profile_legacy_docx_ir.py
-classify_legacy_docx_ir.py
-build_legacy_docx_turns.py
-verify_legacy_index.py
-audit_legacy_semantic_parity.py
+py -m tools.legacy.scan_legacy_docx
+py -m tools.legacy.build_legacy_docx_ir
+py -m tools.legacy.profile_legacy_docx_ir
+py -m tools.legacy.classify_legacy_docx_ir
+py -m tools.legacy.build_legacy_docx_turns
+py -m tools.legacy.verify_legacy_index
+py -m tools.legacy.audit_legacy_semantic_parity
+py -m tools.legacy.diagnose_legacy_emphasis
 ```
 
-They are maintenance/research tools, not files that need to remain in the local repository working tree. Intermediate IR/profile/classification JSON can be regenerated and need not be retained after a validated migration.
+They are maintenance/research tools, not part of the normal product surface. Intermediate IR/profile/classification JSON can be regenerated and need not be retained after a validated migration.
 
 ## Source retention
 
