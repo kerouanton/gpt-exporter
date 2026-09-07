@@ -15,7 +15,7 @@ class CompatibilityWrapperTests(unittest.TestCase):
     def test_root_compatibility_scripts_delegate_to_package_implementations(self) -> None:
         expectations = {
             "import_browser_bundle": (
-                "gpt_exporter.archive._legacy_importer",
+                "gpt_exporter.providers.gpt.importer._bundle_importer",
                 "import_bundle",
             ),
             "export_markdown": (
