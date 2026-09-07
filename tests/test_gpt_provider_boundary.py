@@ -15,6 +15,7 @@ class GPTProviderBoundaryTests(unittest.TestCase):
             provider / "importer" / "_bundle_importer.py",
             provider / "importer" / "__init__.py",
             provider / "ui" / "archive_workflow.py",
+            provider / "ui" / "_archive_workflow.py",
             provider / "resources" / "collect_chatgpt_archive.js",
         )
         for path in expected:
@@ -35,6 +36,21 @@ class GPTProviderBoundaryTests(unittest.TestCase):
         self.assertTrue(callable(import_bundle))
         self.assertTrue(collector_path().name == "collect_chatgpt_archive.js")
         self.assertTrue(callable(archive_workflow.open_chatgpt))
+
+    def test_relocated_gui_preserves_historical_application_root(self) -> None:
+        from gpt_exporter.providers.gpt.ui import archive_workflow
+
+        self.assertEqual(archive_workflow.ROOT, REPOSITORY_ROOT)
+        self.assertEqual(archive_workflow._implementation.ROOT, REPOSITORY_ROOT)
+        self.assertEqual(
+            archive_workflow.COLLECTOR_PATH,
+            REPOSITORY_ROOT
+            / "gpt_exporter"
+            / "providers"
+            / "gpt"
+            / "resources"
+            / "collect_chatgpt_archive.js",
+        )
 
 
 if __name__ == "__main__":
