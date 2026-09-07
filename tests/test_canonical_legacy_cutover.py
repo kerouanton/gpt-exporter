@@ -9,6 +9,7 @@ from pathlib import Path
 
 from gpt_exporter.index import update_index
 from gpt_exporter.providers.gpt.archive.legacy_docx.promote_turns import promote_collection
+from gpt_exporter.providers.gpt.archive.legacy_docx.verify_cutover import verify_cutover
 
 
 class CanonicalLegacyCutoverTests(unittest.TestCase):
@@ -92,6 +93,16 @@ class CanonicalLegacyCutoverTests(unittest.TestCase):
                     (conversation_id,),
                 ).fetchone()
                 self.assertEqual(category[0], "HAM")
+
+            verification = verify_cutover(
+                archive,
+                expected_conversations=1,
+                expected_messages=3,
+                expected_roles={"user": 1, "unknown": 1, "assistant": 1},
+            )
+            self.assertTrue(verification["success"])
+            self.assertEqual(verification["docx_dependencies"], 0)
+            self.assertEqual(verification["canonical_sources"], 1)
 
             # The whole test succeeds without ever creating a historical DOCX file.
             self.assertFalse(any(root.rglob("*.docx")))
