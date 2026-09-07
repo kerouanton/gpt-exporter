@@ -43,6 +43,10 @@ def run_archive_pipeline_worker(
     legacy_root: Path = ROOT,
 ) -> None:
     """Run the worker with the pre-relocation application root by default."""
+    # Preserve the historical patch/test surface: callers may replace the
+    # public ``archive_bundle`` attribute on this module before invoking the
+    # worker.  The retained implementation resolves its own module global.
+    _implementation.archive_bundle = archive_bundle
     return _original_worker(
         events,
         archive_root=archive_root,
