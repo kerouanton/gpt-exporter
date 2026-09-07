@@ -13,6 +13,7 @@ from gpt_exporter.legacy.canonical_docx_v10 import (
     CANONICAL_LEGACY_DOCX_VERSION,
     export_legacy_canonical_docx,
 )
+from gpt_exporter.paths import default_legacy_paths
 
 
 file_name = os.path.basename(__file__)
@@ -24,26 +25,33 @@ def _stamp() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    defaults = default_legacy_paths()
     parser = argparse.ArgumentParser(
         description=(
             "Generate normalized DOCX derivatives from legacy-docx-turns.json through "
             "the standard Markdown-to-DOCX renderer. Historical source DOCX files are never modified."
         )
     )
-    parser.add_argument("input", type=Path, help="legacy-docx-turns.json")
+    parser.add_argument(
+        "input",
+        nargs="?",
+        type=Path,
+        default=defaults.turns,
+        help=f"Normalized legacy turns JSON (default: {defaults.turns})",
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("legacy-normalized-docx"),
-        help="Directory for derived DOCX files and exported assets (default: legacy-normalized-docx)",
+        default=defaults.normalized_docx,
+        help=f"Directory for derived DOCX files and exported assets (default: {defaults.normalized_docx})",
     )
     parser.add_argument(
         "--docx-root",
         type=Path,
-        default=None,
+        default=defaults.sources,
         help=(
-            "Optional root containing immutable historical DOCX files. When supplied, "
-            "the renderer restores original Word structure and exports embedded assets."
+            "Root containing immutable historical DOCX files. The renderer restores "
+            f"original Word structure and exports embedded assets (default: {defaults.sources})."
         ),
     )
     parser.add_argument("--overwrite", action="store_true", help="Replace existing normalized derivatives")
@@ -58,7 +66,10 @@ def main(argv: list[str] | None = None) -> int:
 
     selected = conversations[: args.limit] if args.limit > 0 else conversations
     output_dir = args.output_dir.expanduser().resolve()
-    docx_root = args.docx_root.expanduser().resolve() if args.docx_root is not None else None
+    docx_root = args.docx_root.expanduser().resolve()
+    if not docx_root.is_dir():
+        raise FileNotFoundError(f"Legacy source DOCX directory does not exist: {docx_root}")
+
     created = 0
     skipped = 0
     restored = 0
@@ -114,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  attachments: {attachment_count}")
     print(f"Unresolved embedded relationships: {unresolved_asset_count}")
     print(f"Total elapsed: {total_elapsed:.2f}s")
+    print(f"Source DOCX directory: {docx_root}")
+    print(f"Turns JSON: {source}")
     print(f"Output directory: {output_dir}")
     return 0 if unresolved_asset_count == 0 else 2
 
