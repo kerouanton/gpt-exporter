@@ -16,6 +16,7 @@ from gpt_exporter.legacy.sqlite_import import (
     import_legacy_collection,
     validate_legacy_collection,
 )
+from gpt_exporter.paths import default_legacy_paths
 
 
 file_name = os.path.basename(__file__)
@@ -47,10 +48,11 @@ class LegacyImportWindow(tk.Tk):
         self.title("Legacy DOCX Import")
         self.minsize(760, 420)
 
-        self.turns_var = tk.StringVar(value=str(Path.cwd() / "legacy-docx-turns.json"))
-        self.docx_root_var = tk.StringVar(value=r"F:\GPT")
+        defaults = default_legacy_paths()
+        self.turns_var = tk.StringVar(value=str(defaults.turns))
+        self.docx_root_var = tk.StringVar(value=str(defaults.sources))
         self.database_var = tk.StringVar(value=str(DEFAULT_DATABASE_PATH))
-        self.status_var = tk.StringVar(value="Select the validated turns JSON and source DOCX directory.")
+        self.status_var = tk.StringVar(value="Validate the canonical legacy archive paths or choose overrides.")
         self.validation: dict[str, int] | None = None
         self.payload: dict[str, object] | None = None
 
@@ -67,7 +69,8 @@ class LegacyImportWindow(tk.Tk):
 
         note = (
             "This GUI imports an already validated normalized legacy-turns file. "
-            "It does not modify the original DOCX files and does not attempt to infer roles itself."
+            "By default it uses ChatGPT Archive\\legacy\\reconstruction and "
+            "ChatGPT Archive\\legacy\\sources. It never modifies the original DOCX files."
         )
         ttk.Label(frame, text=note, wraplength=700, justify="left").grid(
             row=3, column=0, columnspan=3, sticky="ew", pady=(12, 8)

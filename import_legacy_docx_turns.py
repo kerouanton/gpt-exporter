@@ -16,6 +16,7 @@ from gpt_exporter.legacy.sqlite_import import (
     import_legacy_collection,
     validate_legacy_collection,
 )
+from gpt_exporter.paths import default_legacy_paths
 
 
 def _backup_database(database: Path) -> Path | None:
@@ -29,14 +30,26 @@ def _backup_database(database: Path) -> Path | None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    defaults = default_legacy_paths()
     parser = argparse.ArgumentParser(
         description=(
             "Validate and optionally import normalized legacy DOCX turns into the "
             "existing archive index. Dry-run is the default; use --apply to write."
         )
     )
-    parser.add_argument("input", type=Path, help="legacy-docx-turns.json")
-    parser.add_argument("--docx-root", type=Path, required=True, help="Directory containing immutable legacy DOCX files")
+    parser.add_argument(
+        "input",
+        nargs="?",
+        type=Path,
+        default=defaults.turns,
+        help=f"legacy-docx-turns.json (default: {defaults.turns})",
+    )
+    parser.add_argument(
+        "--docx-root",
+        type=Path,
+        default=defaults.sources,
+        help=f"Directory containing immutable legacy DOCX files (default: {defaults.sources})",
+    )
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE_PATH, help="Archive SQLite database")
     parser.add_argument("--apply", action="store_true", help="Actually write legacy conversations into SQLite/FTS5")
     parser.add_argument("--force", action="store_true", help="Reindex legacy conversations even when SHA-256 is unchanged")
@@ -46,6 +59,8 @@ def main(argv: list[str] | None = None) -> int:
     source = args.input.expanduser().resolve()
     docx_root = args.docx_root.expanduser().resolve()
     database = args.database.expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(source)
     if not docx_root.is_dir():
         raise FileNotFoundError(docx_root)
 
@@ -56,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Validated conversations: {validation['conversations']}")
     print(f"Validated turns: {validation['turns']}")
     print(f"Validation failures: {validation['failed']}")
+    print(f"Turns JSON: {source}")
+    print(f"Legacy DOCX sources: {docx_root}")
 
     if not args.apply:
         print("Dry-run only: SQLite was not modified. Re-run with --apply to import.")

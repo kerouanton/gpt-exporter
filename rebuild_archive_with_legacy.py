@@ -17,6 +17,7 @@ from gpt_exporter.index._legacy_indexer import (
     rebuild_index,
 )
 from gpt_exporter.legacy.sqlite_import import import_legacy_collection, validate_legacy_collection
+from gpt_exporter.paths import default_legacy_paths
 
 
 def _backup_database(database: Path) -> Path | None:
@@ -29,6 +30,7 @@ def _backup_database(database: Path) -> Path | None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    defaults = default_legacy_paths()
     parser = argparse.ArgumentParser(
         description=(
             "Rebuild the disposable native SQLite/FTS5 index, then restore normalized "
@@ -38,8 +40,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--archive-root", type=Path, default=DEFAULT_ARCHIVE_ROOT)
     parser.add_argument("--downloads-dir", type=Path, default=DEFAULT_DOWNLOADS_DIR)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE_PATH)
-    parser.add_argument("--legacy-turns", type=Path, required=True, help="legacy-docx-turns.json")
-    parser.add_argument("--docx-root", type=Path, required=True, help="Root containing immutable legacy DOCX files")
+    parser.add_argument(
+        "--legacy-turns",
+        type=Path,
+        default=defaults.turns,
+        help=f"legacy-docx-turns.json (default: {defaults.turns})",
+    )
+    parser.add_argument(
+        "--docx-root",
+        type=Path,
+        default=defaults.sources,
+        help=f"Root containing immutable legacy DOCX files (default: {defaults.sources})",
+    )
     parser.add_argument("--apply", action="store_true", help="Actually rebuild. Without this flag only validate inputs.")
     parser.add_argument("--no-backup", action="store_true", help="Skip backup of the existing SQLite database")
     args = parser.parse_args(argv)
@@ -52,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if not downloads_dir.is_dir():
         raise FileNotFoundError(downloads_dir)
+    if not legacy_turns.is_file():
+        raise FileNotFoundError(legacy_turns)
     if not docx_root.is_dir():
         raise FileNotFoundError(docx_root)
     payload = json.loads(legacy_turns.read_text(encoding="utf-8"))
@@ -60,6 +74,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Validated legacy conversations: {validation['conversations']}")
     print(f"Validated legacy turns: {validation['turns']}")
     print(f"Legacy validation failures: {validation['failed']}")
+    print(f"Legacy turns JSON: {legacy_turns}")
+    print(f"Legacy DOCX sources: {docx_root}")
     if validation["failed"]:
         return 1
 
