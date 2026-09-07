@@ -1,48 +1,53 @@
-# Legacy DOCX import
+# Legacy DOCX import and reconstruction
 
-Historical ChatGPT conversations may exist only as `.docx` files created by copying the full ChatGPT web page into Microsoft Word. These files are valuable archive sources, but they are not equivalent to native ChatGPT JSON exports and must not be silently treated as such.
+Historical ChatGPT conversations may exist only as `.docx` files created by copying ChatGPT pages into Word. They are not native ChatGPT JSON exports and are handled through a separate, non-destructive legacy pipeline.
 
-For native conversations, the durable source remains the exported JSON/XZ and DOCX is a derived presentation format. For legacy conversations, the historical DOCX is the immutable source of evidence and all JSON/SQLite/Markdown/normalized-DOCX representations are derived from it.
+For native conversations, JSON/XZ remains the durable source and DOCX is derived. For legacy conversations, the historical DOCX remains the immutable authoritative source; SQLite, normalized turns, exported assets and normalized DOCX files are derived and rebuildable.
 
-## Preferred filename convention
+## Canonical storage
 
-Use:
-
-```text
-<CATEGORY> GPT <YYYY-MM-DD> <TITLE>.docx
-```
-
-Examples:
+Legacy data lives below the ordinary ChatGPT Archive root:
 
 ```text
-PKI GPT 2026-04-03 Installation PiOS sur RPi.docx
-HAM GPT 2026-04-03 BOM transverter 3.2-20 GHz.docx
-IT GPT 2026-03-27 Problème envoi email Gandi.docx
+%USERPROFILE%\Documents\ChatGPT Archive\legacy\
+├── sources\
+│   └── *.docx                         # immutable historical DOCX sources
+├── normalized-docx\
+│   ├── * [normalized].docx           # derived modern DOCX files
+│   └── assets\legacy\...             # extracted derived assets
+└── reconstruction\
+    ├── legacy-docx-turns.json         # normalized searchable turns
+    ├── legacy-semantic-audit.json     # final semantic audit
+    └── legacy-semantic-audit.csv
 ```
 
-The filename supplies category/date/title hints. The source DOCX SHA-256 is the durable identity used by the legacy importer.
+These paths are derived by `gpt_exporter.paths.default_legacy_paths()` and perform no filesystem changes merely by being imported.
 
-## Provenance and safety invariants
+The standard default locations are therefore:
 
-Legacy import is deliberately non-destructive:
+```text
+Sources:        %USERPROFILE%\Documents\ChatGPT Archive\legacy\sources
+Normalized:     %USERPROFILE%\Documents\ChatGPT Archive\legacy\normalized-docx
+Reconstruction: %USERPROFILE%\Documents\ChatGPT Archive\legacy\reconstruction
+Turns JSON:     %USERPROFILE%\Documents\ChatGPT Archive\legacy\reconstruction\legacy-docx-turns.json
+```
 
-- source DOCX files are never modified;
-- SHA-256 is verified before SQLite import and before source-assisted reconstruction;
-- role inference is stored separately from raw Word evidence;
-- ambiguous regions remain `unknown` instead of being silently forced to User/Assistant;
-- SQLite conversation IDs are stable and derived from source SHA-256;
-- legacy conversations are visibly marked as `Legacy DOCX` in the browser;
-- filename category hints (`HAM`, `PKI`, `IT`, `EMBEDDED`, etc.) are assigned as normal archive categories;
-- import is idempotent and supports forced reindex without creating duplicates;
-- the GUI/CLI validation pass does not modify SQLite;
-- an SQLite backup is created before applied GUI/CLI imports;
-- normalized legacy DOCX files are written to a separate output directory and never replace historical sources;
-- embedded images and recoverable embedded packages are copied into a derived asset tree before rendering;
-- the final normalized DOCX is still produced by the normal GPT Exporter Markdown-to-DOCX engine rather than a legacy-specific Word renderer.
+CLI path options remain available as explicit overrides for maintenance, testing and alternate archives.
 
-## Current validated corpus
+## Safety invariants
 
-The first real corpus contains 42 normalized DOCX files. The validated reconstruction currently yields:
+- historical source DOCX files are never modified or overwritten;
+- source SHA-256 is the stable identity for a legacy conversation;
+- ambiguous role regions remain `unknown` rather than being guessed;
+- normalized legacy DOCX files are presentation derivatives only;
+- missing attachments are never invented;
+- embedded assets are copied without altering source bytes;
+- the final DOCX is rendered through the normal GPT Exporter Markdown-to-DOCX engine;
+- exact historical pagination and Word-only layout are intentionally not reproduced.
+
+## Validated corpus
+
+The migration corpus contains 42 historical DOCX conversations. The validated reconstruction contains:
 
 ```text
 User turns:      304
@@ -51,246 +56,100 @@ Unknown turns:    39
 Total turns:     654
 ```
 
-All 42 source hashes validate, all 654 turns are present in `messages`, and all 654 are present in FTS5. A live browser search has been verified against legacy-only text.
+The final `legacy-canonical-docx-v10` corpus was rebuilt successfully, all 42 normalized DOCX files passed semantic audit v5, and all 42 were manually opened and visually checked. One embedded image was recovered with no unresolved embedded relationship.
 
-Media/attachment parity must be revalidated after running the asset-preserving normalized-DOCX renderer over the complete corpus.
-
-## Pipeline
-
-### 1. Audit source DOCX
+## Current versions
 
 ```text
-py scan_legacy_docx.py "F:\GPT" --json legacy-docx-report.json --debug
+Word IR schema:          gpt-exporter-legacy-conversation-v3
+Role inference:          legacy-role-inference-v3
+Turn builder:            legacy-turn-builder-v2
+Turns schema:            gpt-exporter-legacy-turns-v2
+Asset exporter:          legacy-asset-export-v1
+Canonical DOCX renderer: legacy-canonical-docx-v10
+Semantic audit:          gpt-exporter-legacy-semantic-audit-v5
 ```
 
-This inventories filename metadata, Word timestamps and structural evidence without changing the sources.
+## Normal maintenance workflow
 
-### 2. Build loss-minimizing Word IR
+Once the canonical archive layout exists, routine commands no longer need `F:\GPT`, a turns JSON in the repository, or an output directory in the working tree.
 
-```text
-py build_legacy_docx_ir.py "F:\GPT" --output legacy-docx-ir-v2.json
-```
-
-The v2 IR preserves ordered blocks plus Word evidence such as blank-block counts, alignment, indentation, shading, borders, numbering, run counts, bold/italic runs and hyperlinks.
-
-### 3. Profile formatting signatures
-
-```text
-py profile_legacy_docx_ir.py legacy-docx-ir-v2.json --output legacy-docx-profile.json
-```
-
-The profile is used to validate corpus-level formatting signals without assigning roles by guesswork.
-
-### 4. Infer roles conservatively
-
-```text
-py classify_legacy_docx_ir.py legacy-docx-ir-v2.json ^
-  --output legacy-docx-ir-classified-v3.json ^
-  --summary legacy-docx-role-summary-v3.json
-```
-
-PowerShell form:
+### Validate the legacy import
 
 ```powershell
-py classify_legacy_docx_ir.py legacy-docx-ir-v2.json `
-  --output legacy-docx-ir-classified-v3.json `
-  --summary legacy-docx-role-summary-v3.json
+py import_legacy_docx_turns.py
 ```
 
-Current inference version: `legacy-role-inference-v3`.
-
-Strong Word-format anchors are preferred. Assistant-tail phrases such as proposed next steps are explicitly guarded against as false User turns. Ambiguous regions remain `unknown`.
-
-### 5. Build normalized turns
+Dry-run remains the default. To apply:
 
 ```powershell
-py build_legacy_docx_turns.py legacy-docx-ir-classified-v3.json `
-  --output legacy-docx-turns.json
+py import_legacy_docx_turns.py --apply
 ```
 
-The turn representation preserves:
+The command defaults to the canonical turns JSON and source DOCX directories. `--docx-root`, `--database` and an explicit positional turns JSON can still override them.
 
-- role and confidence;
-- normalized searchable content;
-- source block count;
-- first/last Word order;
-- exact source order references;
-- contributing block kinds.
-
-### 6. Validate SQLite import (dry-run)
+### Rebuild normalized DOCX derivatives
 
 ```powershell
-py import_legacy_docx_turns.py legacy-docx-turns.json `
-  --docx-root "F:\GPT"
+py build_legacy_canonical_docx.py --overwrite
 ```
 
-Expected validated corpus result:
+This reads the canonical turns JSON and immutable legacy sources, then writes to the canonical `legacy\normalized-docx` directory. Existing output is preserved unless `--overwrite` is supplied.
 
-```text
-Validated conversations: 42
-Validated turns: 654
-Validation failures: 0
-Dry-run only: SQLite was not modified.
-```
-
-### 7. Apply SQLite/FTS5 import
+### Rebuild the complete SQLite index including legacy conversations
 
 ```powershell
-py import_legacy_docx_turns.py legacy-docx-turns.json `
-  --docx-root "F:\GPT" `
-  --apply
+py rebuild_archive_with_legacy.py
 ```
 
-Use `--force` when a newer importer needs to refresh metadata such as origin/category display without changing stable conversation IDs.
+This is a dry-run validation. To perform the rebuild:
 
-For the already imported historical corpus this command is primarily a maintenance/rebuild path. Keep it available until the complete regenerated-DOCX corpus has been verified and for future reconstruction-version changes.
-
-### 8. Verify the resulting index
-
-```text
-py verify_legacy_index.py --query "grands rangements"
+```powershell
+py rebuild_archive_with_legacy.py --apply
 ```
 
-The verifier reports legacy conversation count, turn count in `messages`, turn count in FTS5, and legacy FTS matches for the supplied query.
+The native archive paths keep their normal defaults and the legacy turns/source paths use the canonical legacy subtree.
 
-### 9. Browse and search
+### GUI import
 
-```text
-py archive_browser.py
-```
-
-Legacy conversations appear with:
-
-```text
-Origin: Legacy DOCX
-```
-
-and use their filename category hint through the normal Category mechanism.
-
-### 10. GUI import of an already reconstructed corpus
-
-```text
+```powershell
 py legacy_import_gui.py
 ```
 
-The GUI intentionally starts from `legacy-docx-turns.json`, not raw DOCX. It provides:
+The GUI now opens with the canonical turns JSON and source DOCX directory already selected. Paths remain editable when an alternate archive is intentionally being used.
 
-- turns JSON selection;
-- source DOCX directory selection;
-- target SQLite selection;
-- read-only validation first;
-- explicit confirmation before Apply;
-- consistent SQLite backup using SQLite's backup API;
-- import result summary.
-
-This keeps the validated reconstruction pipeline separate from the database write step.
-
-### 11. Generate normalized legacy DOCX derivatives with assets
-
-```powershell
-py build_legacy_canonical_docx.py legacy-docx-turns.json `
-  --docx-root "F:\GPT" `
-  --output-dir legacy-normalized-docx `
-  --overwrite
-```
-
-For an initial visual smoke test, generate only one document:
-
-```powershell
-py build_legacy_canonical_docx.py legacy-docx-turns.json `
-  --docx-root "F:\GPT" `
-  --output-dir legacy-normalized-docx `
-  --limit 1 `
-  --overwrite
-```
-
-Current renderer version: `legacy-canonical-docx-v4`.
-Current asset exporter: `legacy-asset-export-v1`.
-
-The reconstruction path is deliberately shared with normal GPT Exporter output:
-
-```text
-legacy-docx-turns.json
-        + immutable source DOCX
-        -> restored Word block text
-        -> exported assets
-        -> transient Markdown with local asset references
-        -> standard GPT Exporter Markdown-to-DOCX renderer
-        -> [normalized].docx
-```
-
-Recoverable embedded assets are copied below:
-
-```text
-legacy-normalized-docx\assets\legacy\<source-sha-prefix>\
-```
-
-Asset filenames are content-addressed with SHA-256 prefixes so Word-internal names such as `image1.png` cannot collide between conversations.
-
-The renderer currently preserves:
-
-- original source Word block text when the immutable source DOCX is available;
-- reconstructed User / Assistant / Unknown turn boundaries from the validated JSON;
-- inline DrawingML images;
-- historical VML image relationships;
-- embedded OLE/package relationships when their bytes are present in the DOCX package;
-- source filename/SHA and reconstruction-version provenance;
-- local asset links through the same Markdown/DOCX path used by native GPT Exporter exports.
-
-Images are represented as ordinary local Markdown images and are therefore embedded by the normal DOCX renderer. Embedded package/OLE payloads are exported as local files and represented as ordinary local attachment links.
-
-A historical attachment that Word preserved only as an external hyperlink does not contain recoverable attachment bytes in the DOCX package. Such a file must not be invented. The historical DOCX remains authoritative whenever an embedded relationship cannot be recovered.
-
-The build command reports total exported assets, images, attachments and unresolved embedded relationships. A non-zero unresolved relationship count returns a non-zero validation status so incomplete corpus reconstruction is visible.
-
-Derived filenames end in:
-
-```text
-[normalized].docx
-```
-
-so they cannot silently overwrite the historical source filename. Existing normalized derivatives are kept unless `--overwrite` is supplied.
-
-## Rebuilding the complete archive
-
-The historical index `rebuild` command only knows how to rebuild native JSON/XZ conversations. Use the legacy-aware wrapper instead when legacy conversations must be retained:
-
-```text
-py rebuild_archive_with_legacy.py --help
-```
-
-The wrapper reconstructs the native index and then reimports the normalized legacy turns, with backup/validation safety.
-
-## Storage model
-
-Native path:
-
-```text
-ChatGPT JSON/XZ -> generated DOCX -> SQLite/FTS5
-```
-
-Legacy path:
+## Reconstruction pipeline
 
 ```text
 immutable historical DOCX
-        -> Word IR v2
+        -> Word IR v3
         -> conservative role inference v3
-        -> normalized turns v1 (JSON)
-        -> SQLite/FTS5 + provenance
-        -> source-assisted asset export
-        -> Markdown
-        -> standard GPT Exporter DOCX renderer
-        -> normalized DOCX + derived assets
+        -> normalized turns v2
+        -> SQLite / FTS5 + provenance
+        -> source-assisted Word-to-Markdown recovery
+        -> asset extraction
+        -> standard Markdown-to-DOCX renderer
+        -> normalized DOCX v10
 ```
 
-The legacy DOCX remains the authoritative source. Derived IR/turn JSON, exported assets and normalized DOCX files may be regenerated when parser, inference or rendering logic improves.
+Representable semantics include headings, lists, direct and character-style bold/italic, hyperlinks, meaningful line breaks, real tables and recoverable embedded assets. Historical malformed raw-Markdown fences found inside Word paragraphs are contained locally so they cannot consume later conversation content.
 
-## Known limitations
+## Historical reconstruction commands
 
-- attachments that were not embedded/preserved in the copied Word page cannot be reconstructed from nonexistent bytes;
-- external hyperlinks may identify a historical attachment without containing the attachment itself;
-- 39 current turn regions remain deliberately `unknown` in the validated corpus;
-- some captures begin in the middle of an Assistant response;
-- the legacy parser reconstructs searchable conversation structure, not the exact original ChatGPT DOM;
-- role inference is corpus-informed and versioned, so future parser versions may improve the reconstruction while preserving the original source and provenance;
-- complete visual/media parity must be measured on the real 42-DOCX corpus after regenerating all normalized documents with the current renderer.
+The lower-level corpus tools remain available for diagnostics or a future parser/inference migration:
+
+```text
+scan_legacy_docx.py
+build_legacy_docx_ir.py
+profile_legacy_docx_ir.py
+classify_legacy_docx_ir.py
+build_legacy_docx_turns.py
+verify_legacy_index.py
+audit_legacy_semantic_parity.py
+```
+
+They are maintenance/research tools, not files that need to remain in the local repository working tree. Intermediate IR/profile/classification JSON can be regenerated and need not be retained after a validated migration.
+
+## Source retention
+
+Do not delete `legacy\sources` merely because normalized DOCX output exists. The historical DOCX files remain the authoritative evidence for future parser, role-inference, asset-extraction or renderer improvements. Derived normalized DOCX, assets, SQLite rows and reconstruction JSON may be regenerated from those sources.
