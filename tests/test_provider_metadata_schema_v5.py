@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import lzma
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import closing
@@ -10,6 +13,7 @@ from pathlib import Path
 from gpt_exporter.index.storage import SCHEMA_VERSION, connect_database, upsert_provider_metadata
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_GPT_COLUMNS = {
     "gizmo_id",
     "gizmo_type",
@@ -177,6 +181,76 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
                 json.loads(row["metadata_json"]),
                 {"channel_id": "channel-2", "guild_id": "guild-1"},
             )
+
+    def test_root_chatgpt_index_cli_creates_schema_v5(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            archive_root = Path(temporary) / "archive"
+            downloads = archive_root / "downloads"
+            downloads.mkdir(parents=True)
+            database = archive_root / "conversations-index.sqlite"
+            source = downloads / "conversation.json.xz"
+            conversation = {
+                "conversation_id": "cli-v5",
+                "title": "CLI v5",
+                "create_time": 1_700_000_000.0,
+                "update_time": 1_700_000_100.0,
+                "gizmo_id": "g-cli",
+                "gizmo_type": "custom_gpt",
+                "default_model_slug": "gpt-5.6",
+                "mapping": {
+                    "u": {
+                        "message": {
+                            "id": "m-u",
+                            "author": {"role": "user"},
+                            "create_time": 1_700_000_010.0,
+                            "content": {"content_type": "text", "parts": ["hello"]},
+                            "metadata": {},
+                        }
+                    }
+                },
+            }
+            with lzma.open(source, "wt", encoding="utf-8") as handle:
+                json.dump(conversation, handle)
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "index_chatgpt_archive.py",
+                    "--archive-root",
+                    str(archive_root),
+                    "--downloads-dir",
+                    str(downloads),
+                    "--database",
+                    str(database),
+                    "index",
+                ],
+                cwd=REPOSITORY_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+
+            with closing(sqlite3.connect(database)) as connection:
+                connection.row_factory = sqlite3.Row
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                columns = {
+                    row["name"]
+                    for row in connection.execute("PRAGMA table_info(conversations)")
+                }
+                metadata_row = connection.execute(
+                    """
+                    SELECT metadata_json FROM conversation_provider_metadata
+                    WHERE conversation_id = 'cli-v5' AND provider_id = 'gpt'
+                    """
+                ).fetchone()
+
+            self.assertEqual(version, 5)
+            self.assertTrue(FORBIDDEN_GPT_COLUMNS.isdisjoint(columns))
+            self.assertIsNotNone(metadata_row)
+            metadata = json.loads(metadata_row["metadata_json"])
+            self.assertEqual(metadata["gizmo_id"], "g-cli")
+            self.assertEqual(metadata["default_model_slug"], "gpt-5.6")
 
 
 if __name__ == "__main__":
