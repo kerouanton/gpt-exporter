@@ -30,6 +30,7 @@ class PackageClosureTests(unittest.TestCase):
             script = "\n".join(
                 [
                     "import importlib.util",
+                    "import sys",
                     "assert importlib.util.find_spec('import_browser_bundle') is None",
                     "assert importlib.util.find_spec('export_markdown') is None",
                     "assert importlib.util.find_spec('export_docx') is None",
@@ -39,12 +40,15 @@ class PackageClosureTests(unittest.TestCase):
                     "from gpt_exporter.export import markdown, docx",
                     "from gpt_exporter.index import engine",
                     "from gpt_exporter.providers.gpt.importer import _bundle_importer",
+                    "from gpt_exporter.providers.gpt import indexing",
                     "from gpt_exporter.providers.gpt.resources import collector_path",
                     "assert callable(importer.import_bundle)",
                     "assert _bundle_importer.__name__ == 'gpt_exporter.providers.gpt.importer._bundle_importer'",
                     "assert markdown._implementation().__name__ == 'gpt_exporter.export._legacy_markdown'",
                     "assert docx._implementation().__name__ == 'gpt_exporter.export._legacy_docx'",
-                    "assert engine._implementation().__name__ == 'gpt_exporter.index._legacy_indexer'",
+                    "assert callable(engine.update_index)",
+                    "assert callable(indexing.update_index)",
+                    "assert 'gpt_exporter.providers.gpt.indexing._native_indexer' not in sys.modules",
                     "assert collector_path().is_file()",
                     "assert 'chatgpt-archive-source.json' in collector_path().read_text(encoding='utf-8')",
                 ]
