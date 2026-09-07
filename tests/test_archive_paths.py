@@ -8,7 +8,7 @@ from pathlib import Path
 
 import archive_chats
 import index_chatgpt_archive as indexer
-from gpt_exporter.paths import ArchivePaths, default_archive_paths, default_user_profile
+from gpt_exporter.paths import ArchivePaths, default_archive_paths, default_legacy_paths, default_user_profile
 
 
 class ArchivePathsTests(unittest.TestCase):
@@ -22,6 +22,33 @@ class ArchivePathsTests(unittest.TestCase):
         self.assertEqual(paths.reports, root / "reports")
         self.assertEqual(paths.markdown, root / "markdown")
         self.assertEqual(paths.database, root / "conversations-index.sqlite")
+
+    def test_from_root_derives_canonical_legacy_paths(self) -> None:
+        root = Path("C:/synthetic/archive")
+        legacy = ArchivePaths.from_root(root).legacy
+
+        self.assertEqual(legacy.root, root / "legacy")
+        self.assertEqual(legacy.sources, root / "legacy" / "sources")
+        self.assertEqual(legacy.normalized_docx, root / "legacy" / "normalized-docx")
+        self.assertEqual(legacy.reconstruction, root / "legacy" / "reconstruction")
+        self.assertEqual(legacy.turns, root / "legacy" / "reconstruction" / "legacy-docx-turns.json")
+        self.assertEqual(
+            legacy.semantic_audit_json,
+            root / "legacy" / "reconstruction" / "legacy-semantic-audit.json",
+        )
+        self.assertEqual(
+            legacy.semantic_audit_csv,
+            root / "legacy" / "reconstruction" / "legacy-semantic-audit.csv",
+        )
+
+    def test_default_legacy_paths_follow_user_profile(self) -> None:
+        legacy = default_legacy_paths({"USERPROFILE": "C:/Users/Synthetic"})
+        expected = Path("C:/Users/Synthetic/Documents/ChatGPT Archive/legacy")
+
+        self.assertEqual(legacy.root, expected)
+        self.assertEqual(legacy.sources, expected / "sources")
+        self.assertEqual(legacy.normalized_docx, expected / "normalized-docx")
+        self.assertEqual(legacy.turns, expected / "reconstruction" / "legacy-docx-turns.json")
 
     def test_default_user_profile_prefers_userprofile(self) -> None:
         environment = {"USERPROFILE": "C:/Users/Synthetic"}
