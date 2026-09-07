@@ -2,14 +2,14 @@ import os
 file_name = os.path.basename(__file__)
 print(f"The filename of this script is: {file_name}")
 
-"""Compatibility CLI and import surface for the packaged browser importer."""
+"""Compatibility CLI and import surface for the packaged ChatGPT browser importer."""
 
 import contextlib
 import io
 
 
 with contextlib.redirect_stdout(io.StringIO()):
-    from gpt_exporter.archive import _legacy_importer as _implementation
+    from gpt_exporter.providers.gpt.importer import _bundle_importer as _implementation
 
 
 for _name in dir(_implementation):
