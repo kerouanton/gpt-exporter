@@ -41,4 +41,5 @@ class CanonicalConversation:
     messages: tuple[CanonicalMessage, ...]
     created_at: str | None = None
     updated_at: str | None = None
+    category_hints: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
