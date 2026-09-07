@@ -2,14 +2,14 @@ import os
 file_name = os.path.basename(__file__)
 print(f"The filename of this script is: {file_name}")
 
-"""Compatibility CLI and import surface for the packaged Markdown exporter."""
+"""Compatibility CLI and import surface for the ChatGPT Markdown exporter."""
 
 import contextlib
 import io
 
 
 with contextlib.redirect_stdout(io.StringIO()):
-    from gpt_exporter.export import _legacy_markdown as _implementation
+    from gpt_exporter.providers.gpt.export import _native_markdown as _implementation
 
 
 for _name in dir(_implementation):
