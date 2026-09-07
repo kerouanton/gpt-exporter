@@ -9,7 +9,7 @@ import io
 
 
 with contextlib.redirect_stdout(io.StringIO()):
-    from gpt_exporter.export import _legacy_docx as _implementation
+    from gpt_exporter.export import _markdown_docx_v28 as _implementation
 
 
 for _name in dir(_implementation):

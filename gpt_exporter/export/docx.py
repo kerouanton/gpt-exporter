@@ -1,8 +1,8 @@
-"""Library API for converting GPT Exporter Markdown to DOCX.
+"""Provider-neutral library API for converting Markdown to DOCX.
 
-The stable v2.9 API keeps CLI concerns out of callers.  The v2.8 converter is
-retained package-locally so the library no longer depends on a repository-root
-script being importable at runtime.
+The public API always receives explicit input/output paths. The retained v2.8
+renderer is package-local implementation detail; its historical standalone CLI
+defaults are not part of this library contract.
 """
 
 from __future__ import annotations
@@ -30,12 +30,12 @@ class DocxExportResult:
 
 @lru_cache(maxsize=1)
 def _implementation() -> ModuleType:
-    """Load the package-local v2.8 converter without its diagnostic."""
+    """Load the retained package-local v2.8 Markdown renderer quietly."""
 
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        from . import _legacy_docx
-    return _legacy_docx
+        from . import _markdown_docx_v28
+    return _markdown_docx_v28
 
 
 def _forward_progress(buffer: io.StringIO, progress: ProgressCallback | None) -> None:
@@ -55,11 +55,7 @@ def export_docx(
     overwrite: bool = False,
     progress: ProgressCallback | None = None,
 ) -> DocxExportResult:
-    """Convert one Markdown document to DOCX without invoking a CLI.
-
-    Exceptions are allowed to propagate.  ``overwrite=False`` preserves the
-    v2.8 CLI behavior of keeping an existing non-empty DOCX untouched.
-    """
+    """Convert one Markdown document to DOCX without invoking a provider CLI."""
 
     markdown_path = Path(markdown_path).expanduser().resolve()
     output_path = Path(output_path).expanduser().resolve()

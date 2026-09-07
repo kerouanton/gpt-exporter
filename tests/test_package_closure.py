@@ -48,7 +48,7 @@ class PackageClosureTests(unittest.TestCase):
                     "assert callable(markdown.export_canonical_markdown)",
                     "assert callable(gpt_markdown.export_markdown)",
                     "assert 'gpt_exporter.providers.gpt.export._native_markdown' not in sys.modules",
-                    "assert docx._implementation().__name__ == 'gpt_exporter.export._legacy_docx'",
+                    "assert docx._implementation().__name__ == 'gpt_exporter.export._markdown_docx_v28'",
                     "assert callable(engine.update_index)",
                     "assert callable(indexing.update_index)",
                     "assert 'gpt_exporter.providers.gpt.indexing._native_indexer' not in sys.modules",
