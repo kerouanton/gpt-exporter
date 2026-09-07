@@ -106,6 +106,14 @@ def conversation_from_dict(payload: dict[str, Any]) -> CanonicalConversation:
     )
 
 
+def read_json_payload(path: Path) -> object:
+    path = Path(path)
+    if path.name.endswith(".xz"):
+        with lzma.open(path, "rt", encoding="utf-8") as handle:
+            return json.load(handle)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def write_canonical_conversation(path: Path, conversation: CanonicalConversation) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -118,14 +126,17 @@ def write_canonical_conversation(path: Path, conversation: CanonicalConversation
 
 
 def read_canonical_conversation(path: Path) -> CanonicalConversation:
-    path = Path(path)
-    if path.name.endswith(".xz"):
-        with lzma.open(path, "rt", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    else:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = read_json_payload(path)
     if not isinstance(payload, dict):
         raise ValueError(f"Expected canonical conversation object: {path}")
+    return conversation_from_dict(payload)
+
+
+def try_read_canonical_conversation(path: Path) -> CanonicalConversation | None:
+    payload = read_json_payload(path)
+    if not is_canonical_payload(payload):
+        return None
+    assert isinstance(payload, dict)
     return conversation_from_dict(payload)
 
 
