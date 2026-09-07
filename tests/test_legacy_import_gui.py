@@ -8,7 +8,7 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
-from legacy_import_gui import backup_database
+from tools.legacy.legacy_import_gui import backup_database
 
 
 class LegacyImportGuiTests(unittest.TestCase):
