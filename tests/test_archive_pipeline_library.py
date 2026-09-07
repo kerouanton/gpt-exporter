@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import gpt_exporter.pipeline as pipeline
+import gpt_exporter.providers.gpt.pipeline as pipeline
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -83,7 +83,7 @@ class ArchivePipelineLibraryTests(unittest.TestCase):
             environment = os.environ.copy()
             environment["USERPROFILE"] = temporary
             completed = subprocess.run(
-                [sys.executable, "-c", "import gpt_exporter.pipeline"],
+                [sys.executable, "-c", "import gpt_exporter.providers.gpt.pipeline"],
                 cwd=REPOSITORY_ROOT,
                 env=environment,
                 text=True,
