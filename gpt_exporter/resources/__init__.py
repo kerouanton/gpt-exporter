@@ -1,11 +1,10 @@
-"""Packaged non-Python resources for GPT Exporter."""
+"""Packaged provider-neutral application resources."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 
-COLLECTOR_NAME = "collect_chatgpt_archive.js"
 HELP_NAME = "HELP.md"
 HISTORY_NAME = "HISTORY.md"
 
@@ -26,18 +25,6 @@ def read_text_resource(name: str) -> str:
     return source
 
 
-def collector_path() -> Path:
-    """Return the packaged collector JavaScript path."""
-
-    return resource_path(COLLECTOR_NAME)
-
-
-def read_collector_source() -> str:
-    """Read the packaged collector JavaScript and reject an empty resource."""
-
-    return read_text_resource(COLLECTOR_NAME)
-
-
 def read_user_guide() -> str:
     """Read the packaged user guide Markdown."""
 
@@ -51,11 +38,8 @@ def read_release_history() -> str:
 
 
 __all__ = [
-    "COLLECTOR_NAME",
     "HELP_NAME",
     "HISTORY_NAME",
-    "collector_path",
-    "read_collector_source",
     "read_release_history",
     "read_text_resource",
     "read_user_guide",
