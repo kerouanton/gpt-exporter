@@ -1,37 +1,26 @@
-"""Index provider-neutral canonical conversations into the existing archive DB."""
+"""Index provider-neutral canonical conversations into the archive database."""
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import sqlite3
-from functools import lru_cache
 from pathlib import Path
-from types import ModuleType
 
 from gpt_exporter.core import CanonicalConversation
-
+from gpt_exporter.index.storage import (
+    delete_message_index_rows,
+    get_or_create_category,
+    now_iso,
+)
 
 CANONICAL_SOURCE_SCHEMA = "gpt-exporter-canonical-index-source-v1"
 
 
-@lru_cache(maxsize=1)
-def _database_helpers() -> ModuleType:
-    """Load transitional SQLite helpers lazily without import diagnostics."""
-    captured = io.StringIO()
-    with contextlib.redirect_stdout(captured):
-        from . import _legacy_indexer
-    return _legacy_indexer
-
-
 def ensure_canonical_source_schema(connection: sqlite3.Connection) -> None:
-    """Add provider-neutral provenance without disturbing the v4 query schema."""
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS canonical_conversation_sources (
-            conversation_id TEXT PRIMARY KEY
-                REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+            conversation_id TEXT PRIMARY KEY REFERENCES conversations(conversation_id) ON DELETE CASCADE,
             provider_id TEXT NOT NULL,
             source_path TEXT NOT NULL,
             source_mtime_ns INTEGER NOT NULL,
@@ -41,8 +30,7 @@ def ensure_canonical_source_schema(connection: sqlite3.Connection) -> None:
         """
     )
     connection.execute(
-        "CREATE INDEX IF NOT EXISTS canonical_sources_provider_idx "
-        "ON canonical_conversation_sources(provider_id)"
+        "CREATE INDEX IF NOT EXISTS canonical_sources_provider_idx ON canonical_conversation_sources(provider_id)"
     )
 
 
@@ -54,9 +42,7 @@ def index_canonical_conversation(
     archive_root: Path,
     force: bool = False,
 ) -> bool:
-    """Insert/update one canonical conversation and all searchable messages."""
-    del archive_root  # Canonical indexing intentionally has no DOCX lookup dependency.
-    db = _database_helpers()
+    del archive_root
     source_path = Path(source_path).resolve()
     source_mtime_ns = source_path.stat().st_mtime_ns
     ensure_canonical_source_schema(connection)
@@ -68,7 +54,7 @@ def index_canonical_conversation(
     if not force and existing and existing["source_mtime_ns"] == source_mtime_ns:
         return False
 
-    indexed_at = db.now_iso()
+    indexed_at = now_iso()
     title = conversation.title.strip() or "Untitled conversation"
 
     with connection:
@@ -101,8 +87,7 @@ def index_canonical_conversation(
             ),
         )
 
-        db.delete_message_index_rows(connection, conversation.conversation_id)
-
+        delete_message_index_rows(connection, conversation.conversation_id)
         for position, message in enumerate(conversation.messages, start=1):
             body = message.content.strip()
             if not body:
@@ -142,7 +127,7 @@ def index_canonical_conversation(
             )
 
         for category_name in conversation.category_hints:
-            category = db.get_or_create_category(connection, category_name)
+            category = get_or_create_category(connection, category_name)
             connection.execute(
                 """
                 INSERT OR IGNORE INTO conversation_categories (
@@ -174,5 +159,4 @@ def index_canonical_conversation(
                 CANONICAL_SOURCE_SCHEMA,
             ),
         )
-
     return True

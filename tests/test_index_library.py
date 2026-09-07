@@ -201,11 +201,9 @@ class IndexLibraryTests(unittest.TestCase):
             archive_root = Path(temporary) / "archive"
             self._write_conversation(archive_root)
             database_path = archive_root / "conversations-index.sqlite"
-            implementation = index_engine._implementation()
 
-            with mock.patch.object(
-                implementation,
-                "index_one",
+            with mock.patch(
+                "gpt_exporter.providers.gpt.indexing.index_native_conversation",
                 side_effect=sqlite3.OperationalError("database is locked"),
             ):
                 with self.assertRaises(sqlite3.OperationalError):

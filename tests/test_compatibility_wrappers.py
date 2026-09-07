@@ -27,7 +27,7 @@ class CompatibilityWrapperTests(unittest.TestCase):
                 "convert_markdown_to_docx",
             ),
             "index_chatgpt_archive": (
-                "gpt_exporter.index._legacy_indexer",
+                "gpt_exporter.providers.gpt.indexing._native_indexer",
                 "normalize_text",
             ),
         }
