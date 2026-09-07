@@ -175,8 +175,8 @@ def main(argv: list[str] | None = None) -> int:
         "input",
         nargs="?",
         type=Path,
-        default=legacy.turns_json,
-        help=f"Legacy turn collection (default: {legacy.turns_json})",
+        default=legacy.turns,
+        help=f"Legacy turn collection (default: {legacy.turns})",
     )
     parser.add_argument(
         "--output-dir",

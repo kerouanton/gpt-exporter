@@ -8,11 +8,19 @@ from contextlib import closing
 from pathlib import Path
 
 from gpt_exporter.index import update_index
-from gpt_exporter.providers.gpt.archive.legacy_docx.promote_turns import promote_collection
+from gpt_exporter.providers.gpt.archive.legacy_docx.promote_turns import (
+    main as promote_main,
+    promote_collection,
+)
 from gpt_exporter.providers.gpt.archive.legacy_docx.verify_cutover import verify_cutover
 
 
 class CanonicalLegacyCutoverTests(unittest.TestCase):
+    def test_promotion_cli_builds_default_paths(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            promote_main(["--help"])
+        self.assertEqual(raised.exception.code, 0)
+
     def test_promoted_legacy_json_rebuilds_index_without_docx_sources(self) -> None:
         source_sha = "a" * 64
         legacy_payload = {
