@@ -1,26 +1,26 @@
 # Architecture
 
-GPT Exporter is evolving toward a provider-neutral conversation archive engine. ChatGPT is one provider implementation, not an architectural dependency of the core.
+GPT Exporter is evolving into a provider-neutral conversation archive engine. ChatGPT is one provider implementation, not an architectural dependency of the engine.
 
 ## Dependency rule
 
-The most important invariant is one-way dependency:
+The primary invariant is one-way dependency:
 
 ```text
-providers\gpt  ------>  core
-providers\discord  -->  core
-providers\...  ----->  core
+providers\gpt      ------>  core/shared engine
+providers\discord  ------>  core/shared engine
+providers\...      ------>  core/shared engine
 
-core  -X->  providers\*
+core/shared engine  -X->  providers\*
 ```
 
-The core must never import a concrete provider. Deleting `gpt_exporter\providers\gpt\` should not make the provider-neutral core unimportable or unusable by another provider.
+Concrete providers may depend on shared contracts and services. Shared engine code must not require a concrete provider to exist.
 
-Provider-specific source schemas are normalized into shared objects before generic indexing, search, export, asset handling, or UI logic consumes them.
+The strongest acceptance test is literal: deleting `gpt_exporter\providers\gpt\` must still leave the canonical model, serialization, canonical SQLite indexing, generic Markdown export, and generic resources operational. This is covered by `tests/test_provider_removal_resilience.py`, which copies the package, physically deletes the GPT provider directory, and exercises those services with a synthetic provider.
 
 ## Canonical provider boundary
 
-Concrete providers implement `gpt_exporter.core.ConversationProvider` and produce:
+Providers implement `gpt_exporter.core.ConversationProvider` and normalize their source schema into:
 
 ```text
 CanonicalConversation
@@ -28,93 +28,149 @@ CanonicalMessage
 CanonicalAsset
 ```
 
-The canonical model contains only cross-provider concepts. Provider-only fields belong in the `metadata` mapping and must not become required core fields merely because one provider exposes them.
+The canonical model contains only cross-provider concepts. Provider-only fields belong in provider metadata and must not become required core fields merely because one provider exposes them.
 
-Examples of provider-only ChatGPT metadata include Custom GPT / Project identifiers, model slugs, gizmo identifiers and ChatGPT-specific origin fields. A future Discord provider can expose Discord-specific channel, guild, thread or attachment metadata without changing the core model.
+Examples of ChatGPT-only source concepts include `mapping`, `current_node`, gizmo/Custom GPT identifiers, ChatGPT project/origin details, model slugs, browser asset pointers, and `chatgpt-archive-source.json`. A future Discord provider can expose guild/channel/thread metadata without changing the canonical model.
 
-## Target package structure
+## Current package ownership
 
 ```text
 gpt_exporter\
-├── core\                   # provider-neutral contracts/model and, progressively, engine APIs
-├── archive\                # shared archive/asset services being generalized
-├── export\                 # shared Markdown/DOCX output services
-├── index\                  # shared search/index services being generalized
-├── ui\                     # shared UI components/workflows
+├── core\
+│   ├── model.py                 # canonical provider-neutral model
+│   ├── provider.py              # provider protocol
+│   └── serialization.py         # canonical durable JSON/XZ
+│
+├── index\
+│   ├── engine.py                # provider-neutral canonical index orchestration
+│   ├── canonical.py             # CanonicalConversation -> SQLite
+│   └── storage.py               # shared SQLite storage
+│
+├── export\
+│   ├── markdown.py              # canonical Markdown + lazy compatibility facade
+│   └── docx.py                  # shared Markdown -> DOCX
+│
+├── resources\                   # shared HELP/HISTORY only
+├── ui\                          # shared UI helpers
+│
 └── providers\
-    ├── gpt\                # ChatGPT-specific ingestion/normalization
-    │   └── archive\
-    │       └── legacy_docx\ # completed historical migration material, not core runtime
-    └── discord\            # future provider
+    └── gpt\
+        ├── provider.py          # ChatGPT -> canonical adapter
+        ├── pipeline.py          # ChatGPT archive workflow
+        ├── importer\            # browser-bundle import
+        ├── indexing\            # native ChatGPT JSON indexing compatibility
+        ├── export\              # native Markdown + batch workflow
+        ├── archive\             # GPT asset inventory/manifest/audit
+        ├── resources\           # collect_chatgpt_archive.js
+        ├── cli\                 # ChatGPT-specific command implementations
+        └── ui\                  # ChatGPT workflow and application shell
 ```
 
-`gpt_exporter/legacy/` and the old ChatGPT-specific pipeline/index implementation are transitional locations. They are not part of the target core architecture and will be migrated only after their data paths no longer depend on historical DOCX inputs.
+Historical root scripts remain only as compatibility launchers where existing commands must continue to work. They must not contain provider schema parsing or ChatGPT workflow logic.
 
-## Current ChatGPT archive flow
+## ChatGPT archive flow
 
-The existing ChatGPT provider currently uses:
+The GPT provider currently owns this source-specific flow:
 
 ```text
 Authenticated ChatGPT tab
         |
         v
-collect_chatgpt_archive.js
+providers\gpt\resources\collect_chatgpt_archive.js
         |
         v
 chatgpt-archive-source.json
         |
         v
-import/browser processing
+providers\gpt\importer / pipeline
         |
         +--> downloads\*.json.xz
         +--> assets\*
+        |
+        v
+ChatGPTProvider -> CanonicalConversation
 ```
 
-`gpt_exporter.providers.gpt.ChatGPTProvider` is the first adapter that converts an archived ChatGPT conversation JSON/XZ file to the provider-neutral canonical model. Existing archive/index/export paths remain compatible while later refactors move them behind the canonical boundary.
+Existing native ChatGPT JSON/XZ behavior remains supported during the transition, but raw ChatGPT schema interpretation belongs to the provider.
 
 ## Shared engine responsibilities
 
 Once provider data is canonical, shared code owns:
 
-- durable archive layout and generic provenance;
-- message/conversation indexing and search;
-- Markdown and DOCX generation;
-- provider-neutral asset handling;
+- canonical conversation/message/asset representation;
+- durable canonical serialization;
+- generic indexing and full-text search storage;
+- canonical Markdown rendering and shared DOCX generation;
 - categories, tags and work-project organization;
-- generic browser/UI behavior.
+- generic UI components and browser behavior.
 
 Provider code owns:
 
 - source discovery and acquisition;
-- source-schema parsing;
-- provider-specific visibility rules;
-- mapping provider metadata to canonical metadata;
-- provider-specific diagnostics or historical migrations.
+- source-schema parsing and branch/visibility rules;
+- provider-specific asset identifiers and metadata;
+- provider-native compatibility import/index/export paths;
+- provider-specific GUI actions and command-line workflows;
+- provider-specific historical migrations.
 
 ## Legacy ChatGPT DOCX migration
 
-The 42 historical DOCX conversations have been reconstructed and validated. The legacy DOCX pipeline is therefore a completed ChatGPT-provider migration, not a generic engine feature.
+The historical 42-conversation DOCX migration is closed. Its canonical promotion was verified from JSON only with:
 
-Before removing the historical DOCX sources and active legacy runtime code, the normalized JSON must become sufficient for a complete archive rebuild without consulting those DOCX files. After that cutover, the DOCX parser/role-inference/reconstruction/audit implementation belongs under `providers\gpt\archive\legacy_docx\` as archived migration material (or can later be removed entirely if repository-retention policy allows it).
+- 42 / 42 conversations;
+- 654 / 654 messages;
+- exact role counts;
+- zero DOCX dependencies in a rebuilt index.
 
-## Data authority
-
-For provider-native archived conversations, normalized durable source data and preserved assets are authoritative. DOCX/Markdown and SQLite remain derived.
-
-A provider may have a one-time migration source (such as historical ChatGPT DOCX). Once migration output is promoted to the canonical provider archive and independently rebuildable, the migration source is no longer a runtime dependency.
-
-## Architecture acceptance criterion
-
-A provider-neutral release should be able to satisfy this thought experiment:
+The active `gpt_exporter\legacy` runtime package no longer exists. Historical reconstruction code is retained only as non-importable snapshot material under:
 
 ```text
-Remove gpt_exporter\providers\gpt\.
-Install/use another provider.
-The core model, index/search engine, exporters and generic UI still work.
+gpt_exporter\providers\gpt\archive\legacy_docx\snapshot\
 ```
 
-Automated architecture tests enforce the first part of this rule by rejecting imports from `gpt_exporter.core` into the concrete provider namespace.
+The original local DOCX migration directory is no longer a runtime or rebuild dependency.
+
+## Compatibility facades
+
+Some historical public imports remain outside `providers\gpt` so existing scripts and callers do not break abruptly. These facades obey two rules:
+
+1. they contain no ChatGPT parsing/business logic;
+2. generic package imports must not eagerly load `gpt_exporter.providers.gpt`.
+
+New code should call provider APIs directly when performing provider-specific work.
+
+## Remaining SQLite v4 compatibility debt
+
+SQLite schema version 4 still contains nullable historical columns in `conversations`:
+
+```text
+gizmo_id
+gizmo_type
+conversation_template_id
+conversation_origin
+default_model_slug
+```
+
+These fields are not required by the canonical engine and do not prevent the provider-removal resilience test from passing, but they are still ChatGPT-specific knowledge in shared storage. Therefore they are the remaining structural exception to the strict provider-neutrality goal.
+
+They should be removed in a dedicated schema-v5 migration, with provider metadata stored through a generic provider-metadata mechanism. That migration must be separate from code relocation so database compatibility, browser queries, rebuild behavior, and rollback can be tested explicitly.
+
+## Architecture acceptance criteria
+
+A provider-neutral engine must satisfy all of the following:
+
+```text
+1. Remove gpt_exporter\providers\gpt\ physically.
+2. Import the canonical model and serialization code.
+3. Serialize a conversation from a synthetic/non-GPT provider.
+4. Build/update its SQLite index.
+5. Export it to canonical Markdown.
+6. Use shared resources/UI helpers.
+7. No shared engine module imports a concrete provider as a runtime prerequisite.
+```
+
+Provider compatibility facades may fail when their provider has deliberately been removed; the engine itself must not.
 
 ## Versioning rule
 
-v2.7 remains the frozen behavioral baseline for existing ChatGPT archive behavior while provider extraction proceeds. Refactors must preserve current user-visible behavior unless accompanied by explicit migration/changelog/rollback treatment.
+v2.7 remains the frozen behavioral baseline for established ChatGPT archive behavior while provider extraction proceeds. Refactors must preserve current user-visible behavior unless accompanied by explicit migration, changelog and rollback treatment.
