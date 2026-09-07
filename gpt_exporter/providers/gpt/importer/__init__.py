@@ -7,7 +7,10 @@ import io
 from pathlib import Path
 from typing import Callable
 
-from . import _bundle_importer
+
+_import_capture = io.StringIO()
+with contextlib.redirect_stdout(_import_capture):
+    from . import _bundle_importer
 
 ProgressCallback = Callable[[str], None]
 ImportBundleResult = _bundle_importer.ImportBundleResult
