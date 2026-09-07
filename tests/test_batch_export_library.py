@@ -133,7 +133,7 @@ class BatchExportLibraryTests(unittest.TestCase):
             self._write_conversation(archive_root)
 
             with mock.patch(
-                "gpt_exporter.export.batch.export_docx",
+                "gpt_exporter.providers.gpt.export.batch.export_docx",
                 side_effect=RuntimeError("synthetic DOCX failure"),
             ):
                 result = export_batch(archive_root=archive_root)
@@ -168,13 +168,18 @@ class BatchExportLibraryTests(unittest.TestCase):
         self.assertNotIn("sys.argv =", source)
         self.assertIn("export_batch", source)
 
-    def test_library_import_has_no_console_or_archive_side_effects(self) -> None:
+    def test_library_import_has_no_console_archive_or_provider_side_effects(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             environment = os.environ.copy()
             environment["USERPROFILE"] = temporary
+            script = (
+                "import sys; import gpt_exporter.export.batch; "
+                "assert not any(name == 'gpt_exporter.providers.gpt' or "
+                "name.startswith('gpt_exporter.providers.gpt.') for name in sys.modules)"
+            )
 
             completed = subprocess.run(
-                [sys.executable, "-c", "import gpt_exporter.export.batch"],
+                [sys.executable, "-c", script],
                 cwd=REPOSITORY_ROOT,
                 env=environment,
                 text=True,
