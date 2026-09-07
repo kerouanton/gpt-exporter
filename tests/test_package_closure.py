@@ -14,7 +14,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 class PackageClosureTests(unittest.TestCase):
     def test_core_package_loads_without_repository_root_modules(self) -> None:
-        """Exercise every remaining compatibility implementation from package only."""
+        """Exercise packaged implementations from package-only imports."""
 
         with tempfile.TemporaryDirectory() as temporary:
             temporary_root = Path(temporary)
@@ -38,8 +38,10 @@ class PackageClosureTests(unittest.TestCase):
                     "from gpt_exporter.archive import importer",
                     "from gpt_exporter.export import markdown, docx",
                     "from gpt_exporter.index import engine",
-                    "from gpt_exporter.resources import collector_path",
-                    "assert importer._legacy_importer.__name__ == 'gpt_exporter.archive._legacy_importer'",
+                    "from gpt_exporter.providers.gpt.importer import _bundle_importer",
+                    "from gpt_exporter.providers.gpt.resources import collector_path",
+                    "assert callable(importer.import_bundle)",
+                    "assert _bundle_importer.__name__ == 'gpt_exporter.providers.gpt.importer._bundle_importer'",
                     "assert markdown._implementation().__name__ == 'gpt_exporter.export._legacy_markdown'",
                     "assert docx._implementation().__name__ == 'gpt_exporter.export._legacy_docx'",
                     "assert engine._implementation().__name__ == 'gpt_exporter.index._legacy_indexer'",
@@ -60,16 +62,17 @@ class PackageClosureTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(completed.stdout, "")
 
-    def test_packaged_collector_matches_source_collector(self) -> None:
+    def test_provider_collector_matches_source_collector(self) -> None:
         # Compare text rather than raw checkout bytes. Git may materialize LF or
-        # CRLF differently depending on the local Windows configuration, while
-        # JavaScript semantics and packaged resource content remain identical.
+        # CRLF differently depending on the local Windows configuration.
         source = (REPOSITORY_ROOT / "collect_chatgpt_archive.js").read_text(
             encoding="utf-8"
         )
         packaged = (
             REPOSITORY_ROOT
             / "gpt_exporter"
+            / "providers"
+            / "gpt"
             / "resources"
             / "collect_chatgpt_archive.js"
         ).read_text(encoding="utf-8")
