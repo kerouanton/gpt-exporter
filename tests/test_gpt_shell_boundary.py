@@ -22,6 +22,8 @@ class GPTShellBoundaryTests(unittest.TestCase):
     def test_root_compatibility_launchers_contain_no_gpt_schema_logic(self) -> None:
         launchers = (
             "archive_chats.py",
+            "archive_browser.py",
+            "archive_core.py",
             "export_all.py",
             "inventory_media.py",
             "build_asset_manifest.py",
@@ -40,7 +42,9 @@ class GPTShellBoundaryTests(unittest.TestCase):
             "conversation.mapping",
         )
         for name in launchers:
-            text = (REPOSITORY_ROOT / name).read_text(encoding="utf-8")
+            path = REPOSITORY_ROOT / name
+            text = path.read_text(encoding="utf-8")
+            self.assertLess(path.stat().st_size, 2048, f"{name} is no longer a thin compatibility facade")
             for marker in forbidden:
                 self.assertNotIn(marker, text, f"{name} still contains GPT implementation marker {marker!r}")
 
@@ -57,6 +61,16 @@ class GPTShellBoundaryTests(unittest.TestCase):
         )
         for name in expected:
             self.assertTrue((cli / name).is_file(), name)
+
+    def test_provider_owns_historical_browser_implementation(self) -> None:
+        browser = REPOSITORY_ROOT / "gpt_exporter" / "providers" / "gpt" / "ui" / "browser"
+        provider_browser = browser / "archive_browser.py"
+        provider_core = browser / "archive_core.py"
+        self.assertTrue(provider_browser.is_file())
+        self.assertTrue(provider_core.is_file())
+        self.assertGreater(provider_browser.stat().st_size, 50_000)
+        self.assertGreater(provider_core.stat().st_size, 30_000)
+        self.assertIn("ChatGPT Archive Browser", provider_browser.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
