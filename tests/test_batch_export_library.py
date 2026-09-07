@@ -162,11 +162,20 @@ class BatchExportLibraryTests(unittest.TestCase):
             self.assertTrue(result.success)
             self.assertEqual(sys.argv, original)
 
-        source = (REPOSITORY_ROOT / "export_all.py").read_text(encoding="utf-8")
-        self.assertNotIn("importlib.util", source)
-        self.assertNotIn("spec_from_file_location", source)
-        self.assertNotIn("sys.argv =", source)
-        self.assertIn("export_batch", source)
+        launcher = (REPOSITORY_ROOT / "export_all.py").read_text(encoding="utf-8")
+        provider_cli = (
+            REPOSITORY_ROOT
+            / "gpt_exporter"
+            / "providers"
+            / "gpt"
+            / "cli"
+            / "export_all.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("importlib.util", launcher)
+        self.assertNotIn("spec_from_file_location", launcher)
+        self.assertNotIn("sys.argv =", launcher)
+        self.assertIn("providers.gpt.cli", launcher)
+        self.assertIn("export_batch", provider_cli)
 
     def test_library_import_has_no_console_archive_or_provider_side_effects(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
