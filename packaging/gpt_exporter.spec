@@ -18,6 +18,8 @@ RESOURCE_NAMES = (
     "HISTORY.md",
     "collect_chatgpt_archive.js",
 )
+GPT_RESOURCE_DIRECTORY = ROOT / "gpt_exporter" / "providers" / "gpt" / "resources"
+GPT_RESOURCE_NAMES = ("collect_chatgpt_archive.js",)
 CONSOLE_BUILD = os.environ.get("GPT_EXPORTER_CONSOLE", "").strip() == "1"
 VERSION_INFO_PATH = Path(SPECPATH) / ".gpt_exporter-version-info.txt"
 
@@ -65,6 +67,10 @@ datas = [
     (str(RESOURCE_DIRECTORY / name), "gpt_exporter/resources")
     for name in RESOURCE_NAMES
 ]
+datas.extend(
+    (str(GPT_RESOURCE_DIRECTORY / name), "gpt_exporter/providers/gpt/resources")
+    for name in GPT_RESOURCE_NAMES
+)
 
 
 a = Analysis(
