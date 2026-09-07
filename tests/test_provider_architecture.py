@@ -26,6 +26,26 @@ class ProviderArchitectureTests(unittest.TestCase):
             for marker in forbidden:
                 self.assertNotIn(marker, text, f"core must not depend on providers: {path}")
 
+    def test_completed_legacy_docx_pipeline_is_not_active_runtime_code(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        self.assertFalse((repo_root / "gpt_exporter" / "legacy").exists())
+        active_legacy_scripts = (
+            "audit_legacy_semantic_parity.py",
+            "build_legacy_canonical_docx.py",
+            "build_legacy_docx_ir.py",
+            "build_legacy_docx_turns.py",
+            "classify_legacy_docx_ir.py",
+            "diagnose_legacy_emphasis.py",
+            "import_legacy_docx_turns.py",
+            "legacy_import_gui.py",
+            "profile_legacy_docx_ir.py",
+            "rebuild_archive_with_legacy.py",
+            "scan_legacy_docx.py",
+            "verify_legacy_index.py",
+        )
+        for name in active_legacy_scripts:
+            self.assertFalse((repo_root / name).exists(), name)
+
     def test_chatgpt_provider_satisfies_provider_contract(self) -> None:
         provider = ChatGPTProvider()
         self.assertIsInstance(provider, ConversationProvider)
@@ -39,39 +59,16 @@ class ProviderArchitectureTests(unittest.TestCase):
             "update_time": 2,
             "default_model_slug": "synthetic-model",
             "mapping": {
-                "u": {
-                    "message": {
-                        "id": "user-1",
-                        "author": {"role": "user"},
-                        "content": {"content_type": "text", "parts": ["hello"]},
-                        "metadata": {},
-                    }
-                },
-                "a": {
-                    "message": {
-                        "id": "assistant-1",
-                        "author": {"role": "assistant"},
-                        "content": {"content_type": "text", "parts": ["world"]},
-                        "metadata": {},
-                    }
-                },
-                "hidden": {
-                    "message": {
-                        "id": "hidden-1",
-                        "author": {"role": "assistant"},
-                        "content": {"content_type": "thoughts", "parts": ["secret"]},
-                        "metadata": {},
-                    }
-                },
+                "u": {"message": {"id": "user-1", "author": {"role": "user"}, "content": {"content_type": "text", "parts": ["hello"]}, "metadata": {}}},
+                "a": {"message": {"id": "assistant-1", "author": {"role": "assistant"}, "content": {"content_type": "text", "parts": ["world"]}, "metadata": {}}},
+                "hidden": {"message": {"id": "hidden-1", "author": {"role": "assistant"}, "content": {"content_type": "thoughts", "parts": ["secret"]}, "metadata": {}}},
             },
         }
-
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "conversation.json.xz"
             with lzma.open(path, "wt", encoding="utf-8") as handle:
                 json.dump(payload, handle)
             result = ChatGPTProvider().normalize(path)
-
         self.assertIsInstance(result, CanonicalConversation)
         self.assertEqual(result.provider_id, "gpt")
         self.assertEqual(result.conversation_id, "conversation-1")
@@ -85,11 +82,7 @@ class ProviderArchitectureTests(unittest.TestCase):
             "raise SystemExit(int(any(name.startswith('gpt_exporter.providers.gpt') "
             "for name in sys.modules)))"
         )
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=Path(__file__).resolve().parents[1],
-            check=False,
-        )
+        result = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1], check=False)
         self.assertEqual(result.returncode, 0)
 
 
