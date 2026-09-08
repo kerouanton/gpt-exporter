@@ -44,6 +44,32 @@ def conversation() -> CanonicalConversation:
     )
 
 
+def avatar_conversation() -> CanonicalConversation:
+    return CanonicalConversation(
+        conversation_id="discord:123",
+        provider_id="discord",
+        title="@soundy",
+        messages=(
+            CanonicalMessage(
+                message_id="1",
+                role="user",
+                author_id="350248805700075521",
+                author_name="Gadget MCS",
+                content="hello",
+                assets=(
+                    CanonicalAsset(
+                        asset_id="discord:author-avatar:350248805700075521",
+                        name="avatar.webp",
+                        media_type="image/webp",
+                        source_ref="https://cdn.discordapp.com/avatars/350248805700075521/avatar.webp?size=80",
+                        metadata={"provider": "discord", "kind": "author-avatar"},
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
 class DiscordAssetTests(unittest.TestCase):
     def test_download_localize_and_embed_image_in_docx(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -78,6 +104,36 @@ class DiscordAssetTests(unittest.TestCase):
 
             docx = root / "conversation.docx"
             export_docx(markdown, docx, document_title="Discord test", overwrite=True)
+            with zipfile.ZipFile(docx) as archive:
+                media = [name for name in archive.namelist() if name.startswith("word/media/")]
+            self.assertEqual(len(media), 1)
+
+    def test_author_avatar_is_downloaded_and_embedded_in_docx(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            assets = root / "assets" / "123"
+            markdown_dir = root / ".markdown"
+            markdown_dir.mkdir()
+
+            original = avatar_conversation()
+            result = download_conversation_assets(
+                original,
+                assets,
+                fetch_bytes=lambda _url: PNG_1X1,
+            )
+            localized = conversation_with_local_assets(
+                original,
+                result.source_paths,
+                relative_to=markdown_dir,
+            )
+            markdown = markdown_dir / "conversation.md"
+            export_canonical_markdown(localized, markdown, include_timestamps=True)
+            markdown_text = markdown.read_text(encoding="utf-8")
+            self.assertIn("Author avatar: Gadget MCS", markdown_text)
+            self.assertNotIn("- [avatar.webp]", markdown_text)
+
+            docx = root / "conversation.docx"
+            export_docx(markdown, docx, document_title="@soundy", overwrite=True)
             with zipfile.ZipFile(docx) as archive:
                 media = [name for name in archive.namelist() if name.startswith("word/media/")]
             self.assertEqual(len(media), 1)
