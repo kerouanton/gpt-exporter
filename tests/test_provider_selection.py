@@ -45,7 +45,7 @@ class ProviderSelectionTests(unittest.TestCase):
         )
 
     def test_installed_registry_contains_chatgpt_and_discord(self) -> None:
-        self.assertEqual(build_provider_registry().provider_ids(), ("discord", "gpt"))
+        self.assertEqual(build_provider_registry().provider_ids(), ("gpt", "discord"))
 
     def test_direct_provider_selection_skips_dialog_and_launches_registered_ui(self) -> None:
         registry = ProviderRegistry([_SyntheticProvider()])
