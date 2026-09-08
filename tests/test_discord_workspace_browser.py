@@ -4,6 +4,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -21,7 +22,7 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
             docx_path = root / "Discord DM 123456.docx"
             docx_path.write_bytes(b"PK-existing-docx")
 
-            with sqlite3.connect(workspace.database_path) as connection:
+            with closing(sqlite3.connect(workspace.database_path)) as connection:
                 connection.executescript(
                     """
                     CREATE TABLE conversations (
@@ -45,11 +46,12 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
                     "INSERT INTO conversation_provider_metadata VALUES (?, 'discord', ?)",
                     ("discord:123456", json.dumps({"conversation_type": "dm"})),
                 )
+                connection.commit()
 
             actions = DiscordWorkspaceActions(SimpleNamespace(), workspace)
             self.assertTrue(actions.prepare_index())
 
-            with sqlite3.connect(workspace.database_path) as connection:
+            with closing(sqlite3.connect(workspace.database_path)) as connection:
                 row = connection.execute(
                     "SELECT docx_path, primary_origin_type, primary_origin_id FROM conversations"
                 ).fetchone()
