@@ -1,8 +1,8 @@
-"""Path model for a GPT Exporter archive.
+"""Provider-neutral archive path model.
 
-This module centralizes provider-neutral archive path construction without
-changing the v2.8 Windows defaults. It deliberately performs no filesystem I/O
-at import time.
+The shared engine derives all storage locations from an explicit archive root.
+Historical provider defaults are exposed only through lazy compatibility helpers
+so importing this module never loads a concrete provider.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def default_user_profile(
     *,
     home: Path | None = None,
 ) -> Path:
-    """Return the v2.8 user-profile path with the same fallback semantics."""
+    """Return the historical user-profile path with the same fallback semantics."""
     environment = os.environ if environ is None else environ
     configured = environment.get("USERPROFILE")
     if configured:
@@ -56,6 +56,15 @@ def default_archive_paths(
     *,
     home: Path | None = None,
 ) -> ArchivePaths:
-    """Return canonical paths for the unchanged v2.8 default archive root."""
-    profile = default_user_profile(environ, home=home)
-    return ArchivePaths.from_root(profile / "Documents" / "ChatGPT Archive")
+    """Compatibility helper for the historical GPT Exporter default.
+
+    New provider-neutral code should use :meth:`ArchivePaths.from_root` with an
+    explicit root.  The concrete provider is imported lazily so merely importing
+    ``gpt_exporter.paths`` remains provider-independent.
+    """
+    from gpt_exporter.providers.gpt.paths import default_archive_paths as gpt_default
+
+    return gpt_default(environ, home=home)
+
+
+__all__ = ["ArchivePaths", "default_archive_paths", "default_user_profile"]
