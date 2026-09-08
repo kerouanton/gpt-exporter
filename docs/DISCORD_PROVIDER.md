@@ -1,23 +1,51 @@
 # Discord provider
 
-Status: first concrete non-ChatGPT provider / experimental ingestion UI.
+Status: guided browser collection + canonical archive workflow.
 
-## Supported source
+## Normal workflow
 
-The provider targets an extracted **native Discord data package**, specifically its `messages` section. Discord currently documents those transcripts as JSON files grouped by channel; older packages used CSV transcripts, so the provider accepts both formats.
+Selecting **Discord** in the provider chooser opens a provider-owned archive window. No Discord data-package download is required.
 
-One Discord channel transcript becomes one `CanonicalConversation` with `provider_id = "discord"`. Available channel/guild metadata is preserved as provider metadata. Message IDs, timestamps, contents, and attachment URLs are normalized into the shared canonical model.
+1. Click **Open Discord** and select the DM to archive in the normal authenticated browser session.
+2. Click **Start Archive…**. The validated browser collector JavaScript is copied to the clipboard and the application starts watching the standard Windows Downloads directory.
+3. In Discord press **F12**, open **Console**, paste with **Ctrl+V**, and run the collector.
+4. The provider detects the new `discord-dm-export-v15_*.json`, validates it, normalizes both participants into the shared canonical model, and archives the conversation automatically.
 
-## Important source limitation
+The collector is ported from `kerouanton/discord-exporter`. It traverses Discord's virtualized DM history, preserves author identity/self detection, message text, replies, reactions, links, attachments, stickers and external preview/media references. The application never reads Discord tokens, passwords, cookies, or browser profiles.
 
-Discord's native data package contains the messages sent by the requesting account. It is not a complete two-sided/server transcript. The provider therefore normalizes those exported messages as `role = "user"` and deliberately does not synthesize messages from other participants.
+## Archive layout
 
-## Current UI scope
+The provider owns its default archive location:
 
-Selecting **Discord** in the application provider chooser opens a first-stage provider window. The user chooses an extracted Discord data package and clicks **Analyze**. The provider discovers transcript files, normalizes them through the same `ConversationProvider` contract used by ChatGPT, and displays conversation/message counts plus first/last timestamps.
+```text
+%USERPROFILE%\Documents\Discord Archive\
+├── Discord DM <channel-id>.docx
+├── downloads\
+│   └── discord_dm_<channel-id>.json.xz
+├── raw\
+│   └── discord_dm_<channel-id>.json
+└── conversations-index.sqlite
+```
 
-This PR intentionally does not yet define a Discord archive destination, incremental import policy, asset downloader, or DOCX workflow. Those should be added only after validating the real Discord package shape against an actual user export.
+`raw/*.json` is copied byte-for-byte from the collector download. `downloads/*.json.xz` is the provider-neutral canonical conversation. DOCX and SQLite are derived and rebuildable.
 
-## Compatibility and rollback
+A newly collected DM may replace the existing canonical source only when every previously archived message ID is still present. A partial collector run therefore cannot silently shrink the archive.
 
-The ChatGPT provider and its archive remain unchanged. Removing `gpt_exporter/providers/discord` restores the previous single-provider behavior; the provider-neutral core does not depend on Discord. No archive migration or data rewrite is required to roll back this first Discord integration.
+## Canonical mapping
+
+- current user's messages: `role = "user"`
+- other participant's messages: `role = "other"`
+- unresolved authors: `role = "unknown"`
+- Discord display names are preserved in `author_name`
+- attachment/media URLs become `CanonicalAsset.source_ref`
+- replies, reactions, mentions, content types and Discord-specific diagnostics remain provider/message metadata
+
+The provider-neutral Markdown renderer uses `author_name` when available and retains canonical asset references as links, so Discord DOCX exports show real participant names instead of pretending the conversation is a ChatGPT-style user/assistant exchange.
+
+## Native Discord data packages
+
+The earlier native data-package JSON/CSV adapter remains supported as a compatibility ingestion path, but it is no longer the normal UI workflow. The guided browser collector is the primary integration because it captures both sides of the currently displayed DM.
+
+## Boundary
+
+Everything specific to Discord collection, normalization, paths and archive policy remains under `gpt_exporter/providers/discord`. Shared core/index/export code has no dependency on Discord, and ChatGPT archive behavior is unchanged.
