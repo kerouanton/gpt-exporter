@@ -42,6 +42,10 @@ def _is_local_image(asset: CanonicalAsset) -> bool:
     return suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
 
 
+def _is_author_avatar(asset: CanonicalAsset) -> bool:
+    return str(asset.metadata.get("kind") or "").casefold() == "author-avatar"
+
+
 def render_canonical_markdown(
     conversation: CanonicalConversation,
     *,
@@ -52,22 +56,29 @@ def render_canonical_markdown(
     Canonical author names take precedence over abstract roles when available.
     Remote/provider asset references remain links. Local image references are
     emitted as Markdown images so downstream DOCX renderers can embed them.
+    Author avatars are a generic canonical asset kind and are rendered beside
+    the author section by downstream document renderers.
     """
 
     title = conversation.title.strip() or "Untitled conversation"
     lines = [f"# {title}", ""]
     for message in conversation.messages:
         body = message.content.strip()
-        if not body and not message.assets:
+        content_assets = tuple(asset for asset in message.assets if not _is_author_avatar(asset))
+        avatar = next((asset for asset in message.assets if _is_author_avatar(asset)), None)
+        if not body and not content_assets:
             continue
         role = (message.role or "unknown").replace("_", " ").strip().title()
         heading = (message.author_name or "").strip() or role
+        if avatar and avatar.source_ref and _is_local_image(avatar):
+            label = _escape_label(f"Author avatar: {heading}")
+            lines.extend([f"![{label}]({avatar.source_ref})", ""])
         lines.extend([f"## {heading}", ""])
         if include_timestamps and message.created_at:
             lines.extend([f"*Timestamp: {message.created_at}*", ""])
         if body:
             lines.extend([body, ""])
-        for asset in message.assets:
+        for asset in content_assets:
             label = _escape_label(asset.name or asset.asset_id or "Attachment")
             if asset.source_ref:
                 if _is_local_image(asset):
@@ -76,7 +87,7 @@ def render_canonical_markdown(
                     lines.append(f"- [{label}]({asset.source_ref})")
             else:
                 lines.append(f"- {label}")
-        if message.assets:
+        if content_assets:
             lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -96,7 +107,9 @@ def export_canonical_markdown(
         encoding="utf-8",
     )
     exported_messages = sum(
-        bool(message.content.strip()) or bool(message.assets)
+        bool(message.content.strip()) or bool(
+            tuple(asset for asset in message.assets if not _is_author_avatar(asset))
+        )
         for message in conversation.messages
     )
     return MarkdownExportResult(
