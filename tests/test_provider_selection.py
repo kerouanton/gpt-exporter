@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from gpt_exporter.application import main as application_main
+from gpt_exporter.application import build_provider_registry, main as application_main
 from gpt_exporter.core import ProviderDescriptor, ProviderRegistry
 from gpt_exporter.ui.provider_selector import provider_choices
 
@@ -44,6 +44,9 @@ class ProviderSelectionTests(unittest.TestCase):
             ("a", "z"),
         )
 
+    def test_installed_registry_contains_chatgpt_and_discord(self) -> None:
+        self.assertEqual(build_provider_registry().provider_ids(), ("discord", "gpt"))
+
     def test_direct_provider_selection_skips_dialog_and_launches_registered_ui(self) -> None:
         registry = ProviderRegistry([_SyntheticProvider()])
         launcher = mock.Mock(return_value=23)
@@ -71,12 +74,12 @@ class ProviderSelectionTests(unittest.TestCase):
         self.assertEqual(tuple(item.provider_id for item in descriptors), ("synthetic",))
         launcher.assert_called_once_with([])
 
-    def test_importing_application_does_not_eagerly_load_gpt_provider(self) -> None:
+    def test_importing_application_does_not_eagerly_load_concrete_providers(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         script = (
             "import sys; import gpt_exporter.application; "
-            "raise SystemExit(int(any(name.startswith('gpt_exporter.providers.gpt') "
-            "for name in sys.modules)))"
+            "raise SystemExit(int(any(name.startswith(('gpt_exporter.providers.gpt', "
+            "'gpt_exporter.providers.discord')) for name in sys.modules)))"
         )
         result = subprocess.run(
             [sys.executable, "-c", script],
