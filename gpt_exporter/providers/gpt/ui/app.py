@@ -83,6 +83,10 @@ class GPTExporterApp(browser.ArchiveBrowser):
             label="Process Downloaded Bundle…",
             command=self.process_downloaded_bundle,
         )
+        archive_menu.add_command(
+            label="Regenerate Missing DOCX…",
+            command=self.regenerate_missing_docx,
+        )
         archive_menu.add_separator()
         archive_menu.add_command(label="Update Search Index", command=self.update_index)
         archive_menu.add_command(label="Open Archive Folder", command=self.open_archive_folder)
@@ -267,6 +271,59 @@ class GPTExporterApp(browser.ArchiveBrowser):
             on_success=self._archive_run_succeeded,
             log_directory=self.database_path.parent / "reports",
         )
+        return True
+
+    def regenerate_missing_docx(self) -> bool:
+        """Regenerate absent/empty DOCX outputs from existing archived JSON/XZ."""
+
+        archive_root = self.database_path.parent
+        try:
+            missing = workflow.find_missing_docx_sources(archive_root)
+        except OSError as error:
+            messagebox.showerror("Regenerate Missing DOCX", str(error), parent=self)
+            return False
+
+        if not missing:
+            messagebox.showinfo(
+                "Regenerate Missing DOCX",
+                "All archived conversations already have a non-empty DOCX export.",
+                parent=self,
+            )
+            return False
+
+        self.status_var.set(f"Missing DOCX exports detected: {len(missing)}")
+        workflow.MissingDocxRepairDialog(
+            self,
+            archive_root=archive_root,
+            on_success=self._missing_docx_repair_succeeded,
+        )
+        return True
+
+    def _missing_docx_repair_succeeded(self) -> bool:
+        """Reindex after local DOCX repair so Browser metadata sees new files."""
+
+        try:
+            result = update_browser_index(
+                self.database_path,
+                progress=lambda message: browser.LOGGER.info("Indexer: %s", message),
+            )
+            if result.failed:
+                browser.LOGGER.warning(
+                    "Index update after DOCX repair completed with %d source failure(s).",
+                    result.failed,
+                )
+            self._validate_database()
+            self._refresh_all()
+        except (OSError, ValueError, sqlite3.Error) as error:
+            browser.LOGGER.exception("Unable to refresh index after DOCX repair: %s", error)
+            messagebox.showerror(
+                "Regenerate Missing DOCX",
+                f"DOCX regeneration completed, but the Browser index could not be refreshed:\n\n{error}",
+                parent=self,
+            )
+            return False
+
+        self.status_var.set("Missing DOCX exports regenerated and Browser refreshed.")
         return True
 
     def _archive_run_succeeded(self) -> bool:
