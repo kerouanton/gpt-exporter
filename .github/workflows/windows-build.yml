@@ -84,12 +84,17 @@ jobs:
               }
           }
 
-          $collector = ".\dist\GPT Exporter\_internal\gpt_exporter\providers\gpt\resources\collect_chatgpt_archive.js"
-          if (-not (Test-Path $collector -PathType Leaf)) {
-              throw "Required GPT provider resource is missing: $collector"
-          }
-          if ((Get-Item $collector).Length -le 0) {
-              throw "Required GPT provider resource is empty: $collector"
+          $collectors = @(
+              ".\dist\GPT Exporter\_internal\gpt_exporter\providers\gpt\resources\collect_chatgpt_archive.js",
+              ".\dist\GPT Exporter\_internal\gpt_exporter\providers\discord\resources\export_current_dm.js"
+          )
+          foreach ($collector in $collectors) {
+              if (-not (Test-Path $collector -PathType Leaf)) {
+                  throw "Required provider collector resource is missing: $collector"
+              }
+              if ((Get-Item $collector).Length -le 0) {
+                  throw "Required provider collector resource is empty: $collector"
+              }
           }
 
           Write-Host "Packaged resources OK"

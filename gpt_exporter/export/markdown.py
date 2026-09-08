@@ -24,24 +24,43 @@ class MarkdownExportResult:
     cleaned_marker_types: dict[str, int]
 
 
+def _escape_label(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
 def render_canonical_markdown(
     conversation: CanonicalConversation,
     *,
     include_timestamps: bool = False,
 ) -> str:
-    """Render a provider-neutral canonical conversation as Markdown."""
+    """Render a provider-neutral canonical conversation as Markdown.
+
+    Canonical author names take precedence over abstract roles when available.
+    Remote/provider asset references are retained as links without assuming a
+    provider-specific downloader or archive layout.
+    """
 
     title = conversation.title.strip() or "Untitled conversation"
     lines = [f"# {title}", ""]
     for message in conversation.messages:
         body = message.content.strip()
-        if not body:
+        if not body and not message.assets:
             continue
         role = (message.role or "unknown").replace("_", " ").strip().title()
-        lines.extend([f"## {role}", ""])
+        heading = (message.author_name or "").strip() or role
+        lines.extend([f"## {heading}", ""])
         if include_timestamps and message.created_at:
             lines.extend([f"*Timestamp: {message.created_at}*", ""])
-        lines.extend([body, ""])
+        if body:
+            lines.extend([body, ""])
+        for asset in message.assets:
+            label = _escape_label(asset.name or asset.asset_id or "Attachment")
+            if asset.source_ref:
+                lines.append(f"- [{label}]({asset.source_ref})")
+            else:
+                lines.append(f"- {label}")
+        if message.assets:
+            lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -56,13 +75,13 @@ def export_canonical_markdown(
     output = Path(output_path).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
-        render_canonical_markdown(
-            conversation,
-            include_timestamps=include_timestamps,
-        ),
+        render_canonical_markdown(conversation, include_timestamps=include_timestamps),
         encoding="utf-8",
     )
-    exported_messages = sum(bool(message.content.strip()) for message in conversation.messages)
+    exported_messages = sum(
+        bool(message.content.strip()) or bool(message.assets)
+        for message in conversation.messages
+    )
     return MarkdownExportResult(
         output_path=output,
         debug_output_path=None,
