@@ -56,12 +56,13 @@ def render_canonical_markdown(
     Canonical author names take precedence over abstract roles when available.
     Remote/provider asset references remain links. Local image references are
     emitted as Markdown images so downstream DOCX renderers can embed them.
-    Author avatars are a generic canonical asset kind and are rendered beside
-    the author section by downstream document renderers.
+    Author avatars are a generic canonical asset kind and are shown once per
+    consecutive author run, matching chat-style grouped messages.
     """
 
     title = conversation.title.strip() or "Untitled conversation"
     lines = [f"# {title}", ""]
+    previous_author_key: tuple[str, str] | None = None
     for message in conversation.messages:
         body = message.content.strip()
         content_assets = tuple(asset for asset in message.assets if not _is_author_avatar(asset))
@@ -70,7 +71,13 @@ def render_canonical_markdown(
             continue
         role = (message.role or "unknown").replace("_", " ").strip().title()
         heading = (message.author_name or "").strip() or role
-        if avatar and avatar.source_ref and _is_local_image(avatar):
+        author_key = (str(message.author_id or ""), heading)
+        if (
+            avatar
+            and avatar.source_ref
+            and _is_local_image(avatar)
+            and author_key != previous_author_key
+        ):
             label = _escape_label(f"Author avatar: {heading}")
             lines.extend([f"![{label}]({avatar.source_ref})", ""])
         lines.extend([f"## {heading}", ""])
@@ -89,6 +96,7 @@ def render_canonical_markdown(
                 lines.append(f"- {label}")
         if content_assets:
             lines.append("")
+        previous_author_key = author_key
     return "\n".join(lines).rstrip() + "\n"
 
 
