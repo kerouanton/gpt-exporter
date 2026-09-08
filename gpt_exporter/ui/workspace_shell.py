@@ -232,6 +232,7 @@ class ConversationWorkspaceApp(browser.ArchiveBrowser):
         selected = choose_workspace(
             self._enabled_workspaces(),
             default_workspace_name=self.workspace.name,
+            parent=self,
         )
         if selected:
             self.switch_workspace(selected)
@@ -268,6 +269,54 @@ class ConversationWorkspaceApp(browser.ArchiveBrowser):
             f"Workspace active: {workspace.name} — {self._provider_display_name(workspace.provider_id)}"
         )
         return True
+
+    def _resolved_selected_docx_path(self) -> str | None:
+        """Return the selected DOCX path, asking the provider only as a fallback.
+
+        The browser itself stays provider-neutral. Older provider indexes may not
+        have recorded a derived DOCX path, so a provider adapter can resolve its
+        own historical naming convention without leaking that convention here.
+        """
+        row = self._selected_row()
+        if not row:
+            return None
+        recorded = row.get("docx_path")
+        if recorded:
+            return str(recorded)
+
+        resolver = getattr(self._actions(), "resolve_docx_path", None)
+        if not callable(resolver):
+            return None
+        resolved = resolver(row)
+        if resolved is None:
+            return None
+        path = Path(resolved)
+        if not path.exists():
+            return str(path)
+
+        path_text = str(path)
+        row["docx_path"] = path_text
+        try:
+            with sqlite3.connect(self.database_path) as connection:
+                connection.execute(
+                    "UPDATE conversations SET docx_path = ? WHERE conversation_id = ?",
+                    (path_text, row["conversation_id"]),
+                )
+        except sqlite3.Error:
+            browser.LOGGER.exception("Could not persist provider-resolved DOCX path")
+        return path_text
+
+    def open_selected_docx(self) -> None:
+        try:
+            browser.open_with_default_application(self._resolved_selected_docx_path())
+        except OSError as error:
+            messagebox.showerror("Open DOCX", str(error), parent=self)
+
+    def open_selected_in_explorer(self) -> None:
+        try:
+            browser.reveal_in_file_manager(self._resolved_selected_docx_path())
+        except OSError as error:
+            messagebox.showerror("Open in Explorer", str(error), parent=self)
 
     def inspect_active_workspace(self) -> None:
         exists = self.workspace.database_path.is_file()
