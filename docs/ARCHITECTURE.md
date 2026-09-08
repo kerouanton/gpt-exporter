@@ -50,12 +50,14 @@ gpt_exporter\
 │   ├── markdown.py              # canonical Markdown + lazy compatibility facade
 │   └── docx.py                  # shared Markdown -> DOCX
 │
+├── paths.py                     # explicit-root provider-neutral path model
 ├── resources\                   # shared HELP/HISTORY only
 ├── ui\                          # shared UI helpers
 │
 └── providers\
     └── gpt\
         ├── provider.py          # ChatGPT -> canonical adapter
+        ├── paths.py             # historical ChatGPT default archive location
         ├── pipeline.py          # ChatGPT archive workflow
         ├── importer\            # browser-bundle import
         ├── indexing\            # native ChatGPT JSON indexing compatibility
@@ -102,7 +104,8 @@ Once provider data is canonical, shared code owns:
 - generic indexing and full-text search storage;
 - canonical Markdown rendering and shared DOCX generation;
 - categories, tags and work-project organization;
-- generic UI components and browser behavior.
+- generic UI components and browser behavior;
+- path derivation from an explicit archive root.
 
 Provider code owns:
 
@@ -111,7 +114,10 @@ Provider code owns:
 - provider-specific asset identifiers and metadata;
 - provider-native compatibility import/index/export paths;
 - provider-specific GUI actions and command-line workflows;
-- provider-specific historical migrations.
+- provider-specific historical migrations;
+- provider-specific default filesystem locations.
+
+Shared code must not encode a concrete provider's archive directory name. New provider-neutral code constructs `ArchivePaths` with `ArchivePaths.from_root(explicit_root)`. Historical convenience defaults remain provider-owned and may be exposed through lazy compatibility shims only.
 
 ## Provider-neutral SQLite schema v5
 
@@ -184,6 +190,7 @@ A provider-neutral engine must satisfy all of the following:
 6. Use shared resources/UI helpers.
 7. No shared engine module imports a concrete provider as a runtime prerequisite.
 8. No provider-specific fields are required by the shared SQLite schema.
+9. Shared path derivation requires only an explicit archive root; concrete default paths belong to providers.
 ```
 
 Provider compatibility facades may fail when their provider has deliberately been removed; the engine itself must not.
