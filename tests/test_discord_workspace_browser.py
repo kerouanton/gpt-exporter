@@ -15,18 +15,34 @@ from gpt_exporter.workspaces import ConversationWorkspace
 
 
 class DiscordWorkspaceBrowserTests(unittest.TestCase):
-    def test_existing_discord_workspace_repairs_docx_path_and_dm_origin(self) -> None:
+    def test_existing_discord_workspace_migrates_human_names_docx_and_origin(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             workspace = ConversationWorkspace("Discord", "discord", root)
-            docx_path = root / "Discord DM 123456.docx"
-            docx_path.write_bytes(b"PK-existing-docx")
+            old_docx = root / "Discord DM 123456.docx"
+            old_docx.write_bytes(b"PK-existing-docx")
+            old_raw = root / "raw" / "discord_dm_123456.json"
+            old_raw.parent.mkdir()
+            old_raw.write_text("{}", encoding="utf-8")
+            old_canonical = root / "downloads" / "discord_dm_123456.json.xz"
+            old_canonical.parent.mkdir()
+            old_canonical.write_bytes(b"xz-placeholder")
 
+            metadata = {
+                "conversation_type": "dm",
+                "current_user": {"id": "1", "username": "gadgetmcs", "display_name": "Gadget MCS"},
+                "participants": [
+                    {"id": "2", "name": "soundy", "is_self": False},
+                    {"id": "1", "name": "Gadget MCS", "is_self": True},
+                ],
+            }
             with closing(sqlite3.connect(workspace.database_path)) as connection:
                 connection.executescript(
                     """
                     CREATE TABLE conversations (
                         conversation_id TEXT PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        source_json_path TEXT NOT NULL,
                         docx_path TEXT,
                         primary_origin_type TEXT NOT NULL,
                         primary_origin_id TEXT
@@ -36,31 +52,54 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
                         provider_id TEXT NOT NULL,
                         metadata_json TEXT NOT NULL
                     );
+                    CREATE TABLE canonical_conversation_sources (
+                        conversation_id TEXT PRIMARY KEY,
+                        source_path TEXT NOT NULL
+                    );
                     """
                 )
                 connection.execute(
-                    "INSERT INTO conversations VALUES (?, NULL, 'standard', NULL)",
-                    ("discord:123456",),
+                    "INSERT INTO conversations VALUES (?, ?, ?, NULL, 'standard', NULL)",
+                    ("discord:123456", "(117) Discord | @soundy", str(old_canonical)),
                 )
                 connection.execute(
                     "INSERT INTO conversation_provider_metadata VALUES (?, 'discord', ?)",
-                    ("discord:123456", json.dumps({"conversation_type": "dm"})),
+                    ("discord:123456", json.dumps(metadata)),
+                )
+                connection.execute(
+                    "INSERT INTO canonical_conversation_sources VALUES (?, ?)",
+                    ("discord:123456", str(old_canonical)),
                 )
                 connection.commit()
 
             actions = DiscordWorkspaceActions(SimpleNamespace(), workspace)
             self.assertTrue(actions.prepare_index())
 
+            stem = "Discord DM gadgetmcs ↔ soundy 123456"
+            new_docx = root / f"{stem}.docx"
+            new_raw = root / "raw" / f"{stem}.json"
+            new_canonical = root / "downloads" / f"{stem}.json.xz"
+            self.assertTrue(new_docx.is_file())
+            self.assertTrue(new_raw.is_file())
+            self.assertTrue(new_canonical.is_file())
+            self.assertFalse(old_docx.exists())
+
             with closing(sqlite3.connect(workspace.database_path)) as connection:
                 row = connection.execute(
-                    "SELECT docx_path, primary_origin_type, primary_origin_id FROM conversations"
+                    "SELECT title, source_json_path, docx_path, primary_origin_type, primary_origin_id FROM conversations"
                 ).fetchone()
-            self.assertEqual(row[0], str(docx_path))
-            self.assertEqual(row[1], "Direct Messages")
-            self.assertEqual(row[2], "123456")
+                canonical_source = connection.execute(
+                    "SELECT source_path FROM canonical_conversation_sources"
+                ).fetchone()[0]
+            self.assertEqual(row[0], "@soundy")
+            self.assertEqual(row[1], str(new_canonical))
+            self.assertEqual(row[2], str(new_docx))
+            self.assertEqual(row[3], "Direct Messages")
+            self.assertEqual(row[4], "123456")
+            self.assertEqual(canonical_source, str(new_canonical))
             self.assertEqual(
                 actions.resolve_docx_path({"conversation_id": "discord:123456"}),
-                docx_path,
+                new_docx,
             )
 
     def test_switch_workspace_menu_reuses_active_tk_parent_and_switches_selection(self) -> None:

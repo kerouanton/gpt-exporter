@@ -85,6 +85,62 @@ class DiscordArchiveTests(unittest.TestCase):
             docx.assert_called_once()
             index.assert_called_once()
 
+    def test_dm_uses_human_title_filename_and_author_avatars(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            data = payload(("100", "101"))
+            data["current_user"] = {
+                "id": "1",
+                "display_name": "Gadget MCS",
+                "username": "gadgetmcs",
+                "avatar_url": "https://cdn.discordapp.com/avatars/1/self.webp?size=80",
+            }
+            data["conversation"]["title"] = "(117) Discord | @soundy"
+            data["conversation"]["participants"] = [
+                {
+                    "id": "2",
+                    "name": "soundy",
+                    "avatar_url": "https://cdn.discordapp.com/avatars/2/peer.webp?size=80",
+                    "is_self": False,
+                },
+                {
+                    "id": "1",
+                    "name": "Gadget MCS",
+                    "avatar_url": "https://cdn.discordapp.com/avatars/1/self.webp?size=80",
+                    "is_self": True,
+                },
+            ]
+            source = temp / "incoming.json"
+            source.write_text(json.dumps(data), encoding="utf-8")
+            root = temp / "archive"
+
+            with (
+                mock.patch("gpt_exporter.providers.discord.archive.export_canonical_markdown"),
+                mock.patch("gpt_exporter.providers.discord.archive.export_docx"),
+                mock.patch("gpt_exporter.providers.discord.archive.update_index"),
+                mock.patch("gpt_exporter.providers.discord.archive.download_conversation_assets") as downloader,
+            ):
+                downloader.return_value.available = 0
+                downloader.return_value.downloaded = 0
+                downloader.return_value.reused = 0
+                downloader.return_value.failed = ()
+                downloader.return_value.source_paths = {}
+                result = archive_collector_export(source, archive_root=root)
+
+            self.assertEqual(result.raw_path.name, "Discord DM gadgetmcs ↔ soundy 123456.json")
+            self.assertEqual(result.canonical_path.name, "Discord DM gadgetmcs ↔ soundy 123456.json.xz")
+            self.assertEqual(result.docx_path.name, "Discord DM gadgetmcs ↔ soundy 123456.docx")
+            canonical = read_canonical_conversation(result.canonical_path)
+            self.assertEqual(canonical.title, "@soundy")
+            avatar_assets = [
+                asset
+                for message in canonical.messages
+                for asset in message.assets
+                if asset.metadata.get("kind") == "author-avatar"
+            ]
+            self.assertEqual(len(avatar_assets), 2)
+            self.assertTrue(all(asset.media_type == "image/webp" for asset in avatar_assets))
+
     def test_archive_records_docx_and_direct_message_origin_in_index(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)

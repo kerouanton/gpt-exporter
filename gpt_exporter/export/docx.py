@@ -17,6 +17,7 @@ from typing import Callable
 
 
 ProgressCallback = Callable[[str], None]
+_AUTHOR_AVATAR_PREFIX = "Author avatar: "
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +29,49 @@ class DocxExportResult:
     skipped: bool
 
 
+def _install_author_avatar_renderer(implementation: ModuleType) -> None:
+    """Teach the retained renderer one provider-neutral canonical image role.
+
+    Canonical Markdown marks author avatars through their alt text. Keep this
+    compact chat-specific presentation in the shared DOCX adapter instead of in
+    any concrete provider. Other images continue through the frozen v2.8 path.
+    """
+    if getattr(implementation, "_canonical_author_avatar_renderer", False):
+        return
+    original_add_image = implementation.add_image
+
+    def add_image(document, image_path: Path, alt_text: str) -> None:
+        if not str(alt_text or "").startswith(_AUTHOR_AVATAR_PREFIX):
+            original_add_image(document, image_path, alt_text)
+            return
+        paragraph = document.add_paragraph()
+        paragraph.alignment = implementation.WD_PARAGRAPH_ALIGNMENT.LEFT
+        try:
+            run = paragraph.add_run()
+            inline_shape = implementation.add_picture_with_fallback(
+                run,
+                image_path,
+                0.38,
+            )
+            try:
+                inline_shape._inline.docPr.set(
+                    "descr",
+                    implementation.xml_safe_text(alt_text),
+                )
+            except Exception:
+                pass
+        except Exception as error:
+            implementation.logging.warning(
+                "Unable to embed author avatar %s: %s: %s",
+                image_path,
+                type(error).__name__,
+                error,
+            )
+
+    implementation.add_image = add_image
+    implementation._canonical_author_avatar_renderer = True
+
+
 @lru_cache(maxsize=1)
 def _implementation() -> ModuleType:
     """Load the retained package-local v2.8 Markdown renderer quietly."""
@@ -35,6 +79,7 @@ def _implementation() -> ModuleType:
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         from . import _markdown_docx_v28
+    _install_author_avatar_renderer(_markdown_docx_v28)
     return _markdown_docx_v28
 
 

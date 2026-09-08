@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import threading
 from contextlib import closing
@@ -20,6 +21,7 @@ from gpt_exporter.providers.discord.collector import (
     validate_collector_export,
     wait_for_new_export,
 )
+from gpt_exporter.providers.discord.naming import dm_artifact_stem, dm_title, legacy_paths
 from gpt_exporter.ui.browser import archive_browser as browser
 from gpt_exporter.workspaces import ConversationWorkspace
 
@@ -37,13 +39,7 @@ class DiscordWorkspaceActions:
         self._watch_thread: threading.Thread | None = None
 
     def prepare_index(self) -> bool:
-        """Repair provider-derived fields for archives created before the shared shell.
-
-        Older Discord canonical rows were indexed before DOCX locations and a
-        user-facing origin type were recorded. Keep that compatibility repair in
-        the provider adapter rather than teaching the shared browser Discord
-        naming or metadata rules.
-        """
+        """Repair provider-derived fields and migrate historical Discord names."""
         if not self.workspace.database_path.is_file():
             return False
         changed = False
@@ -51,8 +47,8 @@ class DiscordWorkspaceActions:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
                 """
-                SELECT c.conversation_id, c.docx_path, c.primary_origin_type,
-                       pm.metadata_json
+                SELECT c.conversation_id, c.title, c.source_json_path, c.docx_path,
+                       c.primary_origin_type, pm.metadata_json
                 FROM conversations AS c
                 LEFT JOIN conversation_provider_metadata AS pm
                   ON pm.conversation_id = c.conversation_id
@@ -63,14 +59,6 @@ class DiscordWorkspaceActions:
             for row in rows:
                 conversation_id = str(row["conversation_id"])
                 channel_id = conversation_id.removeprefix("discord:")
-                docx_path = self.workspace.root_path / f"Discord DM {channel_id}.docx"
-                if not row["docx_path"] and docx_path.is_file() and docx_path.stat().st_size > 0:
-                    connection.execute(
-                        "UPDATE conversations SET docx_path = ? WHERE conversation_id = ?",
-                        (str(docx_path), conversation_id),
-                    )
-                    changed = True
-
                 metadata: dict[str, Any] = {}
                 raw_metadata = row["metadata_json"]
                 if raw_metadata:
@@ -80,17 +68,63 @@ class DiscordWorkspaceActions:
                         parsed = {}
                     if isinstance(parsed, dict):
                         metadata = parsed
+
                 is_dm = str(metadata.get("conversation_type") or "").casefold() == "dm"
-                if is_dm and row["primary_origin_type"] != "Direct Messages":
-                    connection.execute(
-                        """
-                        UPDATE conversations
-                           SET primary_origin_type = ?, primary_origin_id = ?
-                         WHERE conversation_id = ?
-                        """,
-                        ("Direct Messages", channel_id, conversation_id),
-                    )
-                    changed = True
+                if not is_dm:
+                    continue
+
+                human_title = dm_title(metadata, str(row["title"] or ""))
+                stem = dm_artifact_stem(metadata, channel_id)
+                new_docx = self.workspace.root_path / f"{stem}.docx"
+                new_raw = self.workspace.root_path / "raw" / f"{stem}.json"
+                new_canonical = self.workspace.root_path / "downloads" / f"{stem}.json.xz"
+                old_docx, old_raw, old_canonical = legacy_paths(self.workspace.root_path, channel_id)
+
+                for old, new in ((old_docx, new_docx), (old_raw, new_raw), (old_canonical, new_canonical)):
+                    if old.is_file() and not new.exists():
+                        new.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            old.replace(new)
+                        except OSError:
+                            shutil.copy2(old, new)
+                            old.unlink(missing_ok=True)
+                        changed = True
+
+                recorded_docx = str(row["docx_path"] or "").strip()
+                recorded_source = str(row["source_json_path"] or "").strip()
+                docx_value = str(new_docx) if new_docx.is_file() else (recorded_docx or None)
+                source_value = str(new_canonical) if new_canonical.is_file() else recorded_source
+                connection.execute(
+                    """
+                    UPDATE conversations
+                       SET title = ?, docx_path = ?, source_json_path = ?,
+                           primary_origin_type = ?, primary_origin_id = ?
+                     WHERE conversation_id = ?
+                    """,
+                    (
+                        human_title,
+                        docx_value,
+                        source_value,
+                        "Direct Messages",
+                        channel_id,
+                        conversation_id,
+                    ),
+                )
+                changed = changed or (
+                    human_title != row["title"]
+                    or row["primary_origin_type"] != "Direct Messages"
+                    or (new_docx.is_file() and recorded_docx != str(new_docx))
+                    or (new_canonical.is_file() and recorded_source != str(new_canonical))
+                )
+
+                if new_canonical.is_file():
+                    try:
+                        connection.execute(
+                            "UPDATE canonical_conversation_sources SET source_path = ? WHERE conversation_id = ?",
+                            (str(new_canonical), conversation_id),
+                        )
+                    except sqlite3.OperationalError:
+                        pass
             connection.commit()
         return changed
 
@@ -99,7 +133,20 @@ class DiscordWorkspaceActions:
         if not conversation_id.startswith("discord:"):
             return None
         channel_id = conversation_id.removeprefix("discord:")
-        return self.workspace.root_path / f"Discord DM {channel_id}.docx"
+        metadata: dict[str, Any] = {}
+        try:
+            with closing(sqlite3.connect(self.workspace.database_path)) as connection:
+                record = connection.execute(
+                    "SELECT metadata_json FROM conversation_provider_metadata WHERE conversation_id = ? AND provider_id = 'discord'",
+                    (conversation_id,),
+                ).fetchone()
+            if record and record[0]:
+                parsed = json.loads(record[0])
+                if isinstance(parsed, dict):
+                    metadata = parsed
+        except (sqlite3.Error, json.JSONDecodeError):
+            pass
+        return self.workspace.root_path / f"{dm_artifact_stem(metadata, channel_id)}.docx"
 
     def archive_new(self) -> None:
         if self._watch_thread is not None and self._watch_thread.is_alive():
@@ -246,10 +293,30 @@ class DiscordWorkspaceActions:
             )
             return False
 
+        raw_files = sorted(raw_dir.glob("*.json"))
+        if not raw_files:
+            messagebox.showinfo(
+                "Regenerate Missing DOCX",
+                "No Discord raw archive files exist in this workspace.",
+                parent=self.app,
+            )
+            return False
+
         missing: list[Path] = []
-        for raw_path in sorted(raw_dir.glob("discord_dm_*.json")):
-            channel_id = raw_path.stem.removeprefix("discord_dm_")
-            docx_path = self.workspace.root_path / f"Discord DM {channel_id}.docx"
+        for raw_path in raw_files:
+            try:
+                payload = json.loads(raw_path.read_text(encoding="utf-8-sig"))
+                conversation = payload.get("conversation") if isinstance(payload, dict) else None
+                channel_id = str(conversation.get("channel_id") or "") if isinstance(conversation, dict) else ""
+                if not channel_id:
+                    continue
+                metadata = {
+                    "participants": conversation.get("participants"),
+                    "current_user": payload.get("current_user"),
+                }
+                docx_path = self.workspace.root_path / f"{dm_artifact_stem(metadata, channel_id)}.docx"
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
             if not docx_path.is_file() or docx_path.stat().st_size == 0:
                 missing.append(raw_path)
 
