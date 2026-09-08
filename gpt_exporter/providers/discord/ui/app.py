@@ -23,14 +23,14 @@ from gpt_exporter.providers.discord.provider import DiscordProvider
 class DiscordProviderApp:
     """Collect and archive the currently displayed Discord DM."""
 
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, *, archive_root: Path | None = None) -> None:
         self.root = root
         self.root.title("Discord Provider")
         self.root.geometry("780x520")
         self.root.minsize(700, 440)
         self.provider = DiscordProvider()
         self.download_directory = Path.home() / "Downloads"
-        self.archive_root = default_archive_root()
+        self.archive_root = Path(archive_root or default_archive_root()).expanduser()
         self.status_var = tk.StringVar(value="Ready.")
         self.collector_var = tk.StringVar(value="Collector not armed.")
         self.archive_var = tk.StringVar(value=f"Archive: {self.archive_root}")
@@ -214,15 +214,22 @@ class DiscordProviderApp:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    return argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description="Archive the currently displayed Discord DM through a browser collector"
     )
+    parser.add_argument(
+        "--archive-root",
+        type=Path,
+        default=default_archive_root(),
+        help=f"Discord archive root (default: {default_archive_root()})",
+    )
+    return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    build_parser().parse_args(argv)
+    arguments = build_parser().parse_args(argv)
     root = tk.Tk()
-    DiscordProviderApp(root)
+    DiscordProviderApp(root, archive_root=arguments.archive_root)
     root.mainloop()
     return 0
 
