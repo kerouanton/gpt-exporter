@@ -32,7 +32,6 @@ class ProviderSelectorDialog(tk.Toplevel):
         super().__init__(parent)
         self.title("Choose Provider")
         self.resizable(False, False)
-        self.transient(parent)
         self.result: str | None = None
         self._descriptors = provider_choices(descriptors)
         self._by_label = {
@@ -81,8 +80,22 @@ class ProviderSelectorDialog(tk.Toplevel):
         self.bind("<Return>", lambda _event: self._accept())
         self.bind("<Escape>", lambda _event: self._cancel())
         self.protocol("WM_DELETE_WINDOW", self._cancel)
+
+    def show_modal(self) -> None:
+        """Map the dialog first, then make it modal.
+
+        On Windows, making a toplevel transient to a withdrawn root can leave the
+        modal window unmapped while ``wait_window`` keeps the process alive.  The
+        selector deliberately uses a hidden short-lived root, so this dialog must
+        be an independent top-level window and only acquire its grab after it is
+        viewable.
+        """
+        self.update_idletasks()
+        self.deiconify()
+        self.lift()
+        self.wait_visibility()
         self.grab_set()
-        self.combo.focus_set()
+        self.combo.focus_force()
 
     def _accept(self) -> None:
         provider_id = self._by_label.get(self.provider_var.get())
@@ -110,6 +123,7 @@ def choose_provider(
             descriptors,
             default_provider_id=default_provider_id,
         )
+        dialog.show_modal()
         root.wait_window(dialog)
         return dialog.result
     finally:
