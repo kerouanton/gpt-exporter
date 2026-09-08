@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Callable
 
 from gpt_exporter.core import ProviderRegistry
 from gpt_exporter.ui.provider_selector import choose_provider
 
-ProviderLauncher = Callable[[], int]
+ProviderLauncher = Callable[[list[str]], int]
 
 
 def build_provider_registry() -> ProviderRegistry:
@@ -30,23 +31,32 @@ def build_provider_registry() -> ProviderRegistry:
     return registry
 
 
-def build_provider_launchers() -> dict[str, ProviderLauncher]:
-    """Return launchers for provider UIs installed with this application."""
-    launchers: dict[str, ProviderLauncher] = {}
+def _launch_gpt(arguments: list[str]) -> int:
+    from gpt_exporter.providers.gpt.ui import app as gpt_app
+
+    previous = sys.argv
     try:
-        from gpt_exporter.providers.gpt.ui import app as gpt_app
+        sys.argv = [previous[0], *arguments]
+        return int(gpt_app.main())
+    finally:
+        sys.argv = previous
+
+
+def build_provider_launchers() -> dict[str, ProviderLauncher]:
+    """Return lazy launchers for provider UIs installed with this application."""
+    try:
+        from gpt_exporter.providers.gpt import provider as _gpt_provider  # noqa: F401
     except ModuleNotFoundError as error:
         if error.name and error.name.startswith("gpt_exporter.providers.gpt"):
-            return launchers
+            return {}
         raise
-
-    launchers["gpt"] = gpt_app.main
-    return launchers
+    return {"gpt": _launch_gpt}
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Choose and launch a conversation provider application"
+        description="Choose and launch a conversation provider application",
+        add_help=True,
     )
     parser.add_argument(
         "--provider",
@@ -56,7 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    arguments = build_parser().parse_args(argv)
+    raw_arguments = list(sys.argv[1:] if argv is None else argv)
+    arguments, provider_arguments = build_parser().parse_known_args(raw_arguments)
     registry = build_provider_registry()
     launchers = build_provider_launchers()
 
@@ -77,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         if provider_id is None:
             return 0
 
-    return int(launchers[provider_id]())
+    return int(launchers[provider_id](provider_arguments))
 
 
 if __name__ == "__main__":
