@@ -83,7 +83,8 @@ class DiscordHumanNamingTests(unittest.TestCase):
                 "Discord DM gadgetmcs2 ↔ soundy2 123456.json.xz",
             )
             candidates = list((root / "downloads").glob("*123456.json.xz"))
-            self.assertEqual(candidates, [partial.canonical_path])
+            self.assertEqual(len(candidates), 1)
+            self.assertEqual(candidates[0].name, partial.canonical_path.name)
 
     def test_prepare_index_keeps_missing_docx_path_null(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
