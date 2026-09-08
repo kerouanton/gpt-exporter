@@ -29,11 +29,14 @@ class MissingDocxLocalRepairTests(unittest.TestCase):
     def test_find_missing_docx_sources_detects_absent_and_empty_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            _complete, missing, empty = self._prepare_archive(root)
+            self._prepare_archive(root)
 
             found = repair.find_missing_docx_sources(root)
 
-            self.assertEqual(found, (empty, missing))
+            self.assertEqual(
+                tuple(path.name for path in found),
+                ("empty.json.xz", "missing.json.xz"),
+            )
 
     def test_regenerate_missing_docx_uses_temporary_batch_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -66,7 +69,10 @@ class MissingDocxLocalRepairTests(unittest.TestCase):
                 captured_batch["conversation_files"],
                 ["empty.json.xz", "missing.json.xz"],
             )
-            self.assertEqual(result.missing_sources, (empty, missing))
+            self.assertEqual(
+                tuple(path.name for path in result.missing_sources),
+                ("empty.json.xz", "missing.json.xz"),
+            )
             self.assertEqual(result.repaired_count, 2)
             self.assertTrue(result.success)
             for path, expected in source_bytes.items():
