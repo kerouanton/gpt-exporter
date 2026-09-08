@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -77,9 +78,39 @@ class DiscordArchiveTests(unittest.TestCase):
             canonical = read_canonical_conversation(result.canonical_path)
             self.assertEqual(canonical.provider_id, "discord")
             self.assertEqual([m.message_id for m in canonical.messages], ["100", "101"])
+            self.assertEqual(canonical.metadata["origin_type"], "Direct Messages")
+            self.assertEqual(canonical.metadata["origin_id"], "123456")
             markdown.assert_called_once()
             docx.assert_called_once()
             index.assert_called_once()
+
+    def test_archive_records_docx_and_direct_message_origin_in_index(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            source = temp / "incoming.json"
+            source.write_text(json.dumps(payload(("100", "101"))), encoding="utf-8")
+            root = temp / "archive"
+
+            def fake_docx(_markdown_path, docx_path, **_kwargs):
+                Path(docx_path).write_bytes(b"PK-fake-docx")
+
+            with (
+                mock.patch("gpt_exporter.providers.discord.archive.export_canonical_markdown"),
+                mock.patch("gpt_exporter.providers.discord.archive.export_docx", side_effect=fake_docx),
+            ):
+                result = archive_collector_export(source, archive_root=root)
+
+            with sqlite3.connect(result.database_path) as connection:
+                row = connection.execute(
+                    """
+                    SELECT docx_path, primary_origin_type, primary_origin_id
+                    FROM conversations WHERE conversation_id = 'discord:123456'
+                    """
+                ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row[0], str(result.docx_path))
+            self.assertEqual(row[1], "Direct Messages")
+            self.assertEqual(row[2], "123456")
 
     def test_partial_collector_export_cannot_replace_complete_archive(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
