@@ -4,6 +4,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
@@ -100,7 +101,7 @@ class DiscordArchiveTests(unittest.TestCase):
             ):
                 result = archive_collector_export(source, archive_root=root)
 
-            with sqlite3.connect(result.database_path) as connection:
+            with closing(sqlite3.connect(result.database_path)) as connection:
                 row = connection.execute(
                     """
                     SELECT docx_path, primary_origin_type, primary_origin_id
