@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from gpt_exporter.core import read_canonical_conversation
+from gpt_exporter.core.serialization import read_canonical_conversation
 from gpt_exporter.providers.discord.archive import archive_collector_export
 
 
