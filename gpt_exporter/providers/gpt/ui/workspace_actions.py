@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 from tkinter import messagebox
 
-from gpt_exporter.providers.gpt.ui import archive_gui_workflow as workflow
+from gpt_exporter.providers.gpt.ui import archive_workflow as workflow
 from gpt_exporter.ui.browser import archive_browser as browser
 from gpt_exporter.workspaces import ConversationWorkspace
 
