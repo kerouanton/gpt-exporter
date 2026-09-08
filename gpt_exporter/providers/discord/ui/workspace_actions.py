@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import closing
 from importlib.resources import files
 from pathlib import Path
 from tkinter import messagebox
@@ -46,7 +47,7 @@ class DiscordWorkspaceActions:
         if not self.workspace.database_path.is_file():
             return False
         changed = False
-        with sqlite3.connect(self.workspace.database_path) as connection:
+        with closing(sqlite3.connect(self.workspace.database_path)) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
                 """
@@ -90,6 +91,7 @@ class DiscordWorkspaceActions:
                         ("Direct Messages", channel_id, conversation_id),
                     )
                     changed = True
+            connection.commit()
         return changed
 
     def resolve_docx_path(self, row: dict[str, Any]) -> Path | None:
