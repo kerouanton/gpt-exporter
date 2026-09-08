@@ -7,7 +7,10 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from gpt_exporter.core import read_canonical_conversation, write_canonical_conversation
+from gpt_exporter.core.serialization import (
+    read_canonical_conversation,
+    write_canonical_conversation,
+)
 from gpt_exporter.export.docx import export_docx
 from gpt_exporter.export.markdown import export_canonical_markdown
 from gpt_exporter.index import update_index
