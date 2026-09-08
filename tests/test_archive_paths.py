@@ -2,6 +2,8 @@ import os
 file_name = os.path.basename(__file__)
 print(f"The filename of this script is: {file_name}")
 
+import subprocess
+import sys
 import unittest
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -9,6 +11,10 @@ from pathlib import Path
 import archive_chats
 import index_chatgpt_archive as indexer
 from gpt_exporter.paths import ArchivePaths, default_archive_paths, default_user_profile
+from gpt_exporter.providers.gpt.paths import default_archive_paths as gpt_default_archive_paths
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ArchivePathsTests(unittest.TestCase):
@@ -32,8 +38,8 @@ class ArchivePathsTests(unittest.TestCase):
         profile = default_user_profile({}, home=Path("C:/Fallback"))
         self.assertEqual(profile, Path("C:/Fallback"))
 
-    def test_default_archive_paths_preserve_v28_constants(self) -> None:
-        paths = default_archive_paths()
+    def test_gpt_provider_owns_v28_default_archive_root(self) -> None:
+        paths = gpt_default_archive_paths()
         self.assertEqual(paths.root, archive_chats.ARCHIVE_ROOT)
         self.assertEqual(paths.downloads, archive_chats.DOWNLOADS_DIR)
         self.assertEqual(paths.assets, archive_chats.ASSETS_DIR)
@@ -42,6 +48,37 @@ class ArchivePathsTests(unittest.TestCase):
         self.assertEqual(paths.root, indexer.DEFAULT_ARCHIVE_ROOT)
         self.assertEqual(paths.downloads, indexer.DEFAULT_DOWNLOADS_DIR)
         self.assertEqual(paths.database, indexer.DEFAULT_DATABASE_PATH)
+
+    def test_shared_default_archive_paths_remains_compatible(self) -> None:
+        environment = {"USERPROFILE": "C:/Users/Synthetic"}
+        expected = gpt_default_archive_paths(environment, home=Path("C:/Fallback"))
+        actual = default_archive_paths(environment, home=Path("C:/Fallback"))
+        self.assertEqual(actual, expected)
+
+    def test_importing_shared_paths_does_not_load_gpt_provider(self) -> None:
+        script = "\n".join(
+            [
+                "import sys",
+                "import gpt_exporter.paths",
+                "assert 'gpt_exporter.providers.gpt' not in sys.modules",
+                "assert 'gpt_exporter.providers.gpt.paths' not in sys.modules",
+            ]
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=REPOSITORY_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout, "")
+
+    def test_shared_paths_source_contains_no_gpt_default_name(self) -> None:
+        shared_source = (
+            REPOSITORY_ROOT / "gpt_exporter" / "paths.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("ChatGPT Archive", shared_source)
 
     def test_archive_paths_are_immutable(self) -> None:
         paths = ArchivePaths.from_root(Path("C:/synthetic/archive"))
