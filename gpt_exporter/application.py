@@ -64,7 +64,12 @@ def _make_launcher(spec: ProviderApplicationSpec) -> ProviderLauncher:
     def launch(arguments: list[str]) -> int:
         module = importlib.import_module(spec.ui_module)
         provider_main = getattr(module, "main")
-        return int(provider_main(arguments))
+        previous = sys.argv
+        try:
+            sys.argv = [previous[0], *arguments]
+            return int(provider_main())
+        finally:
+            sys.argv = previous
 
     return launch
 
