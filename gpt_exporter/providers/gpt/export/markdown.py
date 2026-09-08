@@ -11,6 +11,7 @@ import io
 from functools import lru_cache
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 from gpt_exporter.export.markdown import MarkdownExportResult
 from gpt_exporter.paths import default_archive_paths
@@ -25,6 +26,39 @@ def _implementation() -> ModuleType:
     with contextlib.redirect_stdout(buffer):
         from . import _native_markdown
     return _native_markdown
+
+
+def _is_context_stuff_message(message: Any) -> bool:
+    """Return whether *message* is an internal ChatGPT file-context payload.
+
+    ChatGPT emits ``api_tool`` messages with ``metadata.command`` set to
+    ``context_stuff`` when an attached file is parsed and supplied to the
+    model.  Those nodes are implementation context, not visible assistant
+    messages.  Some DOCX payloads contain ``image_asset_pointer`` parts; the
+    historical renderer mistook those for visible generated-image tool output
+    and exported the complete parsed document into Markdown/DOCX.
+    """
+
+    if not isinstance(message, dict):
+        return False
+    metadata = message.get("metadata")
+    return isinstance(metadata, dict) and metadata.get("command") == "context_stuff"
+
+
+def _filter_context_stuff_nodes(
+    active_path: list[dict[str, Any]],
+    statistics: Any,
+) -> list[dict[str, Any]]:
+    """Remove internal file-context nodes while preserving the raw source JSON."""
+
+    filtered: list[dict[str, Any]] = []
+    for node in active_path:
+        message = node.get("message") if isinstance(node, dict) else None
+        if _is_context_stuff_message(message):
+            statistics.skipped_reasons["context_stuff"] += 1
+            continue
+        filtered.append(node)
+    return filtered
 
 
 def export_markdown(
@@ -77,8 +111,9 @@ def export_markdown(
     )
     statistics.active_nodes = len(active_path)
 
+    visible_path = _filter_context_stuff_nodes(active_path, statistics)
     messages = implementation.extract_visible_messages(
-        active_path=active_path,
+        active_path=visible_path,
         statistics=statistics,
         assets=assets,
         asset_directory=asset_root,
