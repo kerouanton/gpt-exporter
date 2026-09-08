@@ -124,11 +124,54 @@ def _record_docx_path(database_path: Path, conversation_id: str, docx_path: Path
         connection.commit()
 
 
-def _remove_legacy_artifacts(root: Path, channel_id: str, *, keep_source: Path) -> None:
-    for legacy in legacy_paths(root, channel_id):
+def _human_named_paths(directory: Path, channel_id: str, suffix: str) -> tuple[Path, ...]:
+    return tuple(sorted(directory.glob(f"Discord DM * {channel_id}{suffix}")))
+
+
+def _find_existing_canonical(downloads_dir: Path, channel_id: str, preferred: Path, legacy: Path):
+    """Return the most complete stored canonical conversation for a stable channel ID."""
+    candidates: list[Path] = []
+    for path in (preferred, legacy, *_human_named_paths(downloads_dir, channel_id, ".json.xz")):
+        if path not in candidates and path.is_file() and path.stat().st_size > 0:
+            candidates.append(path)
+
+    best_path: Path | None = None
+    best_conversation = None
+    best_size = -1
+    for path in candidates:
         try:
-            if legacy.resolve() != keep_source.resolve():
-                legacy.unlink(missing_ok=True)
+            candidate = _enrich_dm(read_canonical_conversation(path))
+        except (OSError, ValueError):
+            continue
+        if candidate.conversation_id != f"discord:{channel_id}":
+            continue
+        size = len({message.message_id for message in candidate.messages})
+        if size > best_size:
+            best_path = path
+            best_conversation = candidate
+            best_size = size
+    return best_path, best_conversation
+
+
+def _find_prior_artifact(directory: Path, channel_id: str, suffix: str, legacy: Path) -> Path | None:
+    candidates = []
+    if legacy.is_file():
+        candidates.append(legacy)
+    candidates.extend(_human_named_paths(directory, channel_id, suffix))
+    return max(candidates, key=lambda path: path.stat().st_mtime_ns) if candidates else None
+
+
+def _remove_stale_artifacts(root: Path, channel_id: str, *, keep: set[Path]) -> None:
+    legacy_docx, legacy_raw, legacy_canonical = legacy_paths(root, channel_id)
+    candidates = [legacy_docx, legacy_raw, legacy_canonical]
+    candidates.extend(_human_named_paths(root, channel_id, ".docx"))
+    candidates.extend(_human_named_paths(root / "raw", channel_id, ".json"))
+    candidates.extend(_human_named_paths(root / "downloads", channel_id, ".json.xz"))
+    keep_resolved = {path.resolve() for path in keep}
+    for path in candidates:
+        try:
+            if path.resolve() not in keep_resolved:
+                path.unlink(missing_ok=True)
         except OSError:
             pass
 
@@ -144,7 +187,8 @@ def archive_collector_export(
     local assets, DOCX and SQLite are derived artifacts. Discord media is
     acquired immediately while signed CDN URLs are valid. A partial collector
     run may not replace an archive containing message IDs that are absent from
-    the new export.
+    the new export. Human-readable filenames may change when account names do;
+    the stable Discord channel ID is therefore always used to find prior state.
     """
 
     source_path = Path(source_path).expanduser().resolve()
@@ -165,11 +209,15 @@ def archive_collector_export(
     asset_dir = root / "assets" / channel_id
 
     legacy_docx, legacy_raw, legacy_canonical = legacy_paths(root, channel_id)
-    existing_canonical = canonical_path if canonical_path.is_file() else legacy_canonical
+    existing_path, existing = _find_existing_canonical(
+        downloads_dir,
+        channel_id,
+        canonical_path,
+        legacy_canonical,
+    )
 
     updated = True
-    if existing_canonical.is_file() and existing_canonical.stat().st_size > 0:
-        existing = _enrich_dm(read_canonical_conversation(existing_canonical))
+    if existing is not None:
         existing_ids = {message.message_id for message in existing.messages}
         incoming_ids = {message.message_id for message in conversation.messages}
         if not existing_ids.issubset(incoming_ids):
@@ -214,14 +262,20 @@ def archive_collector_export(
                 overwrite=True,
             )
     else:
-        if existing_canonical != canonical_path:
+        if existing_path != canonical_path:
             write_canonical_conversation(canonical_path, conversation)
-        if legacy_docx.is_file() and not docx_path.exists():
-            legacy_docx.replace(docx_path)
-        if legacy_raw.is_file() and not raw_path.exists():
-            shutil.copyfile(legacy_raw, raw_path)
+        prior_docx = _find_prior_artifact(root, channel_id, ".docx", legacy_docx)
+        if prior_docx and prior_docx != docx_path and not docx_path.exists():
+            prior_docx.replace(docx_path)
+        prior_raw = _find_prior_artifact(raw_dir, channel_id, ".json", legacy_raw)
+        if prior_raw and prior_raw != raw_path and not raw_path.exists():
+            shutil.copyfile(prior_raw, raw_path)
 
-    _remove_legacy_artifacts(root, channel_id, keep_source=source_path)
+    _remove_stale_artifacts(
+        root,
+        channel_id,
+        keep={source_path, raw_path, canonical_path, docx_path},
+    )
 
     update_index(
         root,
