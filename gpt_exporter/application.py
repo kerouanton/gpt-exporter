@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from gpt_exporter.core import ProviderRegistry
 from gpt_exporter.ui.provider_selector import choose_provider
+from gpt_exporter.version import APP_NAME, display_version
 
 ProviderLauncher = Callable[[list[str]], int]
 
@@ -55,8 +56,13 @@ def build_provider_launchers() -> dict[str, ProviderLauncher]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Choose and launch a conversation provider application",
-        add_help=True,
+        description="Choose and launch a conversation provider application"
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"{APP_NAME} {display_version()}",
+        help="Show the application version and exit.",
     )
     parser.add_argument(
         "--provider",
