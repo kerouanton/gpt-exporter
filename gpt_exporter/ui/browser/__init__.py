@@ -1,5 +1,7 @@
-"""Provider-neutral conversation browser implementation."""
+"""Provider-neutral conversation browser package.
 
-from .archive_browser import ArchiveBrowser
+Implementation modules are intentionally not imported eagerly so headless/core
+consumers do not create Tkinter or compatibility side effects.
+"""
 
-__all__ = ["ArchiveBrowser"]
+__all__: list[str] = []
