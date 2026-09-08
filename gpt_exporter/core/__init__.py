@@ -6,6 +6,7 @@ Providers depend on the core, never the reverse.
 
 from .model import CanonicalAsset, CanonicalConversation, CanonicalMessage
 from .provider import ConversationProvider, ProviderDescriptor
+from .provider_registry import ProviderRegistry
 
 __all__ = [
     "CanonicalAsset",
@@ -13,4 +14,5 @@ __all__ = [
     "CanonicalMessage",
     "ConversationProvider",
     "ProviderDescriptor",
+    "ProviderRegistry",
 ]
