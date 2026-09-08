@@ -1,7 +1,7 @@
-"""Compatibility facade for the ChatGPT provider archive browser."""
+"""Compatibility facade for the shared conversation archive browser."""
 
 import sys
-from gpt_exporter.providers.gpt.ui.browser import archive_browser as _implementation
+from gpt_exporter.ui.browser import archive_browser as _implementation
 
 if __name__ == "__main__":
     _implementation.__file__ = __file__
