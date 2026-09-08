@@ -62,15 +62,20 @@ class GPTShellBoundaryTests(unittest.TestCase):
         for name in expected:
             self.assertTrue((cli / name).is_file(), name)
 
-    def test_provider_owns_historical_browser_implementation(self) -> None:
-        browser = REPOSITORY_ROOT / "gpt_exporter" / "providers" / "gpt" / "ui" / "browser"
-        provider_browser = browser / "archive_browser.py"
-        provider_core = browser / "archive_core.py"
-        self.assertTrue(provider_browser.is_file())
-        self.assertTrue(provider_core.is_file())
-        self.assertGreater(provider_browser.stat().st_size, 50_000)
-        self.assertGreater(provider_core.stat().st_size, 30_000)
-        self.assertIn("ChatGPT Archive Browser", provider_browser.read_text(encoding="utf-8"))
+    def test_historical_browser_implementation_is_shared(self) -> None:
+        shared = REPOSITORY_ROOT / "gpt_exporter" / "ui" / "browser"
+        provider = REPOSITORY_ROOT / "gpt_exporter" / "providers" / "gpt" / "ui" / "browser"
+        shared_browser = shared / "archive_browser.py"
+        shared_core = shared / "archive_core.py"
+        provider_browser = provider / "archive_browser.py"
+        provider_core = provider / "archive_core.py"
+
+        self.assertGreater(shared_browser.stat().st_size, 50_000)
+        self.assertGreater(shared_core.stat().st_size, 30_000)
+        self.assertLess(provider_browser.stat().st_size, 1024)
+        self.assertLess(provider_core.stat().st_size, 1024)
+        self.assertIn("gpt_exporter.ui.browser", provider_browser.read_text(encoding="utf-8"))
+        self.assertIn("gpt_exporter.ui.browser", provider_core.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
