@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
-from gpt_exporter.core import CanonicalConversation
+from gpt_exporter.core import CanonicalAsset, CanonicalConversation
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +29,19 @@ def _escape_label(value: str) -> str:
     return value.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
 
 
+def _is_local_image(asset: CanonicalAsset) -> bool:
+    source = (asset.source_ref or "").strip()
+    if not source:
+        return False
+    parsed = urlparse(source)
+    if parsed.scheme in {"http", "https"}:
+        return False
+    if asset.media_type and asset.media_type.casefold().startswith("image/"):
+        return True
+    suffix = Path(parsed.path).suffix.casefold()
+    return suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+
+
 def render_canonical_markdown(
     conversation: CanonicalConversation,
     *,
@@ -36,8 +50,8 @@ def render_canonical_markdown(
     """Render a provider-neutral canonical conversation as Markdown.
 
     Canonical author names take precedence over abstract roles when available.
-    Remote/provider asset references are retained as links without assuming a
-    provider-specific downloader or archive layout.
+    Remote/provider asset references remain links. Local image references are
+    emitted as Markdown images so downstream DOCX renderers can embed them.
     """
 
     title = conversation.title.strip() or "Untitled conversation"
@@ -56,7 +70,10 @@ def render_canonical_markdown(
         for asset in message.assets:
             label = _escape_label(asset.name or asset.asset_id or "Attachment")
             if asset.source_ref:
-                lines.append(f"- [{label}]({asset.source_ref})")
+                if _is_local_image(asset):
+                    lines.append(f"![{label}]({asset.source_ref})")
+                else:
+                    lines.append(f"- [{label}]({asset.source_ref})")
             else:
                 lines.append(f"- {label}")
         if message.assets:

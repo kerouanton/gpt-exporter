@@ -15,6 +15,7 @@ from gpt_exporter.export.docx import export_docx
 from gpt_exporter.export.markdown import export_canonical_markdown
 from gpt_exporter.index import update_index
 
+from .assets import conversation_with_local_assets, download_conversation_assets
 from .provider import DiscordProvider
 
 
@@ -27,6 +28,10 @@ class DiscordArchiveResult:
     database_path: Path
     message_count: int
     updated: bool
+    available_assets: int = 0
+    downloaded_assets: int = 0
+    reused_assets: int = 0
+    failed_assets: tuple[str, ...] = ()
 
 
 def default_archive_root() -> Path:
@@ -45,10 +50,11 @@ def archive_collector_export(
 ) -> DiscordArchiveResult:
     """Normalize and archive one full-DM browser collector JSON.
 
-    The source JSON is copied byte-for-byte into ``raw``.  Canonical JSON/XZ,
-    Markdown/DOCX and SQLite are derived artifacts.  A partial collector run may
-    not replace an archive containing message IDs that are absent from the new
-    export.
+    The source JSON is copied byte-for-byte into ``raw``. Canonical JSON/XZ,
+    local assets, DOCX and SQLite are derived artifacts. Discord media is
+    acquired immediately while signed CDN URLs are valid. A partial collector
+    run may not replace an archive containing message IDs that are absent from
+    the new export.
     """
 
     source_path = Path(source_path).expanduser().resolve()
@@ -65,6 +71,7 @@ def archive_collector_export(
     canonical_path = downloads_dir / f"discord_dm_{channel_id}.json.xz"
     docx_path = root / f"Discord DM {channel_id}.docx"
     database_path = root / "conversations-index.sqlite"
+    asset_dir = root / "assets" / channel_id
 
     updated = True
     if canonical_path.is_file() and canonical_path.stat().st_size > 0:
@@ -75,14 +82,37 @@ def archive_collector_export(
             conversation = existing
             updated = False
 
+    available_assets = 0
+    downloaded_assets = 0
+    reused_assets = 0
+    failed_assets: tuple[str, ...] = ()
+
     if updated:
         shutil.copyfile(source_path, raw_path)
         write_canonical_conversation(canonical_path, conversation)
 
-        with tempfile.TemporaryDirectory(prefix="discord-exporter-markdown-") as temp_dir:
-            markdown_path = Path(temp_dir) / f"discord_dm_{channel_id}.md"
-            export_canonical_markdown(
+        asset_result = download_conversation_assets(conversation, asset_dir)
+        available_assets = asset_result.available
+        downloaded_assets = asset_result.downloaded
+        reused_assets = asset_result.reused
+        failed_assets = asset_result.failed
+
+        # Keep the stored canonical source references provider-original. Only the
+        # export view is rewritten to relative local paths so the generic DOCX
+        # renderer can embed images and link other downloaded media.
+        with tempfile.TemporaryDirectory(
+            prefix=".discord-exporter-markdown-",
+            dir=root,
+        ) as temp_dir:
+            markdown_dir = Path(temp_dir)
+            markdown_path = markdown_dir / f"discord_dm_{channel_id}.md"
+            export_conversation = conversation_with_local_assets(
                 conversation,
+                asset_result.source_paths,
+                relative_to=markdown_dir,
+            )
+            export_canonical_markdown(
+                export_conversation,
                 markdown_path,
                 include_timestamps=True,
             )
@@ -107,4 +137,8 @@ def archive_collector_export(
         database_path=database_path,
         message_count=len(conversation.messages),
         updated=updated,
+        available_assets=available_assets,
+        downloaded_assets=downloaded_assets,
+        reused_assets=reused_assets,
+        failed_assets=failed_assets,
     )
