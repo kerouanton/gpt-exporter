@@ -106,10 +106,23 @@ def choose_workspace(
     workspaces: Iterable[ConversationWorkspace],
     *,
     default_workspace_name: str | None = None,
+    parent: tk.Misc | None = None,
 ) -> str | None:
-    """Show a short-lived Tk root and return the selected workspace name."""
-    root = tk.Tk()
-    root.withdraw()
+    """Show a workspace chooser and return the selected workspace name.
+
+    Startup can still use the historical short-lived hidden root. When an
+    application window already exists, pass it as ``parent`` so Tk does not
+    create a second root/main window while the first one is active.
+    """
+    owns_root = parent is None
+    root: tk.Misc
+    if owns_root:
+        hidden_root = tk.Tk()
+        hidden_root.withdraw()
+        root = hidden_root
+    else:
+        root = parent
+
     try:
         dialog = WorkspaceSelectorDialog(
             root,
@@ -120,7 +133,8 @@ def choose_workspace(
         root.wait_window(dialog)
         return dialog.result
     finally:
-        root.destroy()
+        if owns_root:
+            hidden_root.destroy()
 
 
 __all__ = ["WorkspaceSelectorDialog", "choose_workspace", "workspace_choices"]

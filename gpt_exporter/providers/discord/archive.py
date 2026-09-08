@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import tempfile
-from dataclasses import dataclass
+from contextlib import closing
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from gpt_exporter.core.serialization import (
@@ -43,6 +45,18 @@ def _channel_id(conversation_id: str) -> str:
     return conversation_id[len(prefix):] if conversation_id.startswith(prefix) else conversation_id
 
 
+def _record_docx_path(database_path: Path, conversation_id: str, docx_path: Path) -> None:
+    """Persist the provider-derived DOCX location after generic indexing."""
+    if not docx_path.is_file() or docx_path.stat().st_size == 0:
+        return
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.execute(
+            "UPDATE conversations SET docx_path = ? WHERE conversation_id = ?",
+            (str(docx_path), conversation_id),
+        )
+        connection.commit()
+
+
 def archive_collector_export(
     source_path: Path,
     *,
@@ -67,6 +81,14 @@ def archive_collector_export(
     provider = DiscordProvider()
     conversation = provider.normalize(source_path)
     channel_id = _channel_id(conversation.conversation_id)
+    conversation = replace(
+        conversation,
+        metadata={
+            **dict(conversation.metadata),
+            "origin_type": "Direct Messages",
+            "origin_id": channel_id,
+        },
+    )
     raw_path = raw_dir / f"discord_dm_{channel_id}.json"
     canonical_path = downloads_dir / f"discord_dm_{channel_id}.json.xz"
     docx_path = root / f"Discord DM {channel_id}.docx"
@@ -128,6 +150,7 @@ def archive_collector_export(
         downloads_dir=downloads_dir,
         database_path=database_path,
     )
+    _record_docx_path(database_path, conversation.conversation_id, docx_path)
 
     return DiscordArchiveResult(
         archive_root=root,
