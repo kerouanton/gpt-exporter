@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
 import threading
 from importlib.resources import files
 from pathlib import Path
 from tkinter import messagebox
+from typing import Any
 
 from gpt_exporter.providers.discord.archive import archive_collector_export
 from gpt_exporter.providers.discord.collector import (
@@ -31,6 +34,70 @@ class DiscordWorkspaceActions:
         self.workspace = workspace
         self.download_directory = Path.home() / "Downloads"
         self._watch_thread: threading.Thread | None = None
+
+    def prepare_index(self) -> bool:
+        """Repair provider-derived fields for archives created before the shared shell.
+
+        Older Discord canonical rows were indexed before DOCX locations and a
+        user-facing origin type were recorded. Keep that compatibility repair in
+        the provider adapter rather than teaching the shared browser Discord
+        naming or metadata rules.
+        """
+        if not self.workspace.database_path.is_file():
+            return False
+        changed = False
+        with sqlite3.connect(self.workspace.database_path) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT c.conversation_id, c.docx_path, c.primary_origin_type,
+                       pm.metadata_json
+                FROM conversations AS c
+                LEFT JOIN conversation_provider_metadata AS pm
+                  ON pm.conversation_id = c.conversation_id
+                 AND pm.provider_id = 'discord'
+                WHERE c.conversation_id LIKE 'discord:%'
+                """
+            ).fetchall()
+            for row in rows:
+                conversation_id = str(row["conversation_id"])
+                channel_id = conversation_id.removeprefix("discord:")
+                docx_path = self.workspace.root_path / f"Discord DM {channel_id}.docx"
+                if not row["docx_path"] and docx_path.is_file() and docx_path.stat().st_size > 0:
+                    connection.execute(
+                        "UPDATE conversations SET docx_path = ? WHERE conversation_id = ?",
+                        (str(docx_path), conversation_id),
+                    )
+                    changed = True
+
+                metadata: dict[str, Any] = {}
+                raw_metadata = row["metadata_json"]
+                if raw_metadata:
+                    try:
+                        parsed = json.loads(raw_metadata)
+                    except (TypeError, json.JSONDecodeError):
+                        parsed = {}
+                    if isinstance(parsed, dict):
+                        metadata = parsed
+                is_dm = str(metadata.get("conversation_type") or "").casefold() == "dm"
+                if is_dm and row["primary_origin_type"] != "Direct Messages":
+                    connection.execute(
+                        """
+                        UPDATE conversations
+                           SET primary_origin_type = ?, primary_origin_id = ?
+                         WHERE conversation_id = ?
+                        """,
+                        ("Direct Messages", channel_id, conversation_id),
+                    )
+                    changed = True
+        return changed
+
+    def resolve_docx_path(self, row: dict[str, Any]) -> Path | None:
+        conversation_id = str(row.get("conversation_id") or "")
+        if not conversation_id.startswith("discord:"):
+            return None
+        channel_id = conversation_id.removeprefix("discord:")
+        return self.workspace.root_path / f"Discord DM {channel_id}.docx"
 
     def archive_new(self) -> None:
         if self._watch_thread is not None and self._watch_thread.is_alive():
