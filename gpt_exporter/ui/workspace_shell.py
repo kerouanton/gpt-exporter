@@ -77,6 +77,8 @@ class ConversationWorkspaceApp(browser.ArchiveBrowser):
         ensure_workspace_index(workspace)
         super().__init__(workspace.database_path, debug=debug)
         self.provider_actions = self.action_factory(self, workspace)
+        if self._prepare_provider_index():
+            self._refresh_all()
         self._refresh_workspace_chrome()
         self.title(APP_NAME)
 
@@ -257,6 +259,7 @@ class ConversationWorkspaceApp(browser.ArchiveBrowser):
         self.workspace_catalog.set_active(workspace.name)
         self.workspace = workspace
         self.provider_actions = self.action_factory(self, workspace)
+        self._prepare_provider_index()
         self.search_var.set("")
         self.origin_var.set(browser.ALL_VALUE)
         self.project_var.set(browser.ALL_VALUE)
@@ -269,6 +272,16 @@ class ConversationWorkspaceApp(browser.ArchiveBrowser):
             f"Workspace active: {workspace.name} — {self._provider_display_name(workspace.provider_id)}"
         )
         return True
+
+    def _prepare_provider_index(self) -> bool:
+        prepare = getattr(self.provider_actions, "prepare_index", None)
+        if not callable(prepare):
+            return False
+        try:
+            return bool(prepare())
+        except (OSError, ValueError, sqlite3.Error) as error:
+            browser.LOGGER.exception("Provider index preparation failed: %s", error)
+            return False
 
     def _resolved_selected_docx_path(self) -> str | None:
         """Return the selected DOCX path, asking the provider only as a fallback.
@@ -335,6 +348,7 @@ class ConversationWorkspaceApp(browser.ArchiveBrowser):
             ensure_workspace_index(self.workspace)
             self.database_path = self.workspace.database_path
             self._validate_database()
+            self._prepare_provider_index()
             self._refresh_all()
         except (OSError, ValueError, sqlite3.Error) as error:
             messagebox.showerror("Refresh Workspace", str(error), parent=self)
@@ -360,6 +374,7 @@ class ConversationWorkspaceApp(browser.ArchiveBrowser):
             )
             self.database_path = self.workspace.database_path
             self._validate_database()
+            self._prepare_provider_index()
             self._refresh_all()
         except (OSError, ValueError, sqlite3.Error) as error:
             browser.LOGGER.exception("Unable to update workspace index: %s", error)
