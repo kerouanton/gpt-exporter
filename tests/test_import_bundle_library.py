@@ -119,6 +119,12 @@ class ImportBundleLibraryTests(unittest.TestCase):
             with lzma.open(archived, "rb") as handle:
                 original = handle.read()
 
+            # A complete archive has its derived DOCX. The second import must
+            # therefore stay out of the export batch when the incoming snapshot
+            # is shorter and the stored JSON is preserved.
+            docx_name = archived.name[:-8] + ".docx"
+            (root / docx_name).write_bytes(b"existing DOCX")
+
             self._write_bundle(bundle, "Short")
             second = import_bundle(bundle, archive_root=root)
             self.assertTrue(second.success)
