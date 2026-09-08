@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import sqlite3
 import tempfile
+from contextlib import closing
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -48,11 +49,12 @@ def _record_docx_path(database_path: Path, conversation_id: str, docx_path: Path
     """Persist the provider-derived DOCX location after generic indexing."""
     if not docx_path.is_file() or docx_path.stat().st_size == 0:
         return
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection:
         connection.execute(
             "UPDATE conversations SET docx_path = ? WHERE conversation_id = ?",
             (str(docx_path), conversation_id),
         )
+        connection.commit()
 
 
 def archive_collector_export(
