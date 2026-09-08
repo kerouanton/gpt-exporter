@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 import sqlite3
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from gpt_exporter.core.serialization import (
@@ -79,6 +79,14 @@ def archive_collector_export(
     provider = DiscordProvider()
     conversation = provider.normalize(source_path)
     channel_id = _channel_id(conversation.conversation_id)
+    conversation = replace(
+        conversation,
+        metadata={
+            **dict(conversation.metadata),
+            "origin_type": "Direct Messages",
+            "origin_id": channel_id,
+        },
+    )
     raw_path = raw_dir / f"discord_dm_{channel_id}.json"
     canonical_path = downloads_dir / f"discord_dm_{channel_id}.json.xz"
     docx_path = root / f"Discord DM {channel_id}.docx"
