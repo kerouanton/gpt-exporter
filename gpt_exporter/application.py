@@ -8,8 +8,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 from gpt_exporter.core import ProviderRegistry
-from gpt_exporter.ui.provider_selector import choose_provider
-from gpt_exporter.ui.workspace_selector import choose_workspace
 from gpt_exporter.version import APP_NAME, display_version
 from gpt_exporter.workspaces import ConversationWorkspace, WorkspaceCatalog
 
@@ -21,11 +19,7 @@ def _provider_package_missing(error: ModuleNotFoundError, package: str) -> bool:
 
 
 def build_provider_registry() -> ProviderRegistry:
-    """Register concrete providers at the application boundary.
-
-    Concrete imports live here rather than in ``gpt_exporter.core`` so the core
-    remains usable when any provider package is absent.
-    """
+    """Register concrete providers only at the application composition boundary."""
     registry = ProviderRegistry()
 
     try:
@@ -112,7 +106,7 @@ def _launch_discord(arguments: list[str]) -> int:
 
 
 def build_provider_launchers() -> dict[str, ProviderLauncher]:
-    """Return lazy launchers for provider UIs installed with this application."""
+    """Compatibility launchers for explicit legacy ``--provider`` execution."""
     launchers: dict[str, ProviderLauncher] = {}
 
     try:
@@ -135,7 +129,7 @@ def build_provider_launchers() -> dict[str, ProviderLauncher]:
 
 
 def workspace_provider_arguments(workspace: ConversationWorkspace) -> list[str]:
-    """Translate a provider-neutral workspace into provider-owned CLI inputs."""
+    """Translate a provider-neutral workspace into historical provider CLI inputs."""
     if workspace.provider_id == "gpt":
         return ["--database", str(workspace.database_path)]
     if workspace.provider_id == "discord":
@@ -143,9 +137,22 @@ def workspace_provider_arguments(workspace: ConversationWorkspace) -> list[str]:
     return []
 
 
+def build_workspace_actions(app, workspace: ConversationWorkspace):
+    """Build provider commands for the common workspace shell, lazily."""
+    if workspace.provider_id == "gpt":
+        from gpt_exporter.providers.gpt.ui.workspace_actions import GPTWorkspaceActions
+
+        return GPTWorkspaceActions(app, workspace)
+    if workspace.provider_id == "discord":
+        from gpt_exporter.providers.discord.ui.workspace_actions import DiscordWorkspaceActions
+
+        return DiscordWorkspaceActions(app, workspace)
+    raise ValueError(f"No shared-shell actions are registered for provider: {workspace.provider_id}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Choose and launch a named conversation workspace"
+        description="Open the shared conversation browser on the active workspace"
     )
     parser.add_argument(
         "--version",
@@ -155,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--workspace",
-        help="Launch a named workspace directly instead of showing the selector.",
+        help="Open a named workspace instead of the remembered active workspace.",
     )
     parser.add_argument(
         "--workspace-catalog",
@@ -164,7 +171,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--provider",
-        help="Compatibility option: launch a provider directly by provider id.",
+        help="Compatibility option: launch the historical provider-specific GUI directly.",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Enable verbose browser logging.",
     )
     return parser
 
@@ -186,57 +199,103 @@ def _workspace_for_provider(
     )
 
 
+def _first_available_workspace(
+    catalog: WorkspaceCatalog,
+    registry: ProviderRegistry,
+) -> ConversationWorkspace:
+    provider_ids = set(registry.provider_ids())
+    enabled = tuple(
+        item
+        for item in catalog.list(enabled_only=True)
+        if item.provider_id in provider_ids
+    )
+    if not enabled:
+        raise RuntimeError("No enabled conversation workspace is available.")
+    preferred = next((item for item in enabled if item.name == "ChatGPT"), None)
+    return preferred or enabled[0]
+
+
+def _resolve_workspace(
+    catalog: WorkspaceCatalog,
+    registry: ProviderRegistry,
+    requested_name: str | None,
+) -> ConversationWorkspace:
+    if requested_name:
+        workspace = catalog.get(requested_name)
+    else:
+        workspace = catalog.get_active() or _first_available_workspace(catalog, registry)
+
+    if not workspace.enabled:
+        raise ValueError(f"Workspace '{workspace.name}' is disabled")
+    if workspace.provider_id not in set(registry.provider_ids()):
+        raise ValueError(
+            f"Workspace '{workspace.name}' uses unavailable provider: {workspace.provider_id}"
+        )
+    return workspace
+
+
+def _launch_shared_shell(
+    *,
+    catalog: WorkspaceCatalog,
+    registry: ProviderRegistry,
+    workspace: ConversationWorkspace,
+    debug: bool,
+) -> int:
+    import sqlite3
+    import tkinter as tk
+    from tkinter import messagebox
+
+    from gpt_exporter.ui.browser import archive_browser as browser
+    from gpt_exporter.ui.workspace_shell import ConversationWorkspaceApp
+
+    browser.configure_logging(debug)
+    try:
+        app = ConversationWorkspaceApp(
+            catalog=catalog,
+            registry=registry,
+            workspace=workspace,
+            action_factory=build_workspace_actions,
+            debug=debug,
+        )
+    except (OSError, ValueError, sqlite3.Error) as error:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(APP_NAME, str(error), parent=root)
+        root.destroy()
+        return 1
+
+    catalog.set_active(workspace.name)
+    app.mainloop()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
     arguments, provider_arguments = build_parser().parse_known_args(raw_arguments)
     registry = build_provider_registry()
-    launchers = build_provider_launchers()
-
-    available_provider_ids = {
-        descriptor.provider_id
-        for descriptor in registry.descriptors()
-        if descriptor.provider_id in launchers
-    }
-    if not available_provider_ids:
-        raise RuntimeError("No conversation providers with a GUI are installed.")
-
     catalog = build_workspace_catalog(registry, path=arguments.workspace_catalog)
-    workspace: ConversationWorkspace | None = None
 
-    if arguments.workspace:
-        workspace = catalog.get(arguments.workspace)
-        if not workspace.enabled:
-            raise ValueError(f"Workspace '{workspace.name}' is disabled")
-        if workspace.provider_id not in available_provider_ids:
-            raise ValueError(
-                f"Workspace '{workspace.name}' uses unavailable provider: {workspace.provider_id}"
-            )
-    elif arguments.provider:
+    # Keep the old provider GUIs reachable for scripts/tests during migration.
+    # Normal interactive startup no longer opens a provider/workspace chooser.
+    if arguments.provider:
+        launchers = build_provider_launchers()
         provider_id = arguments.provider
-        if provider_id not in available_provider_ids:
+        if provider_id not in launchers:
             raise ValueError(f"Unknown or unavailable provider: {provider_id}")
         workspace = _workspace_for_provider(catalog, provider_id)
-        if workspace is None:
-            # Preserve the old direct-provider behavior if a future provider has
-            # no seeded/default workspace yet.
-            return int(launchers[provider_id](provider_arguments))
-    else:
-        workspaces = tuple(
-            workspace
-            for workspace in catalog.list(enabled_only=True)
-            if workspace.provider_id in available_provider_ids
-        )
-        selected_name = choose_workspace(
-            workspaces,
-            default_workspace_name=(catalog.get_active_name() or "ChatGPT"),
-        )
-        if selected_name is None:
-            return 0
-        workspace = catalog.get(selected_name)
+        launch_arguments = list(provider_arguments)
+        if workspace is not None:
+            catalog.set_active(workspace.name)
+            launch_arguments = [*workspace_provider_arguments(workspace), *launch_arguments]
+        return int(launchers[provider_id](launch_arguments))
 
-    catalog.set_active(workspace.name)
-    launch_arguments = [*workspace_provider_arguments(workspace), *provider_arguments]
-    return int(launchers[workspace.provider_id](launch_arguments))
+    workspace = _resolve_workspace(catalog, registry, arguments.workspace)
+    return _launch_shared_shell(
+        catalog=catalog,
+        registry=registry,
+        workspace=workspace,
+        debug=arguments.debug,
+    )
 
 
 if __name__ == "__main__":
