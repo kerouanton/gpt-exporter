@@ -90,8 +90,10 @@ class DiscordWorkspaceActions:
                             old.unlink(missing_ok=True)
                         changed = True
 
-                docx_path = new_docx if new_docx.is_file() else Path(row["docx_path"] or "")
-                source_path = new_canonical if new_canonical.is_file() else Path(row["source_json_path"] or "")
+                recorded_docx = str(row["docx_path"] or "").strip()
+                recorded_source = str(row["source_json_path"] or "").strip()
+                docx_value = str(new_docx) if new_docx.is_file() else (recorded_docx or None)
+                source_value = str(new_canonical) if new_canonical.is_file() else recorded_source
                 connection.execute(
                     """
                     UPDATE conversations
@@ -101,8 +103,8 @@ class DiscordWorkspaceActions:
                     """,
                     (
                         human_title,
-                        str(docx_path) if str(docx_path) else None,
-                        str(source_path) if str(source_path) else row["source_json_path"],
+                        docx_value,
+                        source_value,
                         "Direct Messages",
                         channel_id,
                         conversation_id,
@@ -111,17 +113,18 @@ class DiscordWorkspaceActions:
                 changed = changed or (
                     human_title != row["title"]
                     or row["primary_origin_type"] != "Direct Messages"
-                    or (new_docx.is_file() and str(row["docx_path"] or "") != str(new_docx))
-                    or (new_canonical.is_file() and str(row["source_json_path"] or "") != str(new_canonical))
+                    or (new_docx.is_file() and recorded_docx != str(new_docx))
+                    or (new_canonical.is_file() and recorded_source != str(new_canonical))
                 )
 
-                try:
-                    connection.execute(
-                        "UPDATE canonical_conversation_sources SET source_path = ? WHERE conversation_id = ?",
-                        (str(new_canonical), conversation_id),
-                    )
-                except sqlite3.OperationalError:
-                    pass
+                if new_canonical.is_file():
+                    try:
+                        connection.execute(
+                            "UPDATE canonical_conversation_sources SET source_path = ? WHERE conversation_id = ?",
+                            (str(new_canonical), conversation_id),
+                        )
+                    except sqlite3.OperationalError:
+                        pass
             connection.commit()
         return changed
 
