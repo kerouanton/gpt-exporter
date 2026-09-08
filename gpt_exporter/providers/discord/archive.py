@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +42,17 @@ def default_archive_root() -> Path:
 def _channel_id(conversation_id: str) -> str:
     prefix = "discord:"
     return conversation_id[len(prefix):] if conversation_id.startswith(prefix) else conversation_id
+
+
+def _record_docx_path(database_path: Path, conversation_id: str, docx_path: Path) -> None:
+    """Persist the provider-derived DOCX location after generic indexing."""
+    if not docx_path.is_file() or docx_path.stat().st_size == 0:
+        return
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "UPDATE conversations SET docx_path = ? WHERE conversation_id = ?",
+            (str(docx_path), conversation_id),
+        )
 
 
 def archive_collector_export(
@@ -128,6 +140,7 @@ def archive_collector_export(
         downloads_dir=downloads_dir,
         database_path=database_path,
     )
+    _record_docx_path(database_path, conversation.conversation_id, docx_path)
 
     return DiscordArchiveResult(
         archive_root=root,
