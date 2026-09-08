@@ -35,6 +35,14 @@ def ensure_canonical_source_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def _origin_from_metadata(conversation: CanonicalConversation) -> tuple[str, str | None]:
+    metadata = dict(conversation.metadata)
+    origin_type = str(metadata.get("origin_type") or "standard").strip() or "standard"
+    origin_id_value = metadata.get("origin_id")
+    origin_id = str(origin_id_value).strip() if origin_id_value is not None else None
+    return origin_type, (origin_id or None)
+
+
 def index_canonical_conversation(
     connection: sqlite3.Connection,
     conversation: CanonicalConversation,
@@ -57,6 +65,7 @@ def index_canonical_conversation(
 
     indexed_at = now_iso()
     title = conversation.title.strip() or "Untitled conversation"
+    origin_type, origin_id = _origin_from_metadata(conversation)
 
     with connection:
         connection.execute(
@@ -65,15 +74,17 @@ def index_canonical_conversation(
                 conversation_id, title, created_at, updated_at,
                 source_json_path, source_mtime_ns, docx_path, indexed_at,
                 primary_origin_type, primary_origin_id
-            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'standard', NULL)
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
             ON CONFLICT(conversation_id) DO UPDATE SET
                 title = excluded.title,
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at,
                 source_json_path = excluded.source_json_path,
                 source_mtime_ns = excluded.source_mtime_ns,
-                docx_path = excluded.docx_path,
-                indexed_at = excluded.indexed_at
+                docx_path = COALESCE(conversations.docx_path, excluded.docx_path),
+                indexed_at = excluded.indexed_at,
+                primary_origin_type = excluded.primary_origin_type,
+                primary_origin_id = excluded.primary_origin_id
             """,
             (
                 conversation.conversation_id,
@@ -83,6 +94,8 @@ def index_canonical_conversation(
                 str(source_path),
                 source_mtime_ns,
                 indexed_at,
+                origin_type,
+                origin_id,
             ),
         )
 
