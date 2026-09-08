@@ -48,7 +48,7 @@ class ProviderSelectionTests(unittest.TestCase):
     def test_installed_registry_contains_chatgpt_and_discord(self) -> None:
         self.assertEqual(build_provider_registry().provider_ids(), ("gpt", "discord"))
 
-    def test_direct_provider_selection_skips_workspace_dialog_and_launches_registered_ui(self) -> None:
+    def test_direct_provider_selection_launches_legacy_provider_ui_for_compatibility(self) -> None:
         registry = ProviderRegistry([_SyntheticProvider()])
         launcher = mock.Mock(return_value=23)
         catalog = mock.Mock()
@@ -58,33 +58,51 @@ class ProviderSelectionTests(unittest.TestCase):
             mock.patch("gpt_exporter.application.build_provider_registry", return_value=registry),
             mock.patch("gpt_exporter.application.build_provider_launchers", return_value={"synthetic": launcher}),
             mock.patch("gpt_exporter.application.build_workspace_catalog", return_value=catalog),
-            mock.patch("gpt_exporter.application.choose_workspace") as chooser,
         ):
             result = application_main(["--provider", "synthetic", "--provider-specific"])
         self.assertEqual(result, 23)
-        chooser.assert_not_called()
         launcher.assert_called_once_with(["--provider-specific"])
 
-    def test_interactive_selection_uses_named_workspace(self) -> None:
+    def test_normal_startup_opens_remembered_workspace_in_shared_shell(self) -> None:
         registry = ProviderRegistry([_SyntheticProvider()])
-        launcher = mock.Mock(return_value=0)
         workspace = ConversationWorkspace("Synthetic Main", "synthetic", Path("C:/synthetic"))
         catalog = mock.Mock()
-        catalog.list.return_value = (workspace,)
-        catalog.get_active_name.return_value = "Synthetic Main"
-        catalog.get.return_value = workspace
+        catalog.get_active.return_value = workspace
+        shared_shell = mock.Mock(return_value=17)
         with (
             mock.patch("gpt_exporter.application.build_provider_registry", return_value=registry),
-            mock.patch("gpt_exporter.application.build_provider_launchers", return_value={"synthetic": launcher}),
             mock.patch("gpt_exporter.application.build_workspace_catalog", return_value=catalog),
-            mock.patch("gpt_exporter.application.choose_workspace", return_value="Synthetic Main") as chooser,
+            mock.patch("gpt_exporter.application._launch_shared_shell", shared_shell),
         ):
             result = application_main([])
+        self.assertEqual(result, 17)
+        shared_shell.assert_called_once_with(
+            catalog=catalog,
+            registry=registry,
+            workspace=workspace,
+            debug=False,
+        )
+
+    def test_named_workspace_overrides_remembered_workspace_without_startup_chooser(self) -> None:
+        registry = ProviderRegistry([_SyntheticProvider()])
+        requested = ConversationWorkspace("Requested", "synthetic", Path("C:/requested"))
+        catalog = mock.Mock()
+        catalog.get.return_value = requested
+        shared_shell = mock.Mock(return_value=0)
+        with (
+            mock.patch("gpt_exporter.application.build_provider_registry", return_value=registry),
+            mock.patch("gpt_exporter.application.build_workspace_catalog", return_value=catalog),
+            mock.patch("gpt_exporter.application._launch_shared_shell", shared_shell),
+        ):
+            result = application_main(["--workspace", "Requested"])
         self.assertEqual(result, 0)
-        selected = chooser.call_args.args[0]
-        self.assertEqual(tuple(item.name for item in selected), ("Synthetic Main",))
-        catalog.set_active.assert_called_once_with("Synthetic Main")
-        launcher.assert_called_once_with([])
+        catalog.get.assert_called_once_with("Requested")
+        shared_shell.assert_called_once_with(
+            catalog=catalog,
+            registry=registry,
+            workspace=requested,
+            debug=False,
+        )
 
     def test_importing_application_does_not_eagerly_load_concrete_providers(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
