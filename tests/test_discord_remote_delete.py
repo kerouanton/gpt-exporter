@@ -179,6 +179,29 @@ class DiscordRemoteDeleteTests(unittest.TestCase):
             self.assertIn('const CANDIDATE_IDS = ["100"]', payload)
             self.assertNotIn("__CANDIDATE_IDS_JSON__", payload)
 
+    def test_execute_payload_uses_actions_inside_exact_message_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            canonical = self._canonical(root, ("100",))
+            dry_run = self._dry_run(root, ("100",), {"100"})
+            actions = self._actions(root)
+            plan = actions.prepare_remote_deletion(
+                {
+                    "conversation_id": "discord:123456",
+                    "title": "@soundy",
+                    "source_json_path": str(canonical),
+                },
+                dry_run,
+            )
+
+            self.assertTrue(actions.copy_remote_delete_execute(plan))
+            payload = actions.app.clipboard
+            self.assertIn('root.querySelector(\'[role="group"][aria-label="Message Actions"]\')', payload)
+            self.assertIn('normalize(element.getAttribute("aria-label")) === "more"', payload)
+            self.assertIn('normalize(element.textContent) === "delete message"', payload)
+            self.assertIn('!document.getElementById(targetElementId)', payload)
+            self.assertNotIn('root.querySelector(\'[aria-label="Message Actions"] [aria-label="Delete"]', payload)
+
 
 if __name__ == "__main__":
     unittest.main()
