@@ -118,6 +118,62 @@ def _forward_progress(buffer: io.StringIO, progress: ProgressCallback | None) ->
             progress(line)
 
 
+def _avatar_heading(paragraph) -> str | None:
+    """Return the canonical author heading encoded in an avatar drawing, if any."""
+    for element in paragraph._p.iter():
+        if not str(element.tag).endswith("}docPr"):
+            continue
+        description = str(element.get("descr") or "")
+        if description.startswith(_AUTHOR_AVATAR_PREFIX):
+            heading = description[len(_AUTHOR_AVATAR_PREFIX):].strip()
+            return heading or None
+    return None
+
+
+def _merge_avatar_author_paragraphs(output_path: Path) -> None:
+    """Place a canonical chat avatar and its immediately following author on one line."""
+    from docx import Document
+
+    document = Document(output_path)
+    changed = False
+    index = 0
+
+    while index < len(document.paragraphs):
+        paragraphs = document.paragraphs
+        avatar_paragraph = paragraphs[index]
+        heading = _avatar_heading(avatar_paragraph)
+        if heading is None:
+            index += 1
+            continue
+
+        author_index = None
+        for candidate_index in range(index + 1, len(paragraphs)):
+            candidate = paragraphs[candidate_index]
+            text = candidate.text.strip()
+            if not text:
+                continue
+            if text == heading:
+                visible_runs = [run for run in candidate.runs if run.text.strip()]
+                if visible_runs and all(run.bold for run in visible_runs):
+                    author_index = candidate_index
+            break
+
+        if author_index is None:
+            index += 1
+            continue
+
+        author_paragraph = paragraphs[author_index]
+        avatar_paragraph.add_run(" ")
+        for run in list(author_paragraph.runs):
+            avatar_paragraph._p.append(run._r)
+        author_paragraph._element.getparent().remove(author_paragraph._element)
+        changed = True
+        index += 1
+
+    if changed:
+        document.save(output_path)
+
+
 def _bold_time_run(paragraph):
     for run in paragraph.runs:
         text = run.text.strip()
@@ -215,6 +271,7 @@ def export_docx(
                 output_path=output_path,
                 document_title=document_title,
             )
+        _merge_avatar_author_paragraphs(output_path)
         _apply_chat_metadata_styles(output_path)
     finally:
         if cache_clear is not None:
