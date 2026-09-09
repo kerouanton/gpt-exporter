@@ -30,7 +30,7 @@ class RemoteDeletionActions(Protocol):
     service_label: str
     remote_delete_label: str
 
-    def open_service(self) -> None: ...
+    def open_service(self, row: dict[str, Any] | None = None) -> None: ...
     def snapshot_remote_delete_dry_runs(self): ...
     def copy_remote_delete_dry_run(self, row: dict[str, Any]) -> bool: ...
     def find_remote_delete_dry_run(self, snapshot, row: dict[str, Any]) -> Path | None: ...
@@ -59,15 +59,19 @@ class RemoteDeletionDialog(tk.Toplevel):
         self.snapshot = None
         self.plan: RemoteDeletionPlan | None = None
         self.after_id: str | None = None
+        self.deletion_confirmed = False
 
         title = str(row.get("title") or "Conversation")
         self.title(f"Remote Deletion — {title}")
-        self.geometry("780x500")
-        self.minsize(680, 430)
+        self.geometry("780x590")
+        self.minsize(680, 500)
         self.transient(parent)
 
         self.status_var = tk.StringVar(value="Preparing dry run…")
         self.summary_var = tk.StringVar(value="No dry-run result yet.")
+        self.delete_status_var = tk.StringVar(
+            value="Deletion script is locked until archive coverage is verified."
+        )
 
         body = ttk.Frame(self, padding=14)
         body.pack(fill="both", expand=True)
@@ -82,9 +86,11 @@ class RemoteDeletionDialog(tk.Toplevel):
             "1. Open the archived conversation on the service",
             f"Open the same conversation in {actions.service_label}. The local archive is never deleted by this workflow.",
         )
-        ttk.Button(body, text=f"Open {actions.service_label}", command=actions.open_service).pack(
-            anchor="w", pady=(0, 10)
-        )
+        ttk.Button(
+            body,
+            text=f"Open {actions.service_label}",
+            command=lambda: actions.open_service(self.row),
+        ).pack(anchor="w", pady=(0, 10))
 
         self._step(
             body,
@@ -106,16 +112,28 @@ class RemoteDeletionDialog(tk.Toplevel):
             anchor="w", fill="x", pady=(0, 12)
         )
 
-        buttons = ttk.Frame(body)
-        buttons.pack(fill="x", side="bottom")
-        ttk.Button(buttons, text="Close", command=self.destroy).pack(side="right")
+        self._step(
+            body,
+            "4. Confirm Remote Deletion",
+            "The deletion script is available only after archive coverage is complete. "
+            "It is pinned to this conversation, the current account, and the exact dry-run candidate set.",
+        )
+        delete_row = ttk.Frame(body)
+        delete_row.pack(fill="x", pady=(0, 10))
+        ttk.Label(delete_row, textvariable=self.delete_status_var, wraplength=560).pack(
+            side="left", fill="x", expand=True
+        )
         self.confirm_button = ttk.Button(
-            buttons,
-            text="Confirm Remote Deletion…",
+            delete_row,
+            text="Copy Deletion Script",
             command=self._confirm,
             state="disabled",
         )
-        self.confirm_button.pack(side="right", padx=(0, 8))
+        self.confirm_button.pack(side="right")
+
+        buttons = ttk.Frame(body)
+        buttons.pack(fill="x", side="bottom")
+        ttk.Button(buttons, text="Close", command=self.destroy).pack(side="right")
 
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.bind("<Destroy>", self._destroyed, add="+")
@@ -166,14 +184,16 @@ class RemoteDeletionDialog(tk.Toplevel):
             return
 
         self.plan = plan
+        self.deletion_confirmed = False
         remote = len(plan.remote_candidate_ids)
         archived = len(plan.archived_candidate_ids)
         missing = len(plan.missing_candidate_ids)
         self.status_var.set(f"Dry run validated: {Path(path).name}")
         self.summary_var.set(
-            f"Remote deletion candidates: {remote}\n"
-            f"Already archived locally: {archived}\n"
-            f"Not found in local archive: {missing}\n\n"
+            f"Remote candidates:        {remote}\n"
+            f"Archived locally:         {archived}\n"
+            f"Not archived locally:     {missing}\n"
+            f"Status: {'SAFE' if plan.safe_to_execute else 'BLOCKED'}\n\n"
             + (
                 "Safe to continue. The local archive will be preserved."
                 if plan.safe_to_execute
@@ -185,23 +205,32 @@ class RemoteDeletionDialog(tk.Toplevel):
                 )
             )
         )
-        self.confirm_button.configure(state="normal" if plan.safe_to_execute else "disabled")
+        if plan.safe_to_execute:
+            self.delete_status_var.set(
+                f"Ready to copy the deletion script for {remote} verified message(s)."
+            )
+            self.confirm_button.configure(text="Copy Deletion Script", state="normal")
+        else:
+            self.delete_status_var.set("Deletion script is blocked by archive coverage checks.")
+            self.confirm_button.configure(text="Copy Deletion Script", state="disabled")
 
     def _confirm(self) -> None:
         plan = self.plan
         if plan is None or not plan.safe_to_execute:
             return
         count = len(plan.remote_candidate_ids)
-        if not messagebox.askyesno(
-            "Confirm Remote Deletion",
-            f"Delete {count} remote message(s) from {plan.conversation_title}?\n\n"
-            "Every deletion candidate was verified as already archived locally.\n"
-            "The local archive and DOCX will not be deleted.\n\n"
-            "Continue?",
-            parent=self,
-            icon="warning",
-        ):
-            return
+        if not self.deletion_confirmed:
+            if not messagebox.askyesno(
+                "Confirm Remote Deletion",
+                f"Delete {count} remote message(s) from {plan.conversation_title}?\n\n"
+                "Every deletion candidate was verified as already archived locally.\n"
+                "The local archive and DOCX will not be deleted.\n\n"
+                "Continue?",
+                parent=self,
+                icon="warning",
+            ):
+                return
+            self.deletion_confirmed = True
         try:
             copied = bool(self.actions.copy_remote_delete_execute(plan))
         except Exception as error:
@@ -209,14 +238,9 @@ class RemoteDeletionDialog(tk.Toplevel):
             return
         if not copied:
             return
-        self.confirm_button.configure(state="disabled")
-        self.status_var.set(
-            "Deletion payload copied. Paste and run it in the SAME conversation's DevTools console."
-        )
-        self.summary_var.set(
-            f"Authorized candidates: {count}\n\n"
-            "The destructive payload is pinned to this archived conversation and this exact dry-run candidate set. "
-            "It will refuse to run in another conversation."
+        self.confirm_button.configure(text="Copy Deletion Script Again", state="normal")
+        self.delete_status_var.set(
+            "Deletion script copied. Paste and run it in the SAME conversation's DevTools console."
         )
 
     def _destroyed(self, event: tk.Event) -> None:
