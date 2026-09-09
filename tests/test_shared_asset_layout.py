@@ -8,6 +8,7 @@ from pathlib import Path
 
 from gpt_exporter.assets import asset_bucket
 from gpt_exporter.providers.gpt.assets import migrate_gpt_asset_layout
+from gpt_exporter.providers.gpt.importer import _augment_current_batch_with_missing_docx
 
 
 class SharedAssetBucketTests(unittest.TestCase):
@@ -90,6 +91,7 @@ class GptAssetLayoutMigrationTests(unittest.TestCase):
 
             self.assertEqual(result.moved, 3)
             self.assertEqual(result.unchanged, 1)
+            self.assertEqual(result.affected_conversations, ("conversation.json.xz",))
             self.assertTrue((root / "assets" / "attachment" / f"{ids['attachment']}__attachment.bin").is_file())
             self.assertTrue((root / "assets" / "dictation" / f"{ids['dictation']}__dictation.bin").is_file())
             self.assertTrue((root / "assets" / "image" / f"{ids['image']}__image.bin").is_file())
@@ -137,6 +139,29 @@ class GptAssetLayoutMigrationTests(unittest.TestCase):
             self.assertEqual(result.reused, 1)
             self.assertFalse(source.exists())
             self.assertEqual(destination.read_bytes(), b"same")
+
+    def test_existing_docx_is_forced_back_into_batch_after_asset_move(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            downloads = root / "downloads"
+            reports = root / "reports"
+            downloads.mkdir(parents=True)
+            reports.mkdir(parents=True)
+            self._write_xz_json(downloads / "conversation.json.xz", {"mapping": {}})
+            (root / "conversation.docx").write_bytes(b"old-docx")
+            (reports / "current-batch.json").write_text(
+                json.dumps({"conversation_files": []}),
+                encoding="utf-8",
+            )
+
+            scheduled = _augment_current_batch_with_missing_docx(
+                root,
+                force_conversations=("conversation.json.xz",),
+            )
+
+            self.assertEqual(scheduled, ("conversation.json.xz",))
+            batch = json.loads((reports / "current-batch.json").read_text(encoding="utf-8"))
+            self.assertEqual(batch["conversation_files"], ["conversation.json.xz"])
 
 
 if __name__ == "__main__":

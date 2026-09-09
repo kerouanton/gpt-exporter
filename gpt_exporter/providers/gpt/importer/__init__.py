@@ -51,8 +51,12 @@ def _docx_name_for_conversation(path: Path) -> str:
     return path.with_suffix(".docx").name
 
 
-def _augment_current_batch_with_missing_docx(archive_root: Path) -> tuple[str, ...]:
-    """Add archived conversations with missing/empty DOCX outputs to the export batch."""
+def _augment_current_batch_with_missing_docx(
+    archive_root: Path,
+    *,
+    force_conversations: tuple[str, ...] = (),
+) -> tuple[str, ...]:
+    """Schedule missing DOCX plus conversations whose archived asset paths changed."""
 
     downloads = archive_root / "downloads"
     reports = archive_root / "reports"
@@ -69,13 +73,18 @@ def _augment_current_batch_with_missing_docx(archive_root: Path) -> tuple[str, .
             if path.name != "download-index.json"
         )
 
-    missing = []
+    forced = set(force_conversations)
+    scheduled = []
     for conversation in conversations:
         docx = archive_root / _docx_name_for_conversation(conversation)
-        if not docx.is_file() or docx.stat().st_size == 0:
-            missing.append(conversation.name)
+        if (
+            conversation.name in forced
+            or not docx.is_file()
+            or docx.stat().st_size == 0
+        ):
+            scheduled.append(conversation.name)
 
-    if not missing:
+    if not scheduled:
         return ()
 
     if batch_file.is_file():
@@ -91,7 +100,7 @@ def _augment_current_batch_with_missing_docx(archive_root: Path) -> tuple[str, .
 
     merged: list[str] = []
     seen: set[str] = set()
-    for name in [*existing, *missing]:
+    for name in [*existing, *scheduled]:
         if isinstance(name, str) and name not in seen:
             seen.add(name)
             merged.append(name)
@@ -104,7 +113,8 @@ def _augment_current_batch_with_missing_docx(archive_root: Path) -> tuple[str, .
             encoding="utf-8",
         )
 
-    return tuple(name for name in missing if name not in set(existing))
+    existing_set = {name for name in existing if isinstance(name, str)}
+    return tuple(name for name in scheduled if name not in existing_set)
 
 
 def import_bundle(
@@ -131,11 +141,14 @@ def import_bundle(
                 f"unchanged={migration.unchanged}, "
                 f"missing={migration.missing}"
             )
-            regenerated = _augment_current_batch_with_missing_docx(resolved_root)
+            regenerated = _augment_current_batch_with_missing_docx(
+                resolved_root,
+                force_conversations=migration.affected_conversations,
+            )
             if regenerated:
                 print()
                 print(
-                    "Missing DOCX exports scheduled for regeneration: "
+                    "DOCX exports scheduled for regeneration: "
                     f"{len(regenerated)}"
                 )
                 for name in regenerated:
