@@ -26,7 +26,7 @@ class MarkdownExportResult:
     cleaned_marker_types: dict[str, int]
 
 
-_URL_RE = re.compile(r"(?<![<(])https?://[^\s<>()]+", re.IGNORECASE)
+_URL_RE = re.compile(r"(?<!<)https?://[^\s<>()]+", re.IGNORECASE)
 _EMAIL_RE = re.compile(
     r"(?<![\w@])([A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![\w@])"
 )
@@ -61,11 +61,25 @@ def _is_author_avatar(asset: CanonicalAsset) -> bool:
 
 def _render_asset(lines: list[str], asset: CanonicalAsset) -> None:
     label = _escape_label(asset.name or asset.asset_id or "Attachment")
-    if asset.source_ref:
-        if _is_local_image(asset):
-            lines.append(f"![{label}]({asset.source_ref})")
-        else:
-            lines.append(f"- [{label}]({asset.source_ref})")
+    source = str(asset.source_ref or "").strip()
+    archived = bool(asset.metadata.get("local_archive_asset"))
+    archive_path = str(asset.metadata.get("archive_path") or "").strip()
+    kind = _asset_kind(asset)
+
+    if source and _is_local_image(asset):
+        lines.append(f"![{label}]({source})")
+        return
+
+    if archived and source and kind in {"attachment", "linked-media"}:
+        lines.append(f"📎 **Archived attachment:** [{label}]({source})")
+        if asset.asset_id:
+            lines.append(f"  - Asset ID: `{asset.asset_id}`")
+        if archive_path:
+            lines.append(f"  - Archive path: `{archive_path}`")
+        return
+
+    if source:
+        lines.append(f"- [{label}]({source})")
     else:
         lines.append(f"- {label}")
 
@@ -124,6 +138,11 @@ def _preserve_line_breaks(text: str) -> str:
 
 def _autolink_segment(segment: str) -> str:
     def url_replace(match: re.Match[str]) -> str:
+        start = match.start()
+        # Existing Markdown targets look like ](https://...). A naturally
+        # parenthesized bare URL, (https://...), must still become clickable.
+        if start >= 2 and segment[start - 2:start] == "](":
+            return match.group(0)
         url = match.group(0)
         trailing = ""
         while url and url[-1] in ".,;:!?":
@@ -137,7 +156,9 @@ def _autolink_segment(segment: str) -> str:
         email = match.group(1)
         start = match.start(1)
         prefix = linked[max(0, start - 8):start].casefold()
-        if prefix.endswith("mailto:") or (start > 0 and linked[start - 1] in "<("):
+        if prefix.endswith("mailto:") or (start > 0 and linked[start - 1] == "<"):
+            return email
+        if start >= 2 and linked[start - 2:start] == "](":
             return email
         return f"<{email}>"
 
@@ -260,6 +281,28 @@ def _append_preview(lines: list[str], preview: dict[str, Any], asset: CanonicalA
         lines.append("")
 
 
+def _append_timed_body(lines: list[str], time_text: str, body: str) -> None:
+    """Render a compact chat line while preserving fenced-code block structure."""
+    if not time_text:
+        if body:
+            lines.extend([body, ""])
+        return
+    if not body:
+        lines.extend([f"**{time_text}**", ""])
+        return
+
+    stripped = body.lstrip()
+    if stripped.startswith("```") or stripped.startswith("~~~"):
+        lines.extend([f"**{time_text}**", "", body, ""])
+        return
+
+    body_lines = body.split("\n")
+    first = body_lines[0]
+    lines.append(f"**{time_text}**  {first}")
+    lines.extend(body_lines[1:])
+    lines.append("")
+
+
 def _render_standard_markdown(
     conversation: CanonicalConversation,
     *,
@@ -348,20 +391,22 @@ def _render_chat_markdown(
             label = _escape_label(f"Author avatar: {heading}")
             lines.extend([f"![{label}]({avatar.source_ref})", ""])
 
+        if new_author_group:
+            lines.extend([f"**{heading}**", ""])
+
         time_text = _time_label(message.created_at) if include_timestamps else ""
         if metadata.get("edited"):
             time_text = f"{time_text} · edited" if time_text else "edited"
-        if new_author_group:
-            header = f"**{heading}**"
-            if time_text:
-                header += f"  *{time_text}*"
-            lines.extend([header, ""])
-        elif time_text:
-            lines.extend([f"*{time_text}*", ""])
 
-        _append_reply(lines, metadata)
-        if body:
-            lines.extend([body, ""])
+        has_reply = isinstance(metadata.get("reply"), dict)
+        if has_reply:
+            if time_text:
+                lines.extend([f"**{time_text}**", ""])
+            _append_reply(lines, metadata)
+            if body:
+                lines.extend([body, ""])
+        else:
+            _append_timed_body(lines, time_text or "", body)
 
         emitted_preview_asset_ids: set[int] = set()
         preview_assets = _preview_asset_map(content_assets)
