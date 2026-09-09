@@ -291,6 +291,19 @@ def _participant_records(conversation) -> tuple[dict, ...]:
             target.update({key: value for key, value in current.items() if value is not None})
             target["is_self"] = True
 
+    # Discord's browser title is normally the peer handle (for example
+    # ``@soundy``).  Older collector payloads did not store that username in
+    # ``participants``; use the already-humanized DM title as a conservative
+    # fallback while preserving the separately collected display name.
+    title = str(conversation.title or "").strip()
+    fallback_peer_username = title[1:].strip() if title.startswith("@") else ""
+    if fallback_peer_username and " " not in fallback_peer_username:
+        for record in records:
+            if record.get("is_self") is True or str(record.get("username") or "").strip():
+                continue
+            record["username"] = fallback_peer_username
+            break
+
     return tuple(sorted(records, key=lambda item: 0 if item.get("is_self") is True else 1))
 
 
@@ -301,7 +314,7 @@ def _participant_label(record: dict) -> str:
 
     if username:
         handle = username if username.startswith("@") else f"@{username}"
-        if display_name and display_name.casefold().lstrip("@") != username.casefold().lstrip("@"):
+        if display_name:
             return f"{handle} — {display_name}"
         return handle
     if display_name:
