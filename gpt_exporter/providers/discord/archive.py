@@ -291,7 +291,6 @@ def _participant_records(conversation) -> tuple[dict, ...]:
             target.update({key: value for key, value in current.items() if value is not None})
             target["is_self"] = True
 
-    # Preserve collector order inside each side, but put the local user first.
     return tuple(sorted(records, key=lambda item: 0 if item.get("is_self") is True else 1))
 
 
@@ -328,13 +327,11 @@ def _prepend_dm_participant_header(
         if local is not None:
             target = os.path.relpath(local, start=markdown_path.parent).replace(os.sep, "/")
         else:
-            # The DOCX header renderer still emits the identity text when the
-            # avatar is unavailable locally; remote images are not fetched here.
             target = avatar_url or "missing-participant-avatar"
         alt = _markdown_alt(f"{_PARTICIPANT_AVATAR_PREFIX}{label}")
         tokens.append(f"![{alt}]({target})")
 
-    if not tokens:
+    if not tokens or not markdown_path.is_file():
         return
     body = markdown_path.read_text(encoding="utf-8")
     header = " ".join(tokens) + "\n\n---\n\n"
