@@ -18,6 +18,23 @@ EXPORT_GLOB = "discord-dm-export-v15_*.json"
 EXPORTER_NAME = "9c discord-exporter"
 SCHEMA_VERSION = 15
 
+# Discord renders both Unicode and custom emoji as inline <img alt="…"> in
+# message content. The historical v15 resource used textContent and therefore
+# dropped those emoji. Apply a backwards-compatible source overlay when the
+# collector is copied to the browser; existing v15 exports remain valid.
+_SEMANTIC_CONTENT_SENTINEL = (
+    '        for (const br of clone.querySelectorAll("br")) br.replaceWith("\\n");\n'
+    '        return normalizeText(clone.textContent);'
+)
+_SEMANTIC_CONTENT_EMOJI_PATCH = (
+    '        for (const image of clone.querySelectorAll("img[alt]")) {\n'
+    '            const alt = normalizeText(image.getAttribute("alt"));\n'
+    '            if (alt) image.replaceWith(alt);\n'
+    '        }\n'
+    '        for (const br of clone.querySelectorAll("br")) br.replaceWith("\\n");\n'
+    '        return normalizeText(clone.textContent);'
+)
+
 
 @dataclass(frozen=True, slots=True)
 class CollectorExport:
@@ -32,7 +49,14 @@ def collector_javascript() -> str:
     resource = files("gpt_exporter.providers.discord.resources").joinpath(
         "export_current_dm.js"
     )
-    return resource.read_text(encoding="utf-8")
+    source = resource.read_text(encoding="utf-8")
+    if _SEMANTIC_CONTENT_SENTINEL not in source:
+        raise RuntimeError("Packaged Discord collector semanticContent function changed unexpectedly")
+    return source.replace(
+        _SEMANTIC_CONTENT_SENTINEL,
+        _SEMANTIC_CONTENT_EMOJI_PATCH,
+        1,
+    )
 
 
 def open_discord() -> bool:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import sqlite3
 import tempfile
@@ -59,12 +60,63 @@ def _avatar_media_type(url: str) -> str | None:
     }.get(suffix)
 
 
-def _enrich_dm(conversation):
-    """Add human title/origin and reusable author-avatar assets to a DM."""
+def _collector_semantics(source_path: Path | None) -> dict[str, dict]:
+    """Read provider-rich presentation metadata without polluting the shared core."""
+    if source_path is None:
+        return {}
+    try:
+        payload = json.loads(Path(source_path).read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    messages = payload.get("messages") if isinstance(payload, dict) else None
+    if not isinstance(messages, list):
+        return {}
+    result: dict[str, dict] = {}
+    for raw in messages:
+        if not isinstance(raw, dict):
+            continue
+        message_id = str(raw.get("id") or "").strip()
+        if not message_id:
+            continue
+        semantics: dict[str, object] = {}
+        previews = raw.get("external_previews")
+        if isinstance(previews, list) and previews:
+            semantics["link_previews"] = previews
+            semantics["link_preview_image_indices"] = [
+                index
+                for index, preview in enumerate(previews)
+                if isinstance(preview, dict) and isinstance(preview.get("image"), dict)
+            ]
+        result[message_id] = semantics
+    return result
+
+
+def _tag_preview_assets(
+    assets: tuple[CanonicalAsset, ...],
+    image_indices: object,
+) -> tuple[CanonicalAsset, ...]:
+    indices = list(image_indices) if isinstance(image_indices, list) else []
+    next_index = 0
+    tagged: list[CanonicalAsset] = []
+    for asset in assets:
+        if asset.metadata.get("kind") == "external-preview" and next_index < len(indices):
+            preview_index = indices[next_index]
+            next_index += 1
+            if isinstance(preview_index, int) and preview_index >= 0:
+                asset_metadata = dict(asset.metadata)
+                asset_metadata["link_preview_index"] = preview_index
+                asset = replace(asset, metadata=asset_metadata)
+        tagged.append(asset)
+    return tuple(tagged)
+
+
+def _enrich_dm(conversation, *, source_path: Path | None = None):
+    """Add human title/origin, chat semantics and reusable author-avatar assets."""
     metadata = dict(conversation.metadata)
     channel_id = _channel_id(conversation.conversation_id)
     metadata["origin_type"] = "Direct Messages"
     metadata["origin_id"] = channel_id
+    semantic_by_message = _collector_semantics(source_path)
 
     authors: dict[str, dict] = {}
     participants = metadata.get("participants")
@@ -86,6 +138,11 @@ def _enrich_dm(conversation):
             asset for asset in message.assets
             if asset.metadata.get("kind") != "author-avatar"
         )
+        semantics = dict(semantic_by_message.get(message.message_id, {}))
+        assets = _tag_preview_assets(
+            assets,
+            semantics.pop("link_preview_image_indices", []),
+        )
         if avatar_url:
             author_id = str(message.author_id or "unknown")
             suffix = Path(urlparse(avatar_url).path).suffix or ".img"
@@ -102,7 +159,11 @@ def _enrich_dm(conversation):
                 },
             )
             assets = (avatar,) + assets
-        messages.append(replace(message, assets=assets))
+
+        message_metadata = dict(message.metadata)
+        message_metadata["preserve_line_breaks"] = True
+        message_metadata.update(semantics)
+        messages.append(replace(message, assets=assets, metadata=message_metadata))
 
     return replace(
         conversation,
@@ -113,7 +174,6 @@ def _enrich_dm(conversation):
 
 
 def _record_docx_path(database_path: Path, conversation_id: str, docx_path: Path) -> None:
-    """Persist the provider-derived DOCX location after generic indexing."""
     if not docx_path.is_file() or docx_path.stat().st_size == 0:
         return
     with closing(sqlite3.connect(database_path)) as connection:
@@ -129,7 +189,6 @@ def _human_named_paths(directory: Path, channel_id: str, suffix: str) -> tuple[P
 
 
 def _find_existing_canonical(downloads_dir: Path, channel_id: str, preferred: Path, legacy: Path):
-    """Return the most complete stored canonical conversation for a stable channel ID."""
     candidates: list[Path] = []
     for path in (preferred, legacy, *_human_named_paths(downloads_dir, channel_id, ".json.xz")):
         if path not in candidates and path.is_file() and path.stat().st_size > 0:
@@ -181,15 +240,7 @@ def archive_collector_export(
     *,
     archive_root: Path | None = None,
 ) -> DiscordArchiveResult:
-    """Normalize and archive one full-DM browser collector JSON.
-
-    The source JSON is copied byte-for-byte into ``raw``. Canonical JSON/XZ,
-    local assets, DOCX and SQLite are derived artifacts. Discord media is
-    acquired immediately while signed CDN URLs are valid. A partial collector
-    run may not replace an archive containing message IDs that are absent from
-    the new export. Human-readable filenames may change when account names do;
-    the stable Discord channel ID is therefore always used to find prior state.
-    """
+    """Normalize and archive one full-DM browser collector JSON."""
 
     source_path = Path(source_path).expanduser().resolve()
     root = Path(archive_root or default_archive_root()).expanduser().resolve()
@@ -199,7 +250,7 @@ def archive_collector_export(
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
     provider = DiscordProvider()
-    conversation = _enrich_dm(provider.normalize(source_path))
+    conversation = _enrich_dm(provider.normalize(source_path), source_path=source_path)
     channel_id = _channel_id(conversation.conversation_id)
     stem = dm_artifact_stem(conversation.metadata, channel_id)
     raw_path = raw_dir / f"{stem}.json"
@@ -254,6 +305,8 @@ def archive_collector_export(
                 export_conversation,
                 markdown_path,
                 include_timestamps=True,
+                include_title=False,
+                chat_style=True,
             )
             export_docx(
                 markdown_path,

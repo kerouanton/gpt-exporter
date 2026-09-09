@@ -22,20 +22,45 @@ _AUTHOR_AVATAR_PREFIX = "Author avatar: "
 
 @dataclass(frozen=True, slots=True)
 class DocxExportResult:
-    """Structured result of one Markdown-to-DOCX conversion."""
-
     output_path: Path
     size_bytes: int
     skipped: bool
 
 
-def _install_author_avatar_renderer(implementation: ModuleType) -> None:
-    """Teach the retained renderer one provider-neutral canonical image role.
+def _install_normalized_image_cache(implementation: ModuleType) -> None:
+    """Cache only small repeated author-avatar normalization within one export."""
+    if getattr(implementation, "_canonical_normalized_image_cache", False):
+        return
+    original_normalize = implementation.normalized_png_stream
 
-    Canonical Markdown marks author avatars through their alt text. Keep this
-    compact chat-specific presentation in the shared DOCX adapter instead of in
-    any concrete provider. Other images continue through the frozen v2.8 path.
-    """
+    @lru_cache(maxsize=32)
+    def normalized_avatar_bytes(path_text: str, mtime_ns: int, size: int) -> bytes:
+        del mtime_ns, size
+        return original_normalize(Path(path_text)).getvalue()
+
+    def normalized_png_stream(image_path: Path):
+        path = Path(image_path).resolve()
+        # Discord avatar assets use the stable avatar-<user-id> filename suffix.
+        # Do not retain arbitrary photographs/screenshots in memory merely
+        # because python-docx needs Pillow normalization for their format.
+        if "avatar-" not in path.name.casefold():
+            return original_normalize(path)
+        stat = path.stat()
+        return io.BytesIO(
+            normalized_avatar_bytes(
+                str(path),
+                stat.st_mtime_ns,
+                stat.st_size,
+            )
+        )
+
+    implementation.normalized_png_stream = normalized_png_stream
+    implementation._canonical_normalized_image_cache_clear = normalized_avatar_bytes.cache_clear
+    implementation._canonical_normalized_image_cache = True
+
+
+def _install_author_avatar_renderer(implementation: ModuleType) -> None:
+    """Teach the retained renderer one provider-neutral canonical image role."""
     if getattr(implementation, "_canonical_author_avatar_renderer", False):
         return
     original_add_image = implementation.add_image
@@ -74,11 +99,10 @@ def _install_author_avatar_renderer(implementation: ModuleType) -> None:
 
 @lru_cache(maxsize=1)
 def _implementation() -> ModuleType:
-    """Load the retained package-local v2.8 Markdown renderer quietly."""
-
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         from . import _markdown_docx_v28
+    _install_normalized_image_cache(_markdown_docx_v28)
     _install_author_avatar_renderer(_markdown_docx_v28)
     return _markdown_docx_v28
 
@@ -86,7 +110,6 @@ def _implementation() -> ModuleType:
 def _forward_progress(buffer: io.StringIO, progress: ProgressCallback | None) -> None:
     if progress is None:
         return
-
     for line in buffer.getvalue().splitlines():
         if line.strip():
             progress(line)
@@ -100,19 +123,12 @@ def export_docx(
     overwrite: bool = False,
     progress: ProgressCallback | None = None,
 ) -> DocxExportResult:
-    """Convert one Markdown document to DOCX without invoking a provider CLI."""
-
     markdown_path = Path(markdown_path).expanduser().resolve()
     output_path = Path(output_path).expanduser().resolve()
 
     if not markdown_path.is_file():
         raise FileNotFoundError(f"Markdown file not found: {markdown_path}")
-
-    if (
-        not overwrite
-        and output_path.is_file()
-        and output_path.stat().st_size > 0
-    ):
+    if not overwrite and output_path.is_file() and output_path.stat().st_size > 0:
         return DocxExportResult(
             output_path=output_path,
             size_bytes=output_path.stat().st_size,
@@ -120,13 +136,20 @@ def export_docx(
         )
 
     implementation = _implementation()
+    cache_clear = getattr(implementation, "_canonical_normalized_image_cache_clear", None)
+    if cache_clear is not None:
+        cache_clear()
     captured = io.StringIO()
-    with contextlib.redirect_stdout(captured):
-        implementation.convert_markdown_to_docx(
-            markdown_path=markdown_path,
-            output_path=output_path,
-            document_title=document_title,
-        )
+    try:
+        with contextlib.redirect_stdout(captured):
+            implementation.convert_markdown_to_docx(
+                markdown_path=markdown_path,
+                output_path=output_path,
+                document_title=document_title,
+            )
+    finally:
+        if cache_clear is not None:
+            cache_clear()
 
     _forward_progress(captured, progress)
 
