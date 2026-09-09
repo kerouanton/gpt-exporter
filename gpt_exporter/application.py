@@ -246,11 +246,11 @@ def _launch_shared_shell(
     from tkinter import messagebox
 
     from gpt_exporter.ui.browser import archive_browser as browser
-    from gpt_exporter.ui.workspace_shell import ConversationWorkspaceApp
+    from gpt_exporter.ui.remote_delete_shell import RemoteDeletionWorkspaceApp
 
     browser.configure_logging(debug)
     try:
-        app = ConversationWorkspaceApp(
+        app = RemoteDeletionWorkspaceApp(
             catalog=catalog,
             registry=registry,
             workspace=workspace,
