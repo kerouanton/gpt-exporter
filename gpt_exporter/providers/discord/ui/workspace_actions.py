@@ -105,8 +105,17 @@ class DiscordWorkspaceActions:
                 human_title = dm_title(metadata, str(row["title"] or ""))
                 stem = dm_artifact_stem(metadata, channel_id)
                 new_docx = self.workspace.root_path / f"{stem}.docx"
+                new_raw = self.workspace.root_path / "raw" / f"{stem}.json.xz"
                 new_canonical = self.workspace.root_path / "downloads" / f"{stem}.json.xz"
-                old_docx, _old_raw, old_canonical = legacy_paths(self.workspace.root_path, channel_id)
+                old_docx, old_raw, old_canonical = legacy_paths(self.workspace.root_path, channel_id)
+
+                if old_raw.is_file() and not new_raw.exists():
+                    try:
+                        migrate_plain_raw_file(old_raw, new_raw)
+                    except OSError:
+                        pass
+                    else:
+                        changed = True
 
                 for old, new in ((old_docx, new_docx), (old_canonical, new_canonical)):
                     if old.is_file() and not new.exists():
