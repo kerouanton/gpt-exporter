@@ -13,6 +13,20 @@ from tkinter import ttk
 from typing import Any, Callable, Protocol
 
 
+_AUTO_CLOSE_SUCCESSFUL_PROCESSING_WINDOWS = True
+
+
+def processing_windows_auto_close_enabled() -> bool:
+    """Return the session-wide auto-close preference for successful backlogs."""
+    return _AUTO_CLOSE_SUCCESSFUL_PROCESSING_WINDOWS
+
+
+def set_processing_windows_auto_close(enabled: bool) -> None:
+    """Set the session-wide auto-close preference for successful backlogs."""
+    global _AUTO_CLOSE_SUCCESSFUL_PROCESSING_WINDOWS
+    _AUTO_CLOSE_SUCCESSFUL_PROCESSING_WINDOWS = bool(enabled)
+
+
 @dataclass(frozen=True, slots=True)
 class ArchiveWorkflowSpec:
     """Provider-supplied copy for the shared archive workflow dialog."""
@@ -84,6 +98,7 @@ class ArchiveProcessingDialog(tk.Toplevel):
         self.worker: threading.Thread | None = None
         self.finished = False
         self.status_var = tk.StringVar(value="Starting archive workflow…")
+        self.auto_close_var = tk.BooleanVar(value=processing_windows_auto_close_enabled())
         self.log_path: Path | None = None
         self._log_handle = None
 
@@ -103,12 +118,21 @@ class ArchiveProcessingDialog(tk.Toplevel):
 
         buttons = ttk.Frame(self, padding=(10, 0, 10, 10))
         buttons.pack(fill="x")
+        ttk.Checkbutton(
+            buttons,
+            text="Automatically close successful processing windows",
+            variable=self.auto_close_var,
+            command=self._auto_close_preference_changed,
+        ).pack(side="left")
         self.close_button = ttk.Button(buttons, text="Close", command=self.destroy, state="disabled")
         self.close_button.pack(side="right")
 
         self.protocol("WM_DELETE_WINDOW", self._close_requested)
         self._open_persistent_log()
         self.after(50, self._start_worker)
+
+    def _auto_close_preference_changed(self) -> None:
+        set_processing_windows_auto_close(self.auto_close_var.get())
 
     def _report_directory(self) -> Path | None:
         value = getattr(self.actions, "workflow_log_directory", None)
@@ -216,14 +240,17 @@ class ArchiveProcessingDialog(tk.Toplevel):
                     self._append_log(f"\nERROR: Browser refresh callback failed: {error}")
 
                 if refresh_succeeded:
-                    self.status_var.set("Archive workflow completed successfully. Closing…")
+                    if self.auto_close_var.get():
+                        self.status_var.set("Archive workflow completed successfully. Closing…")
+                    else:
+                        self.status_var.set("Archive workflow completed successfully.")
                     self._append_log("\nGUI: Browser refresh completed successfully.")
                 else:
                     self.status_var.set("Archive completed, but Browser refresh failed.")
                     self._append_log("\nGUI: Browser refresh failed; keeping this window open for diagnosis.")
                 self._finalize_persistent_log()
                 self.close_button.configure(state="normal")
-                if refresh_succeeded:
+                if refresh_succeeded and self.auto_close_var.get():
                     self.after(self.auto_close_ms, self._auto_close_after_success)
 
         if not self.finished:
@@ -362,4 +389,6 @@ __all__ = [
     "ArchiveWorkflowSpec",
     "create_archive_log_path",
     "latest_archive_log_path",
+    "processing_windows_auto_close_enabled",
+    "set_processing_windows_auto_close",
 ]
