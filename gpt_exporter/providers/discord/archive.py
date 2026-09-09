@@ -10,6 +10,7 @@ import tempfile
 from contextlib import closing
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Callable
 from urllib.parse import urlparse
 
 from gpt_exporter.core import CanonicalAsset
@@ -28,6 +29,9 @@ from .provider import DiscordProvider
 from .raw_archive import materialize_raw_json, read_raw_json, write_raw_archive
 
 
+ProgressCallback = Callable[[str], None]
+
+
 @dataclass(frozen=True, slots=True)
 class DiscordArchiveResult:
     archive_root: Path
@@ -41,6 +45,11 @@ class DiscordArchiveResult:
     downloaded_assets: int = 0
     reused_assets: int = 0
     failed_assets: tuple[str, ...] = ()
+
+
+def _emit(progress: ProgressCallback | None, message: str) -> None:
+    if progress is not None:
+        progress(message)
 
 
 def default_archive_root() -> Path:
@@ -243,6 +252,7 @@ def archive_collector_export(
     source_path: Path,
     *,
     archive_root: Path | None = None,
+    progress: ProgressCallback | None = None,
 ) -> DiscordArchiveResult:
     """Normalize and archive one full-DM browser collector JSON."""
 
@@ -253,6 +263,7 @@ def archive_collector_export(
     raw_dir.mkdir(parents=True, exist_ok=True)
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
+    _emit(progress, "Reading and normalizing Discord collector export…")
     provider = DiscordProvider()
     with materialize_raw_json(source_path) as provider_source:
         incoming = _enrich_dm(
@@ -267,6 +278,7 @@ def archive_collector_export(
     database_path = root / "conversations-index.sqlite"
     asset_dir = root / "assets" / channel_id
 
+    _emit(progress, "Locating existing cumulative archive…")
     legacy_docx, _legacy_raw, legacy_canonical = legacy_paths(root, channel_id)
     existing_path, existing = _find_existing_canonical(
         downloads_dir,
@@ -274,10 +286,11 @@ def archive_collector_export(
         canonical_path,
         legacy_canonical,
     )
+    _emit(progress, "Merging incoming messages with cumulative history…")
     conversation, updated = merge_dm_history(existing, incoming)
+    _emit(progress, f"Cumulative conversation contains {len(conversation.messages)} message(s).")
 
-    # raw/ is a byte-exact snapshot of the latest collector run, even when the
-    # cumulative canonical archive itself does not change.
+    _emit(progress, "Writing latest raw collector snapshot…")
     write_raw_archive(source_path, raw_path)
 
     available_assets = 0
@@ -287,14 +300,24 @@ def archive_collector_export(
 
     canonical_needs_write = updated or existing_path != canonical_path or not canonical_path.exists()
     if canonical_needs_write:
+        _emit(progress, "Writing canonical conversation archive…")
         write_canonical_conversation(canonical_path, conversation)
+    else:
+        _emit(progress, "Canonical conversation is unchanged; keeping existing archive.")
 
     if updated or not docx_path.exists():
+        _emit(progress, "Downloading/reusing Discord assets…")
         asset_result = download_conversation_assets(conversation, asset_dir)
         available_assets = asset_result.available
         downloaded_assets = asset_result.downloaded
         reused_assets = asset_result.reused
         failed_assets = asset_result.failed
+        _emit(
+            progress,
+            "Assets ready: "
+            f"{available_assets} available, {downloaded_assets} downloaded, "
+            f"{reused_assets} reused, {len(failed_assets)} failed.",
+        )
 
         with tempfile.TemporaryDirectory(
             prefix=".discord-exporter-markdown-",
@@ -302,11 +325,13 @@ def archive_collector_export(
         ) as temp_dir:
             markdown_dir = Path(temp_dir)
             markdown_path = markdown_dir / f"{stem}.md"
+            _emit(progress, "Preparing local asset references for export…")
             export_conversation = conversation_with_local_assets(
                 conversation,
                 asset_result.source_paths,
                 relative_to=markdown_dir,
             )
+            _emit(progress, "Rendering intermediate Markdown…")
             export_canonical_markdown(
                 export_conversation,
                 markdown_path,
@@ -314,29 +339,43 @@ def archive_collector_export(
                 include_title=False,
                 chat_style=True,
             )
+            _emit(progress, "Generating DOCX and embedding images…")
             export_docx(
                 markdown_path,
                 docx_path,
                 document_title=conversation.title,
                 overwrite=True,
             )
+            try:
+                docx_size = docx_path.stat().st_size
+            except OSError:
+                docx_size = 0
+            _emit(progress, f"DOCX generated: {docx_size} bytes.")
     else:
+        _emit(progress, "DOCX is already current; skipping regeneration.")
         prior_docx = _find_prior_artifact(root, channel_id, ".docx", legacy_docx)
         if prior_docx and prior_docx != docx_path and not docx_path.exists():
             prior_docx.replace(docx_path)
 
+    _emit(progress, "Cleaning stale Discord artifacts…")
     _remove_stale_artifacts(
         root,
         channel_id,
         keep={raw_path, canonical_path, docx_path},
     )
 
+    _emit(progress, "Updating search index…")
     update_index(
         root,
         downloads_dir=downloads_dir,
         database_path=database_path,
+        progress=progress,
     )
+    _emit(progress, "Search index update complete.")
+
+    _emit(progress, "Recording DOCX path in the index…")
     _record_docx_path(database_path, conversation.conversation_id, docx_path)
+    _emit(progress, "Discord archive pipeline complete.")
 
     return DiscordArchiveResult(
         archive_root=root,
