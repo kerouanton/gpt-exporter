@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from gpt_exporter.providers.gpt.assets import migrate_gpt_asset_layout
+
 
 _import_capture = io.StringIO()
 with contextlib.redirect_stdout(_import_capture):
@@ -119,6 +121,15 @@ def import_bundle(
             result = _bundle_importer.import_bundle(
                 bundle_path,
                 archive_root=resolved_root,
+            )
+            migration = migrate_gpt_asset_layout(resolved_root)
+            print()
+            print(
+                "GPT asset layout: "
+                f"moved={migration.moved}, "
+                f"reused={migration.reused}, "
+                f"unchanged={migration.unchanged}, "
+                f"missing={migration.missing}"
             )
             regenerated = _augment_current_batch_with_missing_docx(resolved_root)
             if regenerated:
