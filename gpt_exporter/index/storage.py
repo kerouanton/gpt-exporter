@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 LOGGER = logging.getLogger("gpt_exporter.index")
 WHITESPACE_RE = re.compile(r"\s+")
 
@@ -82,6 +82,7 @@ def _create_shared_tables(connection: sqlite3.Connection) -> None:
             message_id TEXT NOT NULL,
             message_order INTEGER NOT NULL,
             author_role TEXT NOT NULL,
+            author_name TEXT,
             created_at TEXT,
             content_type TEXT,
             body TEXT NOT NULL
@@ -246,13 +247,41 @@ def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
         connection.execute("DROP TABLE conversations")
         connection.execute("ALTER TABLE conversations_v5 RENAME TO conversations")
         _create_shared_tables(connection)
-        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        connection.execute("PRAGMA user_version = 5")
         connection.commit()
     except Exception:
         connection.rollback()
         raise
     finally:
         connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
+    """Add per-message display names and schedule Discord rows for one reindex."""
+    connection.execute("BEGIN")
+    try:
+        if "author_name" not in _table_columns(connection, "messages"):
+            connection.execute("ALTER TABLE messages ADD COLUMN author_name TEXT")
+
+        discord_ids = (
+            "SELECT conversation_id FROM conversation_provider_metadata WHERE provider_id = 'discord'"
+        )
+        connection.execute(
+            f"UPDATE conversations SET source_mtime_ns = 0 WHERE conversation_id IN ({discord_ids})"
+        )
+        if connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='canonical_conversation_sources'"
+        ).fetchone():
+            connection.execute(
+                f"UPDATE canonical_conversation_sources SET source_mtime_ns = 0 "
+                f"WHERE conversation_id IN ({discord_ids})"
+            )
+
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
 
 
 def create_schema(connection: sqlite3.Connection) -> None:
@@ -278,11 +307,16 @@ def connect_database(
     elif user_version in {2, 3}:
         connection.close()
         raise ValueError(
-            "Database schema version is older than 4. Rebuild the disposable index once before upgrading to schema 5."
+            "Database schema version is older than 4. Rebuild the disposable index once before upgrading to schema 6."
         )
     elif user_version == 4:
         LOGGER.info("Migrating SQLite schema from version 4 to version 5")
         _migrate_v4_to_v5(connection)
+        LOGGER.info("Migrating SQLite schema from version 5 to version 6")
+        _migrate_v5_to_v6(connection)
+    elif user_version == 5:
+        LOGGER.info("Migrating SQLite schema from version 5 to version 6")
+        _migrate_v5_to_v6(connection)
     elif user_version == SCHEMA_VERSION:
         create_schema(connection)
     elif require_current:
