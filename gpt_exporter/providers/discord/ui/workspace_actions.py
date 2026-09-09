@@ -236,10 +236,17 @@ class DiscordWorkspaceActions:
                 continue
         return None
 
-    def open_service(self) -> None:
+    def open_service(self, row: dict[str, Any] | None = None) -> None:
+        channel_id = ""
+        if isinstance(row, dict):
+            conversation_id = str(row.get("conversation_id") or "")
+            if conversation_id.startswith("discord:"):
+                candidate = conversation_id.removeprefix("discord:")
+                if candidate.isdigit():
+                    channel_id = candidate
         try:
-            opened = open_discord()
-        except OSError as error:
+            opened = open_discord(channel_id or None)
+        except (OSError, ValueError) as error:
             messagebox.showerror("Open Discord", str(error), parent=self.app)
             return
         if not opened:
