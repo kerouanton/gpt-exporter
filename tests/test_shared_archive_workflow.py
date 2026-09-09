@@ -40,6 +40,79 @@ class SharedArchiveWorkflowTests(unittest.TestCase):
 
         dialog.assert_called_once_with(app, actions=actions)
 
+    def test_chatgpt_process_export_uses_shared_processing_backlog(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            bundle = Path(temp_name) / "chatgpt-archive-source.json"
+            bundle.write_text("{}", encoding="utf-8")
+            app = SimpleNamespace(status_var=mock.Mock())
+            actions = GPTWorkspaceActions(app, SimpleNamespace(root_path=Path(temp_name) / "archive"))
+
+            with mock.patch(
+                "gpt_exporter.providers.gpt.ui.workspace_actions.ArchiveProcessingDialog"
+            ) as dialog:
+                self.assertTrue(actions.process_export(bundle))
+
+            dialog.assert_called_once_with(app, actions=actions, export_path=bundle)
+
+    def test_discord_process_export_uses_shared_processing_backlog(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_name:
+            downloads = Path(temp_name)
+            export_path = downloads / "discord-dm-export-v15_shared-test.json"
+            export_path.write_text(
+                json.dumps(
+                    {
+                        "exporter": EXPORTER_NAME,
+                        "schema_version": SCHEMA_VERSION,
+                        "exported_at": "2026-09-09T12:00:00Z",
+                        "message_count": 1,
+                        "conversation": {
+                            "channel_id": "1093985962649976892",
+                            "title": "Shared workflow test",
+                        },
+                        "messages": [{"id": "1093985962649976893"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            app = SimpleNamespace(status_var=mock.Mock())
+            actions = DiscordWorkspaceActions(app, SimpleNamespace(root_path=downloads / "archive"))
+
+            with mock.patch(
+                "gpt_exporter.providers.discord.ui.workspace_actions.ArchiveProcessingDialog"
+            ) as dialog:
+                self.assertTrue(actions.process_export(export_path))
+
+            dialog.assert_called_once_with(app, actions=actions, export_path=export_path)
+
+    def test_discord_run_export_reports_backlog_lines(self) -> None:
+        app = object()
+        actions = DiscordWorkspaceActions(app, SimpleNamespace(root_path=Path("C:/archive")))
+        result = SimpleNamespace(
+            message_count=12,
+            available_assets=4,
+            downloaded_assets=2,
+            reused_assets=2,
+            failed_assets=(),
+            raw_path=Path("C:/archive/raw/test.json.xz"),
+            canonical_path=Path("C:/archive/downloads/test.json.xz"),
+            docx_path=Path("C:/archive/test.docx"),
+            database_path=Path("C:/archive/conversations-index.sqlite"),
+        )
+        lines: list[str] = []
+
+        with mock.patch(
+            "gpt_exporter.providers.discord.ui.workspace_actions.archive_collector_export",
+            return_value=result,
+        ) as archive:
+            self.assertIs(actions.run_export(Path("C:/Downloads/export.json"), lines.append), result)
+
+        archive.assert_called_once_with(
+            Path("C:/Downloads/export.json"), archive_root=Path("C:/archive")
+        )
+        self.assertTrue(any("12 message" in line for line in lines))
+        self.assertTrue(any("Assets:" in line for line in lines))
+        self.assertTrue(any("DOCX:" in line for line in lines))
+
     def test_chatgpt_new_export_detection_ignores_initial_bundle(self) -> None:
         actions = GPTWorkspaceActions(object(), SimpleNamespace(root_path=Path("C:/archive")))
         bundle = Path("C:/Downloads/chatgpt-archive-source.json")
