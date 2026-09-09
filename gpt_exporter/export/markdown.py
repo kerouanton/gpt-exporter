@@ -281,13 +281,23 @@ def _render_chat_markdown(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _uses_chat_semantics(conversation: CanonicalConversation) -> bool:
+    """Detect an explicitly normalized chat conversation without provider checks."""
+    return any(
+        bool(message.metadata.get("preserve_line_breaks"))
+        for message in conversation.messages
+    )
+
+
 def render_canonical_markdown(
     conversation: CanonicalConversation,
     *,
     include_timestamps: bool = False,
     include_title: bool = True,
-    chat_style: bool = False,
+    chat_style: bool | None = None,
 ) -> str:
+    if chat_style is None:
+        chat_style = _uses_chat_semantics(conversation)
     renderer = _render_chat_markdown if chat_style else _render_standard_markdown
     return renderer(
         conversation,
@@ -302,7 +312,7 @@ def export_canonical_markdown(
     *,
     include_timestamps: bool = False,
     include_title: bool = True,
-    chat_style: bool = False,
+    chat_style: bool | None = None,
 ) -> MarkdownExportResult:
     output = Path(output_path).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
