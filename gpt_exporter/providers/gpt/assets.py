@@ -143,6 +143,11 @@ def _record_bucket(record: dict[str, Any], semantic: dict[str, str]) -> str:
     return asset_bucket(kind, record.get("content_type"))
 
 
+def _kind_for_bucket(bucket: str) -> str:
+    """Return the GPT registry kind that matches one canonical archive bucket."""
+    return "external_image" if bucket == "external" else bucket
+
+
 def migrate_gpt_asset_layout(archive_root: Path | str) -> GptAssetLayoutMigrationResult:
     """Move GPT assets into canonical buckets and repair registry paths safely."""
     root = Path(archive_root).expanduser().resolve()
@@ -178,8 +183,16 @@ def migrate_gpt_asset_layout(archive_root: Path | str) -> GptAssetLayoutMigratio
         relative = Path(filename.replace("\\", "/"))
         source = assets / relative
         bucket = _record_bucket(record, semantic)
+        desired_kind = _kind_for_bucket(bucket)
         destination = asset_bucket_path(assets, bucket) / relative.name
         desired_relative = destination.relative_to(assets).as_posix()
+
+        kind_changed = str(record.get("kind") or "").casefold() != desired_kind.casefold()
+        if kind_changed:
+            record["kind"] = desired_kind
+            changed = True
+            if file_id:
+                changed_asset_ids.add(file_id)
 
         if source.resolve() == destination.resolve():
             unchanged += 1
