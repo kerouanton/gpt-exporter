@@ -23,6 +23,7 @@ from gpt_exporter.index import update_index
 from .assets import conversation_with_local_assets, download_conversation_assets
 from .naming import dm_artifact_stem, dm_title, legacy_paths
 from .provider import DiscordProvider
+from .raw_archive import materialize_raw_json, read_raw_json, write_raw_archive
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,8 +66,8 @@ def _collector_semantics(source_path: Path | None) -> dict[str, dict]:
     if source_path is None:
         return {}
     try:
-        payload = json.loads(Path(source_path).read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+        payload = read_raw_json(source_path)
+    except (OSError, UnicodeError, json.JSONDecodeError, lzma.LZMAError):
         return {}
     messages = payload.get("messages") if isinstance(payload, dict) else None
     if not isinstance(messages, list):
@@ -220,11 +221,21 @@ def _find_prior_artifact(directory: Path, channel_id: str, suffix: str, legacy: 
     return max(candidates, key=lambda path: path.stat().st_mtime_ns) if candidates else None
 
 
+def _find_prior_raw_artifact(raw_dir: Path, channel_id: str, legacy: Path) -> Path | None:
+    candidates: list[Path] = []
+    if legacy.is_file():
+        candidates.append(legacy)
+    candidates.extend(_human_named_paths(raw_dir, channel_id, ".json.xz"))
+    candidates.extend(_human_named_paths(raw_dir, channel_id, ".json"))
+    return max(candidates, key=lambda path: path.stat().st_mtime_ns) if candidates else None
+
+
 def _remove_stale_artifacts(root: Path, channel_id: str, *, keep: set[Path]) -> None:
     legacy_docx, legacy_raw, legacy_canonical = legacy_paths(root, channel_id)
     candidates = [legacy_docx, legacy_raw, legacy_canonical]
     candidates.extend(_human_named_paths(root, channel_id, ".docx"))
     candidates.extend(_human_named_paths(root / "raw", channel_id, ".json"))
+    candidates.extend(_human_named_paths(root / "raw", channel_id, ".json.xz"))
     candidates.extend(_human_named_paths(root / "downloads", channel_id, ".json.xz"))
     keep_resolved = {path.resolve() for path in keep}
     for path in candidates:
@@ -250,10 +261,14 @@ def archive_collector_export(
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
     provider = DiscordProvider()
-    conversation = _enrich_dm(provider.normalize(source_path), source_path=source_path)
+    with materialize_raw_json(source_path) as provider_source:
+        conversation = _enrich_dm(
+            provider.normalize(provider_source),
+            source_path=source_path,
+        )
     channel_id = _channel_id(conversation.conversation_id)
     stem = dm_artifact_stem(conversation.metadata, channel_id)
-    raw_path = raw_dir / f"{stem}.json"
+    raw_path = raw_dir / f"{stem}.json.xz"
     canonical_path = downloads_dir / f"{stem}.json.xz"
     docx_path = root / f"{stem}.docx"
     database_path = root / "conversations-index.sqlite"
@@ -281,8 +296,7 @@ def archive_collector_export(
     failed_assets: tuple[str, ...] = ()
 
     if updated:
-        if not raw_path.exists() or not source_path.samefile(raw_path):
-            shutil.copyfile(source_path, raw_path)
+        write_raw_archive(source_path, raw_path)
         write_canonical_conversation(canonical_path, conversation)
 
         asset_result = download_conversation_assets(conversation, asset_dir)
@@ -321,14 +335,14 @@ def archive_collector_export(
         prior_docx = _find_prior_artifact(root, channel_id, ".docx", legacy_docx)
         if prior_docx and prior_docx != docx_path and not docx_path.exists():
             prior_docx.replace(docx_path)
-        prior_raw = _find_prior_artifact(raw_dir, channel_id, ".json", legacy_raw)
-        if prior_raw and prior_raw != raw_path and not raw_path.exists():
-            shutil.copyfile(prior_raw, raw_path)
+        prior_raw = _find_prior_raw_artifact(raw_dir, channel_id, legacy_raw)
+        if prior_raw and (not raw_path.exists() or not prior_raw.samefile(raw_path)):
+            write_raw_archive(prior_raw, raw_path)
 
     _remove_stale_artifacts(
         root,
         channel_id,
-        keep={source_path, raw_path, canonical_path, docx_path},
+        keep={raw_path, canonical_path, docx_path},
     )
 
     update_index(
