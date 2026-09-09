@@ -281,7 +281,8 @@ def archive_collector_export(
     failed_assets: tuple[str, ...] = ()
 
     if updated:
-        shutil.copyfile(source_path, raw_path)
+        if not raw_path.exists() or not source_path.samefile(raw_path):
+            shutil.copyfile(source_path, raw_path)
         write_canonical_conversation(canonical_path, conversation)
 
         asset_result = download_conversation_assets(conversation, asset_dir)
