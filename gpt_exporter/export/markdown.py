@@ -200,6 +200,17 @@ def _render_standard_markdown(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _preview_asset_map(content_assets: tuple[CanonicalAsset, ...]) -> dict[int, CanonicalAsset]:
+    result: dict[int, CanonicalAsset] = {}
+    for asset in content_assets:
+        if _asset_kind(asset) != "external-preview":
+            continue
+        index = asset.metadata.get("link_preview_index")
+        if isinstance(index, int) and index >= 0 and index not in result:
+            result[index] = asset
+    return result
+
+
 def _render_chat_markdown(
     conversation: CanonicalConversation,
     *,
@@ -224,7 +235,7 @@ def _render_chat_markdown(
         role = (message.role or "unknown").replace("_", " ").strip().title()
         heading = (message.author_name or "").strip() or role
         author_key = (str(message.author_id or ""), heading)
-        current_date = _date_label(message.created_at)
+        current_date = _date_label(message.created_at) if include_timestamps else None
         date_changed = bool(current_date and current_date != previous_date)
         if date_changed:
             if lines:
@@ -252,20 +263,20 @@ def _render_chat_markdown(
         if body:
             lines.extend([body, ""])
 
-        preview_assets = [asset for asset in content_assets if _asset_kind(asset) == "external-preview"]
+        emitted_preview_asset_ids: set[int] = set()
+        preview_assets = _preview_asset_map(content_assets)
         raw_previews = metadata.get("link_previews")
         if isinstance(raw_previews, list):
             for index, preview in enumerate(raw_previews):
-                if isinstance(preview, dict):
-                    _append_preview(
-                        lines,
-                        preview,
-                        preview_assets[index] if index < len(preview_assets) else None,
-                    )
+                if not isinstance(preview, dict):
+                    continue
+                asset = preview_assets.get(index)
+                _append_preview(lines, preview, asset)
+                if asset is not None:
+                    emitted_preview_asset_ids.add(id(asset))
 
-        preview_asset_ids = {id(asset) for asset in preview_assets}
         for asset in content_assets:
-            if id(asset) not in preview_asset_ids:
+            if id(asset) not in emitted_preview_asset_ids:
                 _render_asset(lines, asset)
         if content_assets:
             lines.append("")
@@ -281,23 +292,14 @@ def _render_chat_markdown(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _uses_chat_semantics(conversation: CanonicalConversation) -> bool:
-    """Detect an explicitly normalized chat conversation without provider checks."""
-    return any(
-        bool(message.metadata.get("preserve_line_breaks"))
-        for message in conversation.messages
-    )
-
-
 def render_canonical_markdown(
     conversation: CanonicalConversation,
     *,
     include_timestamps: bool = False,
     include_title: bool = True,
-    chat_style: bool | None = None,
+    chat_style: bool = False,
 ) -> str:
-    if chat_style is None:
-        chat_style = _uses_chat_semantics(conversation)
+    """Render canonical Markdown; compact chat layout is an explicit opt-in."""
     renderer = _render_chat_markdown if chat_style else _render_standard_markdown
     return renderer(
         conversation,
@@ -312,7 +314,7 @@ def export_canonical_markdown(
     *,
     include_timestamps: bool = False,
     include_title: bool = True,
-    chat_style: bool | None = None,
+    chat_style: bool = False,
 ) -> MarkdownExportResult:
     output = Path(output_path).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
