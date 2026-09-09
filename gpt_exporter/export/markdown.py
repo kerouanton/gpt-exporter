@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,13 @@ class MarkdownExportResult:
     resolved_assets: dict[str, int]
     unresolved_assets: dict[str, int]
     cleaned_marker_types: dict[str, int]
+
+
+_URL_RE = re.compile(r"(?<![<(])https?://[^\s<>()]+", re.IGNORECASE)
+_EMAIL_RE = re.compile(
+    r"(?<![\w@])([A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![\w@])"
+)
+_MEDIA_ALIAS_KINDS = {"attachment", "linked-media", "external-preview"}
 
 
 def _escape_label(value: str) -> str:
@@ -114,6 +122,90 @@ def _preserve_line_breaks(text: str) -> str:
     return "\n".join(rendered)
 
 
+def _autolink_segment(segment: str) -> str:
+    def url_replace(match: re.Match[str]) -> str:
+        url = match.group(0)
+        trailing = ""
+        while url and url[-1] in ".,;:!?":
+            trailing = url[-1] + trailing
+            url = url[:-1]
+        return f"<{url}>{trailing}" if url else match.group(0)
+
+    linked = _URL_RE.sub(url_replace, segment)
+
+    def email_replace(match: re.Match[str]) -> str:
+        email = match.group(1)
+        start = match.start(1)
+        prefix = linked[max(0, start - 8):start].casefold()
+        if prefix.endswith("mailto:") or (start > 0 and linked[start - 1] in "<("):
+            return email
+        return f"<{email}>"
+
+    return _EMAIL_RE.sub(email_replace, linked)
+
+
+def _autolink_plain_text(text: str) -> str:
+    """Turn bare URLs and email addresses into Markdown autolinks outside code."""
+    output: list[str] = []
+    in_fence = False
+    for line in text.split("\n"):
+        stripped = line.lstrip()
+        fence = stripped.startswith("```") or stripped.startswith("~~~")
+        if fence:
+            output.append(line)
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            output.append(line)
+            continue
+
+        parts = re.split(r"(`+[^`]*`+)", line)
+        for index in range(0, len(parts), 2):
+            parts[index] = _autolink_segment(parts[index])
+        output.append("".join(parts))
+    return "\n".join(output)
+
+
+def _asset_render_name(asset: CanonicalAsset) -> str:
+    name = str(asset.name or "").strip().casefold()
+    if name:
+        return name
+    source = str(asset.source_ref or "").strip()
+    return Path(urlparse(source).path).name.casefold() if source else ""
+
+
+def _dedupe_content_assets(assets: tuple[CanonicalAsset, ...]) -> tuple[CanonicalAsset, ...]:
+    """Collapse provider aliases while preserving distinct same-name attachments."""
+    result: list[CanonicalAsset] = []
+    exact_seen: set[tuple[str, str]] = set()
+    seen_aliases: dict[str, set[str]] = {}
+
+    for asset in assets:
+        kind = _asset_kind(asset)
+        name = _asset_render_name(asset)
+        source = str(asset.source_ref or "").strip().casefold()
+        exact_key = (name, source)
+        if source and exact_key in exact_seen:
+            continue
+
+        previous_kinds = seen_aliases.get(name, set()) if name else set()
+        if (
+            name
+            and kind in _MEDIA_ALIAS_KINDS
+            and previous_kinds & _MEDIA_ALIAS_KINDS
+            and not (kind == "attachment" and previous_kinds == {"attachment"})
+        ):
+            continue
+
+        result.append(asset)
+        if source:
+            exact_seen.add(exact_key)
+        if name and kind in _MEDIA_ALIAS_KINDS:
+            seen_aliases.setdefault(name, set()).add(kind)
+
+    return tuple(result)
+
+
 def _reaction_text(metadata: dict[str, Any]) -> str | None:
     raw = metadata.get("reactions")
     if not isinstance(raw, list):
@@ -150,6 +242,8 @@ def _append_preview(lines: list[str], preview: dict[str, Any], asset: CanonicalA
     site = str(preview.get("site_name") or "").strip()
     title = str(preview.get("title") or "").strip()
     description = str(preview.get("description") or "").strip()
+    if description.casefold() in {"unknown", "undefined", "null"}:
+        description = ""
     url = str(preview.get("url") or "").strip()
     if site:
         lines.append(f"> **{site}**")
@@ -176,8 +270,10 @@ def _render_standard_markdown(
     lines = [f"# {title}", ""] if include_title else []
     previous_author_key: tuple[str, str] | None = None
     for message in conversation.messages:
-        body = message.content.strip()
-        content_assets = tuple(asset for asset in message.assets if not _is_author_avatar(asset))
+        body = _autolink_plain_text(message.content.strip())
+        content_assets = _dedupe_content_assets(
+            tuple(asset for asset in message.assets if not _is_author_avatar(asset))
+        )
         avatar = next((asset for asset in message.assets if _is_author_avatar(asset)), None)
         if not body and not content_assets:
             continue
@@ -227,7 +323,11 @@ def _render_chat_markdown(
         body = message.content.strip()
         if metadata.get("preserve_line_breaks") and body:
             body = _preserve_line_breaks(body)
-        content_assets = tuple(asset for asset in message.assets if not _is_author_avatar(asset))
+        if body:
+            body = _autolink_plain_text(body)
+        content_assets = _dedupe_content_assets(
+            tuple(asset for asset in message.assets if not _is_author_avatar(asset))
+        )
         avatar = next((asset for asset in message.assets if _is_author_avatar(asset)), None)
         if not body and not content_assets and not metadata.get("reactions"):
             continue
