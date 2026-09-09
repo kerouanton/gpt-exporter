@@ -44,12 +44,24 @@ def write_raw_archive(source_path: Path, destination_path: Path) -> Path:
     return destination_path
 
 
-def migrate_plain_raw_file(path: Path) -> Path:
+def migrate_plain_raw_file(path: Path, destination: Path | None = None) -> Path:
     """Compress one historical raw JSON and remove it only after byte verification."""
     path = Path(path).expanduser().resolve()
+    if destination is None:
+        destination = path if is_xz_path(path) else path.with_name(path.name + ".xz")
+    destination = Path(destination).expanduser().resolve()
+
     if is_xz_path(path):
-        return path
-    destination = path.with_name(path.name + ".xz")
+        if path == destination or (destination.exists() and path.samefile(destination)):
+            return destination
+        original = read_raw_bytes(path)
+        write_raw_archive(path, destination)
+        if read_raw_bytes(destination) != original:
+            destination.unlink(missing_ok=True)
+            raise OSError(f"Raw XZ verification failed: {path}")
+        path.unlink()
+        return destination
+
     original = path.read_bytes()
     write_raw_archive(path, destination)
     if read_raw_bytes(destination) != original:
