@@ -84,10 +84,10 @@ class DiscordChatRenderingTests(unittest.TestCase):
         )
         self.assertNotIn("# @soundy", markdown)
         self.assertEqual(markdown.count("**soundy**"), 1)
-        self.assertIn("**soundy**  *13:20 · edited*", markdown)
-        self.assertIn("*13:21*", markdown)
-        self.assertIn("Salut Bruno! 😉  \nDeuxième ligne", markdown)
-        self.assertIn("#pragma once  \n// line one  \n// line two", markdown)
+        self.assertIn("**soundy**\n", markdown)
+        self.assertIn("**13:20 · edited**", markdown)
+        self.assertIn("**13:21**  #pragma once", markdown)
+        self.assertIn("// line one  \n// line two", markdown)
         self.assertIn("👍 1   🥰 2", markdown)
         self.assertIn("↪ **Gadget MCS**", markdown)
         self.assertIn("**pouet.net**", markdown)
@@ -187,6 +187,28 @@ class DiscordChatRenderingTests(unittest.TestCase):
         self.assertIn("<https://www.linkedin.com/company/digisquad-luxembourg/>", markdown)
         self.assertIn("<info@digisquad.com>", markdown)
 
+    def test_parenthesized_bare_url_is_linked_but_markdown_target_is_not_rewritten(self) -> None:
+        conv = CanonicalConversation(
+            conversation_id="discord:parenthesized-link",
+            provider_id="discord",
+            title="links",
+            messages=(
+                CanonicalMessage(
+                    message_id="1",
+                    role="user",
+                    content=(
+                        "Claude (https://www.pouet.net/prod.php?which=96590) rien de fou\n"
+                        "[existing](https://example.test/already)"
+                    ),
+                    metadata={"preserve_line_breaks": True},
+                ),
+            ),
+        )
+        markdown = render_canonical_markdown(conv, chat_style=True)
+        self.assertIn("(<https://www.pouet.net/prod.php?which=96590>)", markdown)
+        self.assertIn("[existing](https://example.test/already)", markdown)
+        self.assertNotIn("[existing](<https://example.test/already>)", markdown)
+
     def test_autolink_does_not_touch_fenced_or_inline_code(self) -> None:
         conv = CanonicalConversation(
             conversation_id="discord:code-links",
@@ -253,6 +275,37 @@ class DiscordChatRenderingTests(unittest.TestCase):
         self.assertEqual(markdown.count("[clip.mp4]"), 1)
         self.assertEqual(markdown.count("[same.bin]"), 2)
 
+    def test_local_archived_attachment_exposes_asset_id_and_archive_path(self) -> None:
+        attachment = CanonicalAsset(
+            asset_id="discord:attachment:42",
+            name="manual.pdf",
+            media_type="application/pdf",
+            source_ref="../assets/attachment/abc_manual.pdf",
+            metadata={
+                "kind": "attachment",
+                "local_archive_asset": True,
+                "archive_path": "assets/attachment/abc_manual.pdf",
+            },
+        )
+        conv = CanonicalConversation(
+            conversation_id="discord:attachment",
+            provider_id="discord",
+            title="attachment",
+            messages=(
+                CanonicalMessage(
+                    message_id="1",
+                    role="user",
+                    content="doc",
+                    assets=(attachment,),
+                ),
+            ),
+        )
+        markdown = render_canonical_markdown(conv, chat_style=True)
+        self.assertIn("Archived attachment", markdown)
+        self.assertIn("manual.pdf", markdown)
+        self.assertIn("discord:attachment:42", markdown)
+        self.assertIn("assets/attachment/abc_manual.pdf", markdown)
+
     def test_placeholder_unknown_preview_description_is_suppressed(self) -> None:
         conv = CanonicalConversation(
             conversation_id="discord:unknown-preview",
@@ -279,7 +332,7 @@ class DiscordChatRenderingTests(unittest.TestCase):
         self.assertIn("HackGyver 2.0", markdown)
         self.assertNotIn("unknown", markdown.casefold())
 
-    def test_docx_preserves_emoji_and_semantic_line_breaks(self) -> None:
+    def test_docx_preserves_emoji_line_breaks_and_styles_chat_metadata_blue(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             markdown_path = root / "conversation.md"
@@ -304,6 +357,7 @@ class DiscordChatRenderingTests(unittest.TestCase):
         self.assertIn("🥰", document_xml)
         self.assertIn("<w:br", document_xml)
         self.assertEqual(document_xml.count("@soundy"), 1)
+        self.assertIn('w:val="2F75B5"', document_xml)
 
     def test_bare_http_url_is_a_real_docx_hyperlink(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
