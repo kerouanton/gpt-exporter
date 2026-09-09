@@ -22,29 +22,32 @@ _AUTHOR_AVATAR_PREFIX = "Author avatar: "
 
 @dataclass(frozen=True, slots=True)
 class DocxExportResult:
-    """Structured result of one Markdown-to-DOCX conversion."""
-
     output_path: Path
     size_bytes: int
     skipped: bool
 
 
 def _install_normalized_image_cache(implementation: ModuleType) -> None:
-    """Reuse normalized image bytes only for the duration of one DOCX export."""
+    """Cache only small repeated author-avatar normalization within one export."""
     if getattr(implementation, "_canonical_normalized_image_cache", False):
         return
     original_normalize = implementation.normalized_png_stream
 
-    @lru_cache(maxsize=256)
-    def normalized_bytes(path_text: str, mtime_ns: int, size: int) -> bytes:
+    @lru_cache(maxsize=32)
+    def normalized_avatar_bytes(path_text: str, mtime_ns: int, size: int) -> bytes:
         del mtime_ns, size
         return original_normalize(Path(path_text)).getvalue()
 
     def normalized_png_stream(image_path: Path):
         path = Path(image_path).resolve()
+        # Discord avatar assets use the stable avatar-<user-id> filename suffix.
+        # Do not retain arbitrary photographs/screenshots in memory merely
+        # because python-docx needs Pillow normalization for their format.
+        if "avatar-" not in path.name.casefold():
+            return original_normalize(path)
         stat = path.stat()
         return io.BytesIO(
-            normalized_bytes(
+            normalized_avatar_bytes(
                 str(path),
                 stat.st_mtime_ns,
                 stat.st_size,
@@ -52,7 +55,7 @@ def _install_normalized_image_cache(implementation: ModuleType) -> None:
         )
 
     implementation.normalized_png_stream = normalized_png_stream
-    implementation._canonical_normalized_image_cache_clear = normalized_bytes.cache_clear
+    implementation._canonical_normalized_image_cache_clear = normalized_avatar_bytes.cache_clear
     implementation._canonical_normalized_image_cache = True
 
 
@@ -96,8 +99,6 @@ def _install_author_avatar_renderer(implementation: ModuleType) -> None:
 
 @lru_cache(maxsize=1)
 def _implementation() -> ModuleType:
-    """Load the retained package-local v2.8 Markdown renderer quietly."""
-
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         from . import _markdown_docx_v28
@@ -122,8 +123,6 @@ def export_docx(
     overwrite: bool = False,
     progress: ProgressCallback | None = None,
 ) -> DocxExportResult:
-    """Convert one Markdown document to DOCX without invoking a provider CLI."""
-
     markdown_path = Path(markdown_path).expanduser().resolve()
     output_path = Path(output_path).expanduser().resolve()
 
