@@ -61,6 +61,47 @@ def _filter_context_stuff_nodes(
     return filtered
 
 
+def _normalize_asset_metadata_from_canonical_paths(
+    assets: dict[str, Any],
+    asset_root: Path,
+    implementation: ModuleType,
+) -> None:
+    """Repair stale registry kind/MIME data using the canonical bucket on disk.
+
+    Asset migration can move a file into ``assets/image`` while an older
+    registry record still says ``kind=attachment``.  Missing-DOCX regeneration
+    does not run the importer migration first, so the native renderer would
+    treat such an image as an attachment reference even though the physical
+    path is already canonical.  The canonical bucket is authoritative here.
+    """
+
+    kind_by_bucket = {
+        "attachment": "attachment",
+        "dictation": "dictation",
+        "image": "image",
+        "external": "external_image",
+    }
+
+    for asset in assets.values():
+        filename = str(getattr(asset, "filename", "") or "").replace("\\", "/")
+        if not filename:
+            continue
+        relative = Path(filename)
+        if not relative.parts:
+            continue
+        bucket = relative.parts[0].casefold()
+        canonical_kind = kind_by_bucket.get(bucket)
+        if canonical_kind is None:
+            continue
+
+        asset.kind = canonical_kind
+
+        local_path = (asset_root / relative).resolve()
+        inferred = implementation.infer_local_content_type(local_path)
+        if inferred:
+            asset.content_type = inferred
+
+
 def export_markdown(
     input_path: Path | str,
     output_path: Path | str,
@@ -96,6 +137,11 @@ def export_markdown(
             indexed_assets,
             local_assets,
             asset_root,
+        )
+        _normalize_asset_metadata_from_canonical_paths(
+            assets,
+            asset_root,
+            implementation,
         )
     else:
         assets = {}
