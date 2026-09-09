@@ -116,14 +116,15 @@ def index_canonical_conversation(
                 """
                 INSERT INTO messages (
                     conversation_id, message_id, message_order,
-                    author_role, created_at, content_type, body
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    author_role, author_name, created_at, content_type, body
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     conversation.conversation_id,
                     message_id,
                     position,
                     message.role or "unknown",
+                    message.author_name,
                     message.created_at,
                     "canonical_text",
                     body,
