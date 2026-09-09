@@ -71,21 +71,47 @@
         return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
     }
 
-    function deleteAction(root) {
-        root.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-        root.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-        return root.querySelector('[aria-label="Message Actions"] [aria-label="Delete"], [aria-label="Delete Message"], [aria-label="Delete"]');
+    function isVisible(element) {
+        if (!element) return false;
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+    }
+
+    function messageActionGroup(root) {
+        return root.querySelector('[role="group"][aria-label="Message Actions"]');
+    }
+
+    function moreAction(root) {
+        const group = messageActionGroup(root);
+        if (!group) return null;
+        return [...group.querySelectorAll('[role="button"]')].find(element => normalize(element.getAttribute("aria-label")) === "more") || null;
+    }
+
+    function deleteMenuItem() {
+        const selectors = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]';
+        return [...document.querySelectorAll(selectors)].find(element => isVisible(element) && normalize(element.textContent) === "delete message") || null;
     }
 
     function confirmationButton() {
-        const labels = new Set(["delete", "delete message", "supprimer", "supprimer le message", "löschen", "mensaje eliminar", "eliminar"]);
-        const dialogs = [...document.querySelectorAll('[role="dialog"]')].reverse();
+        const dialogs = [...document.querySelectorAll('[role="dialog"]')].filter(isVisible).reverse();
         for (const dialog of dialogs) {
-            for (const button of dialog.querySelectorAll("button")) {
+            if (!normalize(dialog.textContent).includes("delete message")) continue;
+            for (const button of dialog.querySelectorAll('button, [role="button"]')) {
                 const text = normalize(button.textContent);
                 const aria = normalize(button.getAttribute("aria-label"));
-                if (labels.has(text) || labels.has(aria)) return button;
+                if (text === "delete" || aria === "delete") return button;
             }
+        }
+        return null;
+    }
+
+    async function waitFor(predicate, timeoutMs, intervalMs = 75) {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            const value = predicate();
+            if (value) return value;
+            await sleep(intervalMs);
         }
         return null;
     }
@@ -93,22 +119,33 @@
     async function deleteOne(root, id) {
         const count = (attempts.get(id) || 0) + 1;
         attempts.set(id, count);
+        const targetElementId = root.id;
         try {
-            let action = deleteAction(root);
-            if (!action) {
+            root.scrollIntoView({ block: "center" });
+            root.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+            root.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+
+            let more = moreAction(root);
+            if (!more) {
                 await sleep(180);
-                action = deleteAction(root);
+                root.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+                root.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+                more = moreAction(root);
             }
-            if (!action) throw new Error("Delete action is not available for this message");
-            action.click();
-            await sleep(250);
-            const confirm = confirmationButton();
+            if (!more) throw new Error("More action is not available inside the target message");
+
+            more.click();
+            const deleteItem = await waitFor(deleteMenuItem, 1200);
+            if (!deleteItem) throw new Error("Delete Message menu item was not found");
+
+            deleteItem.click();
+            const confirm = await waitFor(confirmationButton, 1500);
             if (!confirm) throw new Error("Discord delete confirmation dialog was not found");
+
             confirm.click();
-            for (let wait = 0; wait < 20; wait++) {
-                await sleep(125);
-                if (!document.getElementById(root.id)) break;
-            }
+            const removed = await waitFor(() => !document.getElementById(targetElementId), 3000);
+            if (!removed) throw new Error("Target message remained in the DOM after delete confirmation");
+
             deleted.add(id);
             failures.delete(id);
             console.log("[9c delete] deleted", id);
@@ -125,7 +162,7 @@
         for (const { root, id } of materializedTargetRoots()) {
             if ((attempts.get(id) || 0) >= 3) continue;
             if (await deleteOne(root, id)) progress = true;
-            await sleep(180);
+            await sleep(250);
         }
         return progress;
     }
