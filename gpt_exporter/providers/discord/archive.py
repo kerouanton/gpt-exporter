@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import lzma
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -30,6 +31,7 @@ from .raw_archive import materialize_raw_json, read_raw_json, write_raw_archive
 
 
 ProgressCallback = Callable[[str], None]
+_PARTICIPANT_AVATAR_PREFIX = "Conversation participant avatar: "
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +250,97 @@ def _remove_stale_artifacts(root: Path, channel_id: str, *, keep: set[Path]) -> 
             pass
 
 
+def _without_author_avatars(conversation):
+    """Keep author avatars in the archive, but omit them from message-body rendering."""
+    messages = []
+    for message in conversation.messages:
+        assets = tuple(
+            asset for asset in message.assets
+            if str(asset.metadata.get("kind") or "").casefold() != "author-avatar"
+        )
+        messages.append(replace(message, assets=assets))
+    return replace(conversation, messages=tuple(messages))
+
+
+def _participant_records(conversation) -> tuple[dict, ...]:
+    """Return DM participants with the current user's richer identity merged in."""
+    metadata = dict(conversation.metadata)
+    records: list[dict] = []
+    by_id: dict[str, dict] = {}
+
+    participants = metadata.get("participants")
+    if isinstance(participants, list):
+        for participant in participants:
+            if not isinstance(participant, dict):
+                continue
+            record = dict(participant)
+            participant_id = str(record.get("id") or "").strip()
+            if participant_id:
+                by_id[participant_id] = record
+            records.append(record)
+
+    current = metadata.get("current_user")
+    if isinstance(current, dict):
+        current_id = str(current.get("id") or "").strip()
+        if current_id:
+            target = by_id.get(current_id)
+            if target is None:
+                target = {"id": current_id, "is_self": True}
+                records.append(target)
+                by_id[current_id] = target
+            target.update({key: value for key, value in current.items() if value is not None})
+            target["is_self"] = True
+
+    # Preserve collector order inside each side, but put the local user first.
+    return tuple(sorted(records, key=lambda item: 0 if item.get("is_self") is True else 1))
+
+
+def _participant_label(record: dict) -> str:
+    username = str(record.get("username") or "").strip()
+    display_name = str(record.get("display_name") or record.get("name") or "").strip()
+    participant_id = str(record.get("id") or "").strip()
+
+    if username:
+        handle = username if username.startswith("@") else f"@{username}"
+        if display_name and display_name.casefold().lstrip("@") != username.casefold().lstrip("@"):
+            return f"{handle} — {display_name}"
+        return handle
+    if display_name:
+        return display_name
+    return participant_id or "Unknown participant"
+
+
+def _markdown_alt(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def _prepend_dm_participant_header(
+    markdown_path: Path,
+    conversation,
+    source_paths: dict[str, Path],
+) -> None:
+    """Prepend one inline identity header; message groups then use names only."""
+    tokens: list[str] = []
+    for record in _participant_records(conversation):
+        label = _participant_label(record)
+        avatar_url = str(record.get("avatar_url") or "").strip()
+        local = source_paths.get(avatar_url) if avatar_url else None
+        if local is not None:
+            target = os.path.relpath(local, start=markdown_path.parent).replace(os.sep, "/")
+        else:
+            # The DOCX header renderer still emits the identity text when the
+            # avatar is unavailable locally; remote images are not fetched here.
+            target = avatar_url or "missing-participant-avatar"
+        alt = _markdown_alt(f"{_PARTICIPANT_AVATAR_PREFIX}{label}")
+        tokens.append(f"![{alt}]({target})")
+
+    if not tokens:
+        return
+    body = markdown_path.read_text(encoding="utf-8")
+    header = " ".join(tokens) + "\n\n---\n\n"
+    markdown_path.write_text(header + body, encoding="utf-8", newline="")
+
+
 def archive_collector_export(
     source_path: Path,
     *,
@@ -331,7 +424,8 @@ def archive_collector_export(
                 asset_result.source_paths,
                 relative_to=markdown_dir,
             )
-            _emit(progress, "Rendering intermediate Markdown…")
+            export_conversation = _without_author_avatars(export_conversation)
+            _emit(progress, "Rendering intermediate Markdown without per-message avatars…")
             export_canonical_markdown(
                 export_conversation,
                 markdown_path,
@@ -339,12 +433,19 @@ def archive_collector_export(
                 include_title=False,
                 chat_style=True,
             )
+            _emit(progress, "Adding one participant identity/avatar header…")
+            _prepend_dm_participant_header(
+                markdown_path,
+                conversation,
+                asset_result.source_paths,
+            )
             _emit(progress, "Generating DOCX and embedding images…")
             export_docx(
                 markdown_path,
                 docx_path,
-                document_title=conversation.title,
+                document_title=None,
                 overwrite=True,
+                progress=progress,
             )
             try:
                 docx_size = docx_path.stat().st_size
