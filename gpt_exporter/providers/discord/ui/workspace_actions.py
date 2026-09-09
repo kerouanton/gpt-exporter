@@ -22,6 +22,11 @@ from gpt_exporter.providers.discord.collector import (
     wait_for_new_export,
 )
 from gpt_exporter.providers.discord.naming import dm_artifact_stem, dm_title, legacy_paths
+from gpt_exporter.providers.discord.raw_archive import (
+    iter_raw_files,
+    migrate_plain_raw_file,
+    read_raw_json,
+)
 from gpt_exporter.ui.browser import archive_browser as browser
 from gpt_exporter.workspaces import ConversationWorkspace
 
@@ -38,11 +43,35 @@ class DiscordWorkspaceActions:
         self.download_directory = Path.home() / "Downloads"
         self._watch_thread: threading.Thread | None = None
 
-    def prepare_index(self) -> bool:
-        """Repair provider-derived fields and migrate historical Discord names."""
-        if not self.workspace.database_path.is_file():
+    def _migrate_raw_archives(self) -> bool:
+        raw_dir = self.workspace.root_path / "raw"
+        if not raw_dir.is_dir():
             return False
         changed = False
+        for path in sorted(raw_dir.glob("*.json")):
+            try:
+                payload = read_raw_json(path)
+                conversation = payload.get("conversation") if isinstance(payload, dict) else None
+                channel_id = str(conversation.get("channel_id") or "") if isinstance(conversation, dict) else ""
+                if not channel_id:
+                    continue
+                metadata = {
+                    "participants": conversation.get("participants"),
+                    "current_user": payload.get("current_user"),
+                }
+                stem = dm_artifact_stem(metadata, channel_id)
+                destination = raw_dir / f"{stem}.json.xz"
+                migrate_plain_raw_file(path, destination)
+                changed = True
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
+        return changed
+
+    def prepare_index(self) -> bool:
+        """Repair provider-derived fields and migrate historical Discord names/storage."""
+        changed = self._migrate_raw_archives()
+        if not self.workspace.database_path.is_file():
+            return changed
         with closing(sqlite3.connect(self.workspace.database_path)) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
@@ -76,11 +105,19 @@ class DiscordWorkspaceActions:
                 human_title = dm_title(metadata, str(row["title"] or ""))
                 stem = dm_artifact_stem(metadata, channel_id)
                 new_docx = self.workspace.root_path / f"{stem}.docx"
-                new_raw = self.workspace.root_path / "raw" / f"{stem}.json"
+                new_raw = self.workspace.root_path / "raw" / f"{stem}.json.xz"
                 new_canonical = self.workspace.root_path / "downloads" / f"{stem}.json.xz"
                 old_docx, old_raw, old_canonical = legacy_paths(self.workspace.root_path, channel_id)
 
-                for old, new in ((old_docx, new_docx), (old_raw, new_raw), (old_canonical, new_canonical)):
+                if old_raw.is_file() and not new_raw.exists():
+                    try:
+                        migrate_plain_raw_file(old_raw, new_raw)
+                    except OSError:
+                        pass
+                    else:
+                        changed = True
+
+                for old, new in ((old_docx, new_docx), (old_canonical, new_canonical)):
                     if old.is_file() and not new.exists():
                         new.parent.mkdir(parents=True, exist_ok=True)
                         try:
@@ -293,7 +330,7 @@ class DiscordWorkspaceActions:
             )
             return False
 
-        raw_files = sorted(raw_dir.glob("*.json"))
+        raw_files = list(iter_raw_files(raw_dir))
         if not raw_files:
             messagebox.showinfo(
                 "Regenerate Missing DOCX",
@@ -305,7 +342,7 @@ class DiscordWorkspaceActions:
         missing: list[Path] = []
         for raw_path in raw_files:
             try:
-                payload = json.loads(raw_path.read_text(encoding="utf-8-sig"))
+                payload = read_raw_json(raw_path)
                 conversation = payload.get("conversation") if isinstance(payload, dict) else None
                 channel_id = str(conversation.get("channel_id") or "") if isinstance(conversation, dict) else ""
                 if not channel_id:

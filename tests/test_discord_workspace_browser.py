@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from gpt_exporter.providers.discord.raw_archive import read_raw_bytes
 from gpt_exporter.providers.discord.ui.workspace_actions import DiscordWorkspaceActions
 from gpt_exporter.ui import workspace_shell
 from gpt_exporter.workspaces import ConversationWorkspace
@@ -77,12 +78,14 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
 
             stem = "Discord DM gadgetmcs ↔ soundy 123456"
             new_docx = root / f"{stem}.docx"
-            new_raw = root / "raw" / f"{stem}.json"
+            new_raw = root / "raw" / f"{stem}.json.xz"
             new_canonical = root / "downloads" / f"{stem}.json.xz"
             self.assertTrue(new_docx.is_file())
             self.assertTrue(new_raw.is_file())
+            self.assertEqual(read_raw_bytes(new_raw), b"{}")
             self.assertTrue(new_canonical.is_file())
             self.assertFalse(old_docx.exists())
+            self.assertFalse(old_raw.exists())
 
             with closing(sqlite3.connect(workspace.database_path)) as connection:
                 row = connection.execute(

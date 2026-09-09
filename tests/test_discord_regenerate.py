@@ -7,10 +7,11 @@ from pathlib import Path
 from unittest import mock
 
 from gpt_exporter.providers.discord.archive import archive_collector_export
+from gpt_exporter.providers.discord.raw_archive import read_raw_bytes
 
 
 class DiscordRegenerationTests(unittest.TestCase):
-    def test_missing_docx_can_be_regenerated_from_archived_raw_json(self) -> None:
+    def test_missing_docx_can_be_regenerated_from_archived_raw_json_xz(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)
             root = temp / "archive"
@@ -77,13 +78,14 @@ class DiscordRegenerationTests(unittest.TestCase):
                 side_effect=fake_docx,
             ):
                 first = archive_collector_export(source, archive_root=root)
-                raw_before = first.raw_path.read_bytes()
+                raw_before = read_raw_bytes(first.raw_path)
                 first.docx_path.unlink()
 
                 second = archive_collector_export(first.raw_path, archive_root=root)
 
             self.assertEqual(second.raw_path, first.raw_path)
-            self.assertEqual(second.raw_path.read_bytes(), raw_before)
+            self.assertTrue(second.raw_path.name.endswith(".json.xz"))
+            self.assertEqual(read_raw_bytes(second.raw_path), raw_before)
             self.assertTrue(second.docx_path.is_file())
             self.assertGreater(second.docx_path.stat().st_size, 0)
 

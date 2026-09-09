@@ -19,15 +19,22 @@ The provider owns its default archive location:
 
 ```text
 %USERPROFILE%\Documents\Discord Archive\
-├── Discord DM <channel-id>.docx
+├── Discord DM <local> ↔ <peer> <channel-id>.docx
 ├── downloads\
-│   └── discord_dm_<channel-id>.json.xz
+│   └── Discord DM <local> ↔ <peer> <channel-id>.json.xz
 ├── raw\
-│   └── discord_dm_<channel-id>.json
+│   └── Discord DM <local> ↔ <peer> <channel-id>.json.xz
+├── assets\
+│   └── <channel-id>\...
 └── conversations-index.sqlite
 ```
 
-`raw/*.json` is copied byte-for-byte from the collector download. `downloads/*.json.xz` is the provider-neutral canonical conversation. DOCX and SQLite are derived and rebuildable.
+The two `.json.xz` files have deliberately different roles:
+
+- `raw/*.json.xz` contains the original collector JSON bytes compressed directly with XZ. The JSON is never parsed and re-written before raw storage; decompressing the file reproduces the exact original collector bytes.
+- `downloads/*.json.xz` contains the provider-neutral canonical conversation produced by GPT Exporter after normalization.
+
+DOCX and SQLite are derived and rebuildable. Existing historical `raw/*.json` files are migrated automatically to verified `.json.xz` storage when the Discord workspace is prepared; the plain file is removed only after the decompressed XZ bytes have been verified against the original.
 
 A newly collected DM may replace the existing canonical source only when every previously archived message ID is still present. A partial collector run therefore cannot silently shrink the archive.
 
