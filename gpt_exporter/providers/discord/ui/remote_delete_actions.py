@@ -4,26 +4,173 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from importlib.resources import files
 from pathlib import Path
+from tkinter import messagebox
 from typing import Any
 
 from gpt_exporter.core.serialization import read_canonical_conversation
+from gpt_exporter.providers.discord.archive import archive_collector_export
 from gpt_exporter.providers.discord.collector import (
     EXPORT_GLOB,
     collector_javascript,
     snapshot_exports,
     validate_collector_export,
 )
+from gpt_exporter.providers.discord.naming import dm_artifact_stem
+from gpt_exporter.providers.discord.raw_archive import iter_raw_files, read_raw_json
+from gpt_exporter.ui.archive_workflow import (
+    ArchiveProcessingDialog,
+    ArchiveWorkflowSpec,
+)
 from gpt_exporter.ui.remote_delete import RemoteDeletionPlan
 
 from .workspace_actions import DiscordWorkspaceActions
+
+
+class _DiscordRegenerationBacklogActions:
+    """Run missing-DOCX regeneration through the shared processing backlog."""
+
+    archive_workflow_spec = ArchiveWorkflowSpec(
+        service_label="Discord DOCX regeneration",
+        open_instructions="",
+        collector_instructions="",
+        download_instructions="",
+        waiting_text="",
+    )
+
+    def __init__(self, owner: "DiscordRemoteDeleteActions", missing: list[Path]) -> None:
+        self.owner = owner
+        self.app = owner.app
+        self.workspace = owner.workspace
+        self.missing = tuple(Path(path) for path in missing)
+
+    @property
+    def workflow_log_directory(self) -> Path:
+        return self.owner.workflow_log_directory
+
+    def run_export(self, _path: Path, progress):
+        started = time.monotonic()
+
+        def timed_progress(message: str) -> None:
+            elapsed = max(0, int(time.monotonic() - started))
+            hours, remainder = divmod(elapsed, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            progress(f"[+{hours:02d}:{minutes:02d}:{seconds:02d}] {message}")
+
+        total = len(self.missing)
+        failures: list[str] = []
+        created = 0
+        timed_progress(f"Starting missing-DOCX regeneration for {total} conversation(s)…")
+
+        for index, raw_path in enumerate(self.missing, start=1):
+            timed_progress("")
+            timed_progress(f"[{index}/{total}] {raw_path.name}")
+            try:
+                result = archive_collector_export(
+                    raw_path,
+                    archive_root=self.workspace.root_path,
+                    progress=lambda message: timed_progress(f"  {message}"),
+                )
+            except Exception as error:
+                failure = f"{raw_path.name}: {type(error).__name__}: {error}"
+                failures.append(failure)
+                timed_progress(f"FAILED: {failure}")
+                continue
+
+            created += 1
+            try:
+                size = result.docx_path.stat().st_size
+            except OSError:
+                size = 0
+            timed_progress(
+                f"Completed [{index}/{total}]: {result.docx_path.name} ({size} bytes)."
+            )
+
+        timed_progress("")
+        timed_progress(f"DOCX regeneration complete: {created} created, {len(failures)} failed.")
+        return {
+            "created": created,
+            "total": total,
+            "failures": tuple(failures),
+        }
+
+    def finish_export(self, result) -> bool:
+        created = int(result.get("created", 0))
+        failures = tuple(result.get("failures", ()))
+        self.app.provider_content_changed(
+            f"Discord DOCX regeneration complete — {created} created, {len(failures)} failed."
+        )
+        if failures:
+            messagebox.showwarning(
+                "Regenerate Missing DOCX",
+                "Some conversations could not be regenerated:\n\n" + "\n".join(failures[:12]),
+                parent=self.app,
+            )
+        return not failures
 
 
 class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
     """Add own-message remote cleanup without teaching the shared shell Discord DOM details."""
 
     remote_delete_label = "Delete My Archived Messages from Discord…"
+
+    def regenerate_missing(self) -> bool:
+        raw_dir = self.workspace.root_path / "raw"
+        if not raw_dir.is_dir():
+            messagebox.showinfo(
+                "Regenerate Missing DOCX",
+                "No Discord raw archive directory exists in this workspace.",
+                parent=self.app,
+            )
+            return False
+
+        raw_files = list(iter_raw_files(raw_dir))
+        if not raw_files:
+            messagebox.showinfo(
+                "Regenerate Missing DOCX",
+                "No Discord raw archive files exist in this workspace.",
+                parent=self.app,
+            )
+            return False
+
+        missing: list[Path] = []
+        for raw_path in raw_files:
+            try:
+                payload = read_raw_json(raw_path)
+                conversation = payload.get("conversation") if isinstance(payload, dict) else None
+                channel_id = str(conversation.get("channel_id") or "") if isinstance(conversation, dict) else ""
+                if not channel_id:
+                    continue
+                metadata = {
+                    "participants": conversation.get("participants"),
+                    "current_user": payload.get("current_user"),
+                }
+                docx_path = self.workspace.root_path / f"{dm_artifact_stem(metadata, channel_id)}.docx"
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
+            if not docx_path.is_file() or docx_path.stat().st_size == 0:
+                missing.append(raw_path)
+
+        if not missing:
+            messagebox.showinfo(
+                "Regenerate Missing DOCX",
+                "All archived Discord conversations already have a non-empty DOCX export.",
+                parent=self.app,
+            )
+            return False
+
+        self.app.status_var.set(
+            f"Regenerating {len(missing)} missing Discord DOCX file(s)…"
+        )
+        actions = _DiscordRegenerationBacklogActions(self, missing)
+        ArchiveProcessingDialog(
+            self.app,
+            actions=actions,
+            export_path=raw_dir,
+        )
+        return True
 
     def _canonical_path_for_row(self, row: dict[str, Any]) -> Path | None:
         value = str(row.get("source_json_path") or "").strip()
