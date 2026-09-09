@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import sqlite3
 import tempfile
@@ -59,12 +60,39 @@ def _avatar_media_type(url: str) -> str | None:
     }.get(suffix)
 
 
-def _enrich_dm(conversation):
-    """Add human title/origin and reusable author-avatar assets to a DM."""
+def _collector_semantics(source_path: Path | None) -> dict[str, dict]:
+    """Read provider-rich presentation metadata without polluting the shared core."""
+    if source_path is None:
+        return {}
+    try:
+        payload = json.loads(Path(source_path).read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    messages = payload.get("messages") if isinstance(payload, dict) else None
+    if not isinstance(messages, list):
+        return {}
+    result: dict[str, dict] = {}
+    for raw in messages:
+        if not isinstance(raw, dict):
+            continue
+        message_id = str(raw.get("id") or "").strip()
+        if not message_id:
+            continue
+        semantics: dict[str, object] = {}
+        previews = raw.get("external_previews")
+        if isinstance(previews, list) and previews:
+            semantics["link_previews"] = previews
+        result[message_id] = semantics
+    return result
+
+
+def _enrich_dm(conversation, *, source_path: Path | None = None):
+    """Add human title/origin, chat semantics and reusable author-avatar assets."""
     metadata = dict(conversation.metadata)
     channel_id = _channel_id(conversation.conversation_id)
     metadata["origin_type"] = "Direct Messages"
     metadata["origin_id"] = channel_id
+    semantic_by_message = _collector_semantics(source_path)
 
     authors: dict[str, dict] = {}
     participants = metadata.get("participants")
@@ -102,7 +130,12 @@ def _enrich_dm(conversation):
                 },
             )
             assets = (avatar,) + assets
-        messages.append(replace(message, assets=assets))
+
+        message_metadata = dict(message.metadata)
+        # Discord message line breaks are semantic, not source wrapping.
+        message_metadata["preserve_line_breaks"] = True
+        message_metadata.update(semantic_by_message.get(message.message_id, {}))
+        messages.append(replace(message, assets=assets, metadata=message_metadata))
 
     return replace(
         conversation,
@@ -199,7 +232,7 @@ def archive_collector_export(
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
     provider = DiscordProvider()
-    conversation = _enrich_dm(provider.normalize(source_path))
+    conversation = _enrich_dm(provider.normalize(source_path), source_path=source_path)
     channel_id = _channel_id(conversation.conversation_id)
     stem = dm_artifact_stem(conversation.metadata, channel_id)
     raw_path = raw_dir / f"{stem}.json"
@@ -254,6 +287,7 @@ def archive_collector_export(
                 export_conversation,
                 markdown_path,
                 include_timestamps=True,
+                include_title=False,
             )
             export_docx(
                 markdown_path,
