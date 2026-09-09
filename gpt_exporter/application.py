@@ -144,9 +144,9 @@ def build_workspace_actions(app, workspace: ConversationWorkspace):
 
         return GPTWorkspaceActions(app, workspace)
     if workspace.provider_id == "discord":
-        from gpt_exporter.providers.discord.ui.workspace_actions import DiscordWorkspaceActions
+        from gpt_exporter.providers.discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
 
-        return DiscordWorkspaceActions(app, workspace)
+        return DiscordRemoteDeleteActions(app, workspace)
     raise ValueError(f"No shared-shell actions are registered for provider: {workspace.provider_id}")
 
 
