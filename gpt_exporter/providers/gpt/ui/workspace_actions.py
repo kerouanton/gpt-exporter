@@ -7,7 +7,11 @@ from pathlib import Path
 from tkinter import messagebox
 
 from gpt_exporter.providers.gpt.ui import archive_workflow as workflow
-from gpt_exporter.ui.archive_workflow import ArchiveWorkflowDialog, ArchiveWorkflowSpec
+from gpt_exporter.ui.archive_workflow import (
+    ArchiveProcessingDialog,
+    ArchiveWorkflowDialog,
+    ArchiveWorkflowSpec,
+)
 from gpt_exporter.ui.browser import archive_browser as browser
 from gpt_exporter.workspaces import ConversationWorkspace
 
@@ -34,6 +38,11 @@ class GPTWorkspaceActions:
     def __init__(self, app, workspace: ConversationWorkspace) -> None:
         self.app = app
         self.workspace = workspace
+        self._completion_message = "ChatGPT archive updated."
+
+    @property
+    def workflow_log_directory(self) -> Path:
+        return self.workspace.root_path / "reports"
 
     def archive_new(self) -> None:
         ArchiveWorkflowDialog(self.app, actions=self)
@@ -90,14 +99,20 @@ class GPTWorkspaceActions:
             return False
 
         self.app.status_var.set(f"Archive bundle ready: {bundle.name}")
-        workflow.ArchiveRunDialog(
-            self.app,
-            archive_root=self.workspace.root_path,
-            source_bundle=bundle,
-            on_success=lambda: self._archive_succeeded("ChatGPT archive updated."),
-            log_directory=self.workspace.root_path / "reports",
-        )
+        self._completion_message = "ChatGPT archive updated."
+        ArchiveProcessingDialog(self.app, actions=self, export_path=bundle)
         return True
+
+    def run_export(self, path: Path, progress):
+        return workflow.archive_bundle(
+            archive_root=self.workspace.root_path,
+            source_bundle=Path(path),
+            legacy_root=workflow.ROOT,
+            progress=progress,
+        )
+
+    def finish_export(self, _result) -> bool:
+        return self._archive_succeeded(self._completion_message)
 
     def process_downloaded(self) -> bool:
         bundle = workflow.find_latest_source_bundle()
