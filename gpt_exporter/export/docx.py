@@ -29,6 +29,32 @@ class DocxExportResult:
     skipped: bool
 
 
+def _install_normalized_image_cache(implementation: ModuleType) -> None:
+    """Reuse Pillow-normalized raster bytes for repeated images such as avatars."""
+    if getattr(implementation, "_canonical_normalized_image_cache", False):
+        return
+    original_normalize = implementation.normalized_png_stream
+
+    @lru_cache(maxsize=256)
+    def normalized_bytes(path_text: str, mtime_ns: int, size: int) -> bytes:
+        del mtime_ns, size
+        return original_normalize(Path(path_text)).getvalue()
+
+    def normalized_png_stream(image_path: Path):
+        path = Path(image_path).resolve()
+        stat = path.stat()
+        return io.BytesIO(
+            normalized_bytes(
+                str(path),
+                stat.st_mtime_ns,
+                stat.st_size,
+            )
+        )
+
+    implementation.normalized_png_stream = normalized_png_stream
+    implementation._canonical_normalized_image_cache = True
+
+
 def _install_author_avatar_renderer(implementation: ModuleType) -> None:
     """Teach the retained renderer one provider-neutral canonical image role.
 
@@ -79,6 +105,7 @@ def _implementation() -> ModuleType:
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
         from . import _markdown_docx_v28
+    _install_normalized_image_cache(_markdown_docx_v28)
     _install_author_avatar_renderer(_markdown_docx_v28)
     return _markdown_docx_v28
 
