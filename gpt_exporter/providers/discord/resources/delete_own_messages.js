@@ -88,6 +88,51 @@
         return [...group.querySelectorAll('[role="button"]')].find(element => normalize(element.getAttribute("aria-label")) === "more") || null;
     }
 
+    function reactMouseMoveTarget(root) {
+        for (const element of [root, ...root.querySelectorAll("*")]) {
+            const propsKey = Object.keys(element).find(key => key.startsWith("__reactProps$"));
+            if (!propsKey) continue;
+            const props = element[propsKey];
+            if (typeof props?.onMouseMove === "function") return { element, props };
+        }
+        return null;
+    }
+
+    function materializeMessageActions(root) {
+        const target = reactMouseMoveTarget(root);
+        if (!target) return false;
+
+        const rect = target.element.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+        const event = {
+            type: "mousemove",
+            target: target.element,
+            currentTarget: target.element,
+            clientX,
+            clientY,
+            pageX: clientX + scrollX,
+            pageY: clientY + scrollY,
+            button: 0,
+            buttons: 0,
+            altKey: false,
+            ctrlKey: false,
+            metaKey: false,
+            shiftKey: false,
+            nativeEvent: new MouseEvent("mousemove", {
+                bubbles: true,
+                clientX,
+                clientY,
+            }),
+            preventDefault() {},
+            stopPropagation() {},
+            persist() {},
+        };
+
+        target.props.onMouseMove(event);
+        return true;
+    }
+
     function deleteMenuItem() {
         const selectors = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]';
         return [...document.querySelectorAll(selectors)].find(element => isVisible(element) && normalize(element.textContent) === "delete message") || null;
@@ -122,15 +167,18 @@
         const targetElementId = root.id;
         try {
             root.scrollIntoView({ block: "center" });
-            root.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-            root.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+            await sleep(120);
 
-            let more = moreAction(root);
+            if (!materializeMessageActions(root)) {
+                throw new Error("React onMouseMove handler is not available inside the target message");
+            }
+
+            let more = await waitFor(() => moreAction(root), 900);
             if (!more) {
-                await sleep(180);
-                root.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-                root.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-                more = moreAction(root);
+                if (!materializeMessageActions(root)) {
+                    throw new Error("React onMouseMove handler is not available inside the target message");
+                }
+                more = await waitFor(() => moreAction(root), 900);
             }
             if (!more) throw new Error("More action is not available inside the target message");
 
