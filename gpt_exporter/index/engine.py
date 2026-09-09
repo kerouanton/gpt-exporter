@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import lzma
+import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +51,23 @@ class IndexUpdateResult:
 def _emit(progress: ProgressCallback | None, message: str) -> None:
     if progress is not None:
         progress(message)
+
+
+def _source_key(path: Path | str) -> str:
+    """Return a stable local-filesystem key for an indexed source path."""
+    return os.path.normcase(os.path.abspath(os.fspath(path)))
+
+
+def _indexed_source_mtimes(connection: sqlite3.Connection) -> dict[str, int]:
+    """Load the cheap source-path/mtime cache used before JSON decompression."""
+    rows = connection.execute(
+        "SELECT source_json_path, source_mtime_ns FROM conversations"
+    ).fetchall()
+    return {
+        _source_key(row["source_json_path"]): int(row["source_mtime_ns"])
+        for row in rows
+        if row["source_json_path"]
+    }
 
 
 def _index_source(
@@ -114,11 +132,23 @@ def update_index(
         )
 
     updated = 0
+    fast_skipped = 0
     failures: list[IndexFailure] = []
     connection = connect_database(resolved_database)
     try:
+        indexed_mtimes = {} if force else _indexed_source_mtimes(connection)
         for json_path in json_files:
             try:
+                # The source path and nanosecond mtime are already stored in the
+                # index. Check those cheap filesystem values before opening an XZ
+                # stream. This keeps application startup proportional to directory
+                # enumeration rather than to decompression/parsing of the archive.
+                if not force:
+                    source_mtime_ns = json_path.stat().st_mtime_ns
+                    if indexed_mtimes.get(_source_key(json_path)) == source_mtime_ns:
+                        fast_skipped += 1
+                        continue
+
                 changed = _index_source(
                     connection,
                     json_path,
@@ -147,6 +177,8 @@ def update_index(
         tuple(failures),
         force,
     )
+    if fast_skipped:
+        LOGGER.debug("Fast-skipped %d unchanged indexed sources", fast_skipped)
     _emit(
         progress,
         f"Index complete: {result.updated} updated, {result.unchanged_or_skipped} unchanged or skipped, {result.failed} failed",
