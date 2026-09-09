@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from tkinter import messagebox
 
 from gpt_exporter.providers.gpt.ui import archive_workflow as workflow
+from gpt_exporter.ui.archive_workflow import ArchiveWorkflowDialog, ArchiveWorkflowSpec
 from gpt_exporter.ui.browser import archive_browser as browser
 from gpt_exporter.workspaces import ConversationWorkspace
 
@@ -15,18 +17,38 @@ class GPTWorkspaceActions:
     process_label = "Process Downloaded Bundle…"
     regenerate_label = "Regenerate Missing DOCX…"
     can_regenerate = True
+    archive_workflow_spec = ArchiveWorkflowSpec(
+        service_label="ChatGPT",
+        open_instructions="Open ChatGPT in your normal browser and make sure you are signed in.",
+        collector_instructions=(
+            "The collector JavaScript is copied to the clipboard automatically. "
+            "Open Developer Tools (F12), select Console, paste it and run it."
+        ),
+        download_instructions=(
+            "When the collector finishes, the browser downloads chatgpt-archive-source.json. "
+            "As soon as a new non-empty bundle is detected, the archive workflow starts automatically."
+        ),
+        waiting_text="Waiting for a new chatgpt-archive-source.json in Downloads…",
+    )
 
     def __init__(self, app, workspace: ConversationWorkspace) -> None:
         self.app = app
         self.workspace = workspace
 
     def archive_new(self) -> None:
-        workflow.ArchiveWorkflowDialog(
-            self.app,
-            on_open_chatgpt=self.open_service,
-            on_copy_collector=self.copy_collector,
-            on_run_archive=self.process_downloaded,
-        )
+        ArchiveWorkflowDialog(self.app, actions=self)
+
+    def snapshot_exports(self):
+        return workflow.source_bundle_signature(workflow.find_latest_source_bundle())
+
+    def find_new_export(self, snapshot) -> Path | None:
+        bundle = workflow.find_latest_source_bundle()
+        if bundle is None:
+            return None
+        signature = workflow.source_bundle_signature(bundle)
+        if signature == snapshot:
+            return None
+        return bundle
 
     def open_service(self) -> None:
         try:
@@ -59,15 +81,12 @@ class GPTWorkspaceActions:
         except OSError as error:
             messagebox.showerror("Show Collector JavaScript", str(error), parent=self.app)
 
-    def process_downloaded(self) -> bool:
-        bundle = workflow.find_latest_source_bundle()
-        if bundle is None:
-            messagebox.showinfo(
-                "Process Downloaded Bundle",
-                "No non-empty chatgpt-archive-source.json was found in the usual Downloads folders.\n\n"
-                "Run the collector in ChatGPT first.",
-                parent=self.app,
-            )
+    def process_export(self, path: Path) -> bool:
+        bundle = Path(path)
+        try:
+            if not bundle.is_file() or bundle.stat().st_size <= 0:
+                return False
+        except OSError:
             return False
 
         self.app.status_var.set(f"Archive bundle ready: {bundle.name}")
@@ -79,6 +98,18 @@ class GPTWorkspaceActions:
             log_directory=self.workspace.root_path / "reports",
         )
         return True
+
+    def process_downloaded(self) -> bool:
+        bundle = workflow.find_latest_source_bundle()
+        if bundle is None:
+            messagebox.showinfo(
+                "Process Downloaded Bundle",
+                "No non-empty chatgpt-archive-source.json was found in the usual Downloads folders.\n\n"
+                "Run the collector in ChatGPT first.",
+                parent=self.app,
+            )
+            return False
+        return self.process_export(bundle)
 
     def regenerate_missing(self) -> bool:
         try:
