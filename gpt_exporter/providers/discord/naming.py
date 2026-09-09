@@ -22,16 +22,6 @@ def safe_filename_component(value: str, *, fallback: str = "unknown") -> str:
     return text or fallback
 
 
-def dm_peer(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    participants = metadata.get("participants")
-    if not isinstance(participants, list):
-        return None
-    for item in participants:
-        if isinstance(item, dict) and item.get("is_self") is False:
-            return item
-    return next((item for item in participants if isinstance(item, dict)), None)
-
-
 def dm_self(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
     current = metadata.get("current_user")
     if isinstance(current, dict):
@@ -44,9 +34,54 @@ def dm_self(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return None
 
 
+def dm_peer(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Return the other DM participant, even when Discord cannot resolve their user id.
+
+    The collector can reliably identify the local account while the peer may have
+    ``is_self=None`` (for example older messages or users whose author id is not
+    available from the rendered DOM).  Treating the first participant as a fallback
+    can therefore select the local user and rename the conversation after ourselves.
+    Prefer explicit non-self entries, then any named participant that is not the
+    identified local account.
+    """
+    participants = metadata.get("participants")
+    if not isinstance(participants, list):
+        return None
+
+    candidates = [item for item in participants if isinstance(item, dict)]
+    for item in candidates:
+        if item.get("is_self") is False:
+            return item
+
+    local = dm_self(metadata)
+    local_id = _text(local.get("id")) if local else None
+    local_names: set[str] = set()
+    if local:
+        for key in ("username", "display_name", "name"):
+            value = _text(local.get(key))
+            if value:
+                local_names.add(value.casefold().lstrip("@"))
+
+    for item in candidates:
+        if item.get("is_self") is True:
+            continue
+        item_id = _text(item.get("id"))
+        if local_id and item_id and item_id == local_id:
+            continue
+        name = _text(item.get("username")) or _text(item.get("name")) or _text(item.get("display_name"))
+        if not name:
+            continue
+        if name.casefold().lstrip("@") in local_names:
+            continue
+        return item
+    return None
+
+
 def dm_title(metadata: Mapping[str, Any], fallback_title: str) -> str:
     peer = dm_peer(metadata)
     peer_name = _text(peer.get("name")) if peer else None
+    if not peer_name and peer:
+        peer_name = _text(peer.get("display_name")) or _text(peer.get("username"))
     if peer_name:
         return peer_name if peer_name.startswith("@") else f"@{peer_name}"
     title = _NOTIFICATION_PREFIX.sub("", fallback_title).strip()
@@ -63,7 +98,7 @@ def dm_artifact_stem(metadata: Mapping[str, Any], channel_id: str) -> str:
         local_name = _text(local.get("username")) or _text(local.get("display_name")) or _text(local.get("name"))
     peer_name = _text(peer.get("username")) if peer else None
     if not peer_name and peer:
-        peer_name = _text(peer.get("name"))
+        peer_name = _text(peer.get("name")) or _text(peer.get("display_name"))
     local_name = safe_filename_component((local_name or "self").lstrip("@"))
     peer_name = safe_filename_component((peer_name or "peer").lstrip("@"))
     return f"Discord DM {local_name} ↔ {peer_name} {channel_id}"
