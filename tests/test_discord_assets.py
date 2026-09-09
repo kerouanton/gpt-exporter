@@ -95,7 +95,12 @@ class DiscordAssetTests(unittest.TestCase):
             local_ref = localized.messages[0].assets[0].source_ref
             self.assertIsNotNone(local_ref)
             self.assertFalse(str(local_ref).startswith("http"))
-            self.assertIn("assets/123", str(local_ref).replace("\\", "/"))
+            self.assertIn("assets/image", str(local_ref).replace("\\", "/"))
+            self.assertTrue(
+                str(localized.messages[0].assets[0].metadata.get("archive_path", "")).startswith(
+                    "assets/image/"
+                )
+            )
 
             markdown = markdown_dir / "conversation.md"
             export_canonical_markdown(localized, markdown, include_timestamps=True)
@@ -108,7 +113,7 @@ class DiscordAssetTests(unittest.TestCase):
                 media = [name for name in archive.namelist() if name.startswith("word/media/")]
             self.assertEqual(len(media), 1)
 
-    def test_author_avatar_is_downloaded_and_embedded_in_docx(self) -> None:
+    def test_author_avatar_is_archived_as_external_and_embedded(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             assets = root / "assets" / "123"
@@ -121,6 +126,9 @@ class DiscordAssetTests(unittest.TestCase):
                 assets,
                 fetch_bytes=lambda _url: PNG_1X1,
             )
+            archived = next(iter(result.source_paths.values()))
+            self.assertEqual(archived.parent.name, "external")
+
             localized = conversation_with_local_assets(
                 original,
                 result.source_paths,
@@ -159,6 +167,38 @@ class DiscordAssetTests(unittest.TestCase):
             self.assertEqual(second.downloaded, 0)
             self.assertEqual(second.reused, 1)
             self.assertEqual(second.available, 1)
+
+    def test_historical_channel_directory_is_migrated_lazily(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            legacy = root / "assets" / "123"
+            first = download_conversation_assets(
+                conversation(),
+                legacy,
+                fetch_bytes=lambda _url: PNG_1X1,
+            )
+            target = next(iter(first.source_paths.values()))
+            target_bytes = target.read_bytes()
+
+            # Recreate the old pre-refactor layout and remove the canonical copy.
+            legacy.mkdir(parents=True, exist_ok=True)
+            legacy_file = legacy / target.name
+            legacy_file.write_bytes(target_bytes)
+            target.unlink()
+
+            def fail_fetch(_url: str) -> bytes:
+                raise AssertionError("legacy asset should migrate without a network fetch")
+
+            second = download_conversation_assets(
+                conversation(),
+                legacy,
+                fetch_bytes=fail_fetch,
+            )
+            migrated = next(iter(second.source_paths.values()))
+            self.assertEqual(second.reused, 1)
+            self.assertEqual(migrated.parent.name, "image")
+            self.assertEqual(migrated.read_bytes(), target_bytes)
+            self.assertFalse(legacy_file.exists())
 
     def test_download_failure_keeps_remote_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
