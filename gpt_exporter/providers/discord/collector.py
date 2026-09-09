@@ -59,8 +59,14 @@ def collector_javascript() -> str:
     )
 
 
-def open_discord() -> bool:
-    return bool(webbrowser.open("https://discord.com/channels/@me", new=2))
+def open_discord(channel_id: str | None = None) -> bool:
+    channel_id = str(channel_id or "").strip()
+    if channel_id and not channel_id.isdigit():
+        raise ValueError(f"Invalid Discord channel ID: {channel_id!r}")
+    url = "https://discord.com/channels/@me"
+    if channel_id:
+        url = f"{url}/{channel_id}"
+    return bool(webbrowser.open(url, new=2))
 
 
 def snapshot_exports(download_directory: Path) -> set[Path]:
@@ -146,7 +152,7 @@ def wait_for_new_export(
         )
         for candidate in candidates:
             try:
-                return validate_collector_export(candidate)
+                return validate_collector_export(candidate).path
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
                 last_error = error
         time.sleep(poll_seconds)
