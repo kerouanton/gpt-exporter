@@ -10,6 +10,7 @@ from unittest import mock
 
 from gpt_exporter.core.serialization import read_canonical_conversation
 from gpt_exporter.providers.discord.archive import archive_collector_export
+from gpt_exporter.providers.discord.raw_archive import read_raw_bytes
 
 
 def payload(message_ids: tuple[str, ...]) -> dict:
@@ -75,7 +76,8 @@ class DiscordArchiveTests(unittest.TestCase):
                 result = archive_collector_export(source, archive_root=root)
 
             self.assertTrue(result.updated)
-            self.assertEqual(result.raw_path.read_bytes(), source.read_bytes())
+            self.assertTrue(result.raw_path.name.endswith(".json.xz"))
+            self.assertEqual(read_raw_bytes(result.raw_path), source.read_bytes())
             canonical = read_canonical_conversation(result.canonical_path)
             self.assertEqual(canonical.provider_id, "discord")
             self.assertEqual([m.message_id for m in canonical.messages], ["100", "101"])
@@ -127,7 +129,7 @@ class DiscordArchiveTests(unittest.TestCase):
                 downloader.return_value.source_paths = {}
                 result = archive_collector_export(source, archive_root=root)
 
-            self.assertEqual(result.raw_path.name, "Discord DM gadgetmcs ↔ soundy 123456.json")
+            self.assertEqual(result.raw_path.name, "Discord DM gadgetmcs ↔ soundy 123456.json.xz")
             self.assertEqual(result.canonical_path.name, "Discord DM gadgetmcs ↔ soundy 123456.json.xz")
             self.assertEqual(result.docx_path.name, "Discord DM gadgetmcs ↔ soundy 123456.docx")
             canonical = read_canonical_conversation(result.canonical_path)
@@ -184,11 +186,11 @@ class DiscordArchiveTests(unittest.TestCase):
                 mock.patch("gpt_exporter.providers.discord.archive.update_index"),
             ):
                 first = archive_collector_export(complete, archive_root=root)
-                raw_before = first.raw_path.read_bytes()
+                raw_before = read_raw_bytes(first.raw_path)
                 second = archive_collector_export(partial, archive_root=root)
 
             self.assertFalse(second.updated)
-            self.assertEqual(second.raw_path.read_bytes(), raw_before)
+            self.assertEqual(read_raw_bytes(second.raw_path), raw_before)
             canonical = read_canonical_conversation(second.canonical_path)
             self.assertEqual([m.message_id for m in canonical.messages], ["100", "101", "102"])
 
