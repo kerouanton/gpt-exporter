@@ -166,6 +166,119 @@ class DiscordChatRenderingTests(unittest.TestCase):
         self.assertLess(second, image_pos)
         self.assertEqual(markdown.count("second.jpg"), 2)
 
+    def test_bare_url_and_email_become_clickable_markdown_autolinks(self) -> None:
+        conv = CanonicalConversation(
+            conversation_id="discord:links",
+            provider_id="discord",
+            title="links",
+            messages=(
+                CanonicalMessage(
+                    message_id="1",
+                    role="user",
+                    content=(
+                        "contact https://www.linkedin.com/company/digisquad-luxembourg/ "
+                        "info@digisquad.com"
+                    ),
+                    metadata={"preserve_line_breaks": True},
+                ),
+            ),
+        )
+        markdown = render_canonical_markdown(conv, chat_style=True)
+        self.assertIn("<https://www.linkedin.com/company/digisquad-luxembourg/>", markdown)
+        self.assertIn("<info@digisquad.com>", markdown)
+
+    def test_autolink_does_not_touch_fenced_or_inline_code(self) -> None:
+        conv = CanonicalConversation(
+            conversation_id="discord:code-links",
+            provider_id="discord",
+            title="code",
+            messages=(
+                CanonicalMessage(
+                    message_id="1",
+                    role="user",
+                    content=(
+                        "`https://inline.example/`\n"
+                        "```text\nhttps://fenced.example/\n```\n"
+                        "https://outside.example/"
+                    ),
+                    metadata={"preserve_line_breaks": True},
+                ),
+            ),
+        )
+        markdown = render_canonical_markdown(conv, chat_style=True)
+        self.assertIn("`https://inline.example/`", markdown)
+        self.assertIn("https://fenced.example/", markdown)
+        self.assertNotIn("<https://fenced.example/>", markdown)
+        self.assertIn("<https://outside.example/>", markdown)
+
+    def test_media_aliases_are_deduplicated_but_distinct_attachments_are_kept(self) -> None:
+        linked = CanonicalAsset(
+            asset_id="linked:1",
+            name="clip.mp4",
+            source_ref="assets/a_clip.mp4",
+            metadata={"kind": "linked-media"},
+        )
+        preview_alias = CanonicalAsset(
+            asset_id="preview:1",
+            name="clip.mp4",
+            source_ref="assets/b_clip.mp4",
+            metadata={"kind": "external-preview"},
+        )
+        first_attachment = CanonicalAsset(
+            asset_id="attachment:1",
+            name="same.bin",
+            source_ref="assets/one_same.bin",
+            metadata={"kind": "attachment"},
+        )
+        second_attachment = CanonicalAsset(
+            asset_id="attachment:2",
+            name="same.bin",
+            source_ref="assets/two_same.bin",
+            metadata={"kind": "attachment"},
+        )
+        conv = CanonicalConversation(
+            conversation_id="discord:assets",
+            provider_id="discord",
+            title="assets",
+            messages=(
+                CanonicalMessage(
+                    message_id="1",
+                    role="user",
+                    content="media",
+                    assets=(linked, preview_alias, first_attachment, second_attachment),
+                ),
+            ),
+        )
+        markdown = render_canonical_markdown(conv, chat_style=True)
+        self.assertEqual(markdown.count("[clip.mp4]"), 1)
+        self.assertEqual(markdown.count("[same.bin]"), 2)
+
+    def test_placeholder_unknown_preview_description_is_suppressed(self) -> None:
+        conv = CanonicalConversation(
+            conversation_id="discord:unknown-preview",
+            provider_id="discord",
+            title="preview",
+            messages=(
+                CanonicalMessage(
+                    message_id="1",
+                    role="user",
+                    content="preview",
+                    metadata={
+                        "link_previews": [
+                            {
+                                "title": "HackGyver 2.0",
+                                "description": "unknown",
+                                "url": "https://example.test/hackgyver",
+                            }
+                        ]
+                    },
+                ),
+            ),
+        )
+        markdown = render_canonical_markdown(conv, chat_style=True)
+        self.assertIn("HackGyver 2.0", markdown)
+        self.assertNotIn("unknown", markdown.casefold())
+
     def test_docx_preserves_emoji_and_semantic_line_breaks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -191,6 +304,29 @@ class DiscordChatRenderingTests(unittest.TestCase):
         self.assertIn("🥰", document_xml)
         self.assertIn("<w:br", document_xml)
         self.assertEqual(document_xml.count("@soundy"), 1)
+
+    def test_bare_http_url_is_a_real_docx_hyperlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            conv = CanonicalConversation(
+                conversation_id="discord:docx-link",
+                provider_id="discord",
+                title="links",
+                messages=(
+                    CanonicalMessage(
+                        message_id="1",
+                        role="user",
+                        content="https://example.test/path",
+                    ),
+                ),
+            )
+            markdown_path = root / "conversation.md"
+            export_canonical_markdown(conv, markdown_path, chat_style=True)
+            docx_path = root / "conversation.docx"
+            export_docx(markdown_path, docx_path, document_title="links", overwrite=True)
+            with zipfile.ZipFile(docx_path) as archive:
+                relationships = archive.read("word/_rels/document.xml.rels").decode("utf-8")
+        self.assertIn('Target="https://example.test/path"', relationships)
 
 
 if __name__ == "__main__":
