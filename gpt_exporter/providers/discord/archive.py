@@ -82,8 +82,32 @@ def _collector_semantics(source_path: Path | None) -> dict[str, dict]:
         previews = raw.get("external_previews")
         if isinstance(previews, list) and previews:
             semantics["link_previews"] = previews
+            semantics["link_preview_image_indices"] = [
+                index
+                for index, preview in enumerate(previews)
+                if isinstance(preview, dict) and isinstance(preview.get("image"), dict)
+            ]
         result[message_id] = semantics
     return result
+
+
+def _tag_preview_assets(
+    assets: tuple[CanonicalAsset, ...],
+    image_indices: object,
+) -> tuple[CanonicalAsset, ...]:
+    indices = list(image_indices) if isinstance(image_indices, list) else []
+    next_index = 0
+    tagged: list[CanonicalAsset] = []
+    for asset in assets:
+        if asset.metadata.get("kind") == "external-preview" and next_index < len(indices):
+            preview_index = indices[next_index]
+            next_index += 1
+            if isinstance(preview_index, int) and preview_index >= 0:
+                asset_metadata = dict(asset.metadata)
+                asset_metadata["link_preview_index"] = preview_index
+                asset = replace(asset, metadata=asset_metadata)
+        tagged.append(asset)
+    return tuple(tagged)
 
 
 def _enrich_dm(conversation, *, source_path: Path | None = None):
@@ -114,6 +138,11 @@ def _enrich_dm(conversation, *, source_path: Path | None = None):
             asset for asset in message.assets
             if asset.metadata.get("kind") != "author-avatar"
         )
+        semantics = dict(semantic_by_message.get(message.message_id, {}))
+        assets = _tag_preview_assets(
+            assets,
+            semantics.pop("link_preview_image_indices", []),
+        )
         if avatar_url:
             author_id = str(message.author_id or "unknown")
             suffix = Path(urlparse(avatar_url).path).suffix or ".img"
@@ -132,9 +161,8 @@ def _enrich_dm(conversation, *, source_path: Path | None = None):
             assets = (avatar,) + assets
 
         message_metadata = dict(message.metadata)
-        # Discord message line breaks are semantic, not source wrapping.
         message_metadata["preserve_line_breaks"] = True
-        message_metadata.update(semantic_by_message.get(message.message_id, {}))
+        message_metadata.update(semantics)
         messages.append(replace(message, assets=assets, metadata=message_metadata))
 
     return replace(
@@ -146,7 +174,6 @@ def _enrich_dm(conversation, *, source_path: Path | None = None):
 
 
 def _record_docx_path(database_path: Path, conversation_id: str, docx_path: Path) -> None:
-    """Persist the provider-derived DOCX location after generic indexing."""
     if not docx_path.is_file() or docx_path.stat().st_size == 0:
         return
     with closing(sqlite3.connect(database_path)) as connection:
@@ -162,7 +189,6 @@ def _human_named_paths(directory: Path, channel_id: str, suffix: str) -> tuple[P
 
 
 def _find_existing_canonical(downloads_dir: Path, channel_id: str, preferred: Path, legacy: Path):
-    """Return the most complete stored canonical conversation for a stable channel ID."""
     candidates: list[Path] = []
     for path in (preferred, legacy, *_human_named_paths(downloads_dir, channel_id, ".json.xz")):
         if path not in candidates and path.is_file() and path.stat().st_size > 0:
@@ -214,15 +240,7 @@ def archive_collector_export(
     *,
     archive_root: Path | None = None,
 ) -> DiscordArchiveResult:
-    """Normalize and archive one full-DM browser collector JSON.
-
-    The source JSON is copied byte-for-byte into ``raw``. Canonical JSON/XZ,
-    local assets, DOCX and SQLite are derived artifacts. Discord media is
-    acquired immediately while signed CDN URLs are valid. A partial collector
-    run may not replace an archive containing message IDs that are absent from
-    the new export. Human-readable filenames may change when account names do;
-    the stable Discord channel ID is therefore always used to find prior state.
-    """
+    """Normalize and archive one full-DM browser collector JSON."""
 
     source_path = Path(source_path).expanduser().resolve()
     root = Path(archive_root or default_archive_root()).expanduser().resolve()
@@ -288,6 +306,7 @@ def archive_collector_export(
                 markdown_path,
                 include_timestamps=True,
                 include_title=False,
+                chat_style=True,
             )
             export_docx(
                 markdown_path,
