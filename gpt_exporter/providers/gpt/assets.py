@@ -23,6 +23,7 @@ class GptAssetLayoutMigrationResult:
     unchanged: int
     missing: int
     registry_updated: bool
+    affected_conversations: tuple[str, ...] = ()
 
 
 def _load_json(path: Path) -> Any:
@@ -63,64 +64,73 @@ def _conversation_files(downloads: Path) -> list[Path]:
     )
 
 
-def _semantic_asset_buckets(downloads: Path) -> dict[str, str]:
-    """Infer GPT asset buckets from conversation semantics, not file extensions."""
+def _semantic_asset_layout(
+    downloads: Path,
+) -> tuple[dict[str, str], dict[str, set[str]]]:
+    """Infer asset buckets and the conversations referencing each asset ID."""
     buckets: dict[str, str] = {}
-
-    def assign(asset_id: str | None, bucket: str) -> None:
-        if asset_id is None:
-            return
-        precedence = {"attachment": 1, "image": 2, "dictation": 3, "external": 4}
-        current = buckets.get(asset_id)
-        if current is None or precedence[bucket] > precedence[current]:
-            buckets[asset_id] = bucket
-
-    def walk(value: object) -> None:
-        if isinstance(value, dict):
-            content_type = value.get("content_type")
-            if content_type == "image_asset_pointer":
-                assign(_extract_asset_id(value.get("asset_pointer")), "image")
-
-            metadata = value.get("metadata")
-            if isinstance(metadata, dict):
-                assign(_extract_asset_id(metadata.get("dictation_asset_pointer")), "dictation")
-
-                attachments = metadata.get("attachments")
-                if isinstance(attachments, list):
-                    for attachment in attachments:
-                        if not isinstance(attachment, dict):
-                            continue
-                        for key in (
-                            "id",
-                            "file_id",
-                            "library_file_id",
-                            "asset_pointer",
-                            "pointer",
-                            "download_url",
-                            "url",
-                        ):
-                            assign(_extract_asset_id(attachment.get(key)), "attachment")
-
-                external_images = metadata.get("_archive_external_images")
-                if isinstance(external_images, list):
-                    for external in external_images:
-                        if isinstance(external, dict):
-                            assign(_extract_asset_id(external.get("asset_id")), "external")
-
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
+    references: dict[str, set[str]] = {}
+    precedence = {"attachment": 1, "image": 2, "dictation": 3, "external": 4}
 
     for path in _conversation_files(downloads):
         try:
             payload = _load_json(path)
         except (OSError, EOFError, lzma.LZMAError, UnicodeError, json.JSONDecodeError):
             continue
-        walk(payload)
 
-    return buckets
+        referenced_ids: set[str] = set()
+
+        def assign(asset_id: str | None, bucket: str) -> None:
+            if asset_id is None:
+                return
+            referenced_ids.add(asset_id)
+            current = buckets.get(asset_id)
+            if current is None or precedence[bucket] > precedence[current]:
+                buckets[asset_id] = bucket
+
+        def walk(value: object) -> None:
+            if isinstance(value, dict):
+                content_type = value.get("content_type")
+                if content_type == "image_asset_pointer":
+                    assign(_extract_asset_id(value.get("asset_pointer")), "image")
+
+                metadata = value.get("metadata")
+                if isinstance(metadata, dict):
+                    assign(_extract_asset_id(metadata.get("dictation_asset_pointer")), "dictation")
+
+                    attachments = metadata.get("attachments")
+                    if isinstance(attachments, list):
+                        for attachment in attachments:
+                            if not isinstance(attachment, dict):
+                                continue
+                            for key in (
+                                "id",
+                                "file_id",
+                                "library_file_id",
+                                "asset_pointer",
+                                "pointer",
+                                "download_url",
+                                "url",
+                            ):
+                                assign(_extract_asset_id(attachment.get(key)), "attachment")
+
+                    external_images = metadata.get("_archive_external_images")
+                    if isinstance(external_images, list):
+                        for external in external_images:
+                            if isinstance(external, dict):
+                                assign(_extract_asset_id(external.get("asset_id")), "external")
+
+                for child in value.values():
+                    walk(child)
+            elif isinstance(value, list):
+                for child in value:
+                    walk(child)
+
+        walk(payload)
+        for asset_id in referenced_ids:
+            references.setdefault(asset_id, set()).add(path.name)
+
+    return buckets, references
 
 
 def _record_bucket(record: dict[str, Any], semantic: dict[str, str]) -> str:
@@ -152,9 +162,10 @@ def migrate_gpt_asset_layout(archive_root: Path | str) -> GptAssetLayoutMigratio
     if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
         raise ValueError(f"Invalid GPT asset registry: {source_registry}")
 
-    semantic = _semantic_asset_buckets(downloads)
+    semantic, references = _semantic_asset_layout(downloads)
     moved = reused = unchanged = missing = 0
     changed = False
+    changed_asset_ids: set[str] = set()
 
     for record in payload["results"]:
         if not isinstance(record, dict) or record.get("status") not in {"downloaded", "skipped"}:
@@ -163,6 +174,7 @@ def migrate_gpt_asset_layout(archive_root: Path | str) -> GptAssetLayoutMigratio
         if not isinstance(filename, str) or not filename.strip():
             continue
 
+        file_id = str(record.get("file_id") or "")
         relative = Path(filename.replace("\\", "/"))
         source = assets / relative
         bucket = _record_bucket(record, semantic)
@@ -178,6 +190,8 @@ def migrate_gpt_asset_layout(archive_root: Path | str) -> GptAssetLayoutMigratio
             if destination.is_file():
                 record["filename"] = desired_relative
                 changed = True
+                if file_id:
+                    changed_asset_ids.add(file_id)
                 reused += 1
             else:
                 missing += 1
@@ -187,6 +201,8 @@ def migrate_gpt_asset_layout(archive_root: Path | str) -> GptAssetLayoutMigratio
         move_verified(source, destination)
         record["filename"] = desired_relative
         changed = True
+        if file_id:
+            changed_asset_ids.add(file_id)
         if destination_existed:
             reused += 1
         else:
@@ -198,12 +214,23 @@ def migrate_gpt_asset_layout(archive_root: Path | str) -> GptAssetLayoutMigratio
         if legacy_registry.is_file():
             legacy_registry.unlink()
 
+    affected_conversations = tuple(
+        sorted(
+            {
+                conversation_name
+                for asset_id in changed_asset_ids
+                for conversation_name in references.get(asset_id, ())
+            }
+        )
+    )
+
     return GptAssetLayoutMigrationResult(
         moved=moved,
         reused=reused,
         unchanged=unchanged,
         missing=missing,
         registry_updated=changed or source_registry != registry_path,
+        affected_conversations=affected_conversations,
     )
 
 
