@@ -171,14 +171,14 @@ class DiscordArchiveTests(unittest.TestCase):
             self.assertEqual(row[1], "Direct Messages")
             self.assertEqual(row[2], "123456")
 
-    def test_partial_collector_export_cannot_replace_complete_archive(self) -> None:
+    def test_recapture_retains_missing_messages_as_deleted_history(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)
             root = temp / "archive"
             complete = temp / "complete.json"
             complete.write_text(json.dumps(payload(("100", "101", "102"))), encoding="utf-8")
-            partial = temp / "partial.json"
-            partial.write_text(json.dumps(payload(("101", "102"))), encoding="utf-8")
+            recapture = temp / "recapture.json"
+            recapture.write_text(json.dumps(payload(("101", "102"))), encoding="utf-8")
 
             with (
                 mock.patch("gpt_exporter.providers.discord.archive.export_canonical_markdown"),
@@ -186,13 +186,14 @@ class DiscordArchiveTests(unittest.TestCase):
                 mock.patch("gpt_exporter.providers.discord.archive.update_index"),
             ):
                 first = archive_collector_export(complete, archive_root=root)
-                raw_before = read_raw_bytes(first.raw_path)
-                second = archive_collector_export(partial, archive_root=root)
+                second = archive_collector_export(recapture, archive_root=root)
 
-            self.assertFalse(second.updated)
-            self.assertEqual(read_raw_bytes(second.raw_path), raw_before)
+            self.assertTrue(second.updated)
+            self.assertEqual(read_raw_bytes(second.raw_path), recapture.read_bytes())
             canonical = read_canonical_conversation(second.canonical_path)
             self.assertEqual([m.message_id for m in canonical.messages], ["100", "101", "102"])
+            self.assertTrue(canonical.messages[0].metadata["deleted"])
+            self.assertEqual(canonical.messages[0].content, "message 100")
 
 
 if __name__ == "__main__":
