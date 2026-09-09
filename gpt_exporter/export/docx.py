@@ -30,7 +30,7 @@ class DocxExportResult:
 
 
 def _install_normalized_image_cache(implementation: ModuleType) -> None:
-    """Reuse Pillow-normalized raster bytes for repeated images such as avatars."""
+    """Reuse normalized image bytes only for the duration of one DOCX export."""
     if getattr(implementation, "_canonical_normalized_image_cache", False):
         return
     original_normalize = implementation.normalized_png_stream
@@ -52,16 +52,12 @@ def _install_normalized_image_cache(implementation: ModuleType) -> None:
         )
 
     implementation.normalized_png_stream = normalized_png_stream
+    implementation._canonical_normalized_image_cache_clear = normalized_bytes.cache_clear
     implementation._canonical_normalized_image_cache = True
 
 
 def _install_author_avatar_renderer(implementation: ModuleType) -> None:
-    """Teach the retained renderer one provider-neutral canonical image role.
-
-    Canonical Markdown marks author avatars through their alt text. Keep this
-    compact chat-specific presentation in the shared DOCX adapter instead of in
-    any concrete provider. Other images continue through the frozen v2.8 path.
-    """
+    """Teach the retained renderer one provider-neutral canonical image role."""
     if getattr(implementation, "_canonical_author_avatar_renderer", False):
         return
     original_add_image = implementation.add_image
@@ -113,7 +109,6 @@ def _implementation() -> ModuleType:
 def _forward_progress(buffer: io.StringIO, progress: ProgressCallback | None) -> None:
     if progress is None:
         return
-
     for line in buffer.getvalue().splitlines():
         if line.strip():
             progress(line)
@@ -134,12 +129,7 @@ def export_docx(
 
     if not markdown_path.is_file():
         raise FileNotFoundError(f"Markdown file not found: {markdown_path}")
-
-    if (
-        not overwrite
-        and output_path.is_file()
-        and output_path.stat().st_size > 0
-    ):
+    if not overwrite and output_path.is_file() and output_path.stat().st_size > 0:
         return DocxExportResult(
             output_path=output_path,
             size_bytes=output_path.stat().st_size,
@@ -147,13 +137,20 @@ def export_docx(
         )
 
     implementation = _implementation()
+    cache_clear = getattr(implementation, "_canonical_normalized_image_cache_clear", None)
+    if cache_clear is not None:
+        cache_clear()
     captured = io.StringIO()
-    with contextlib.redirect_stdout(captured):
-        implementation.convert_markdown_to_docx(
-            markdown_path=markdown_path,
-            output_path=output_path,
-            document_title=document_title,
-        )
+    try:
+        with contextlib.redirect_stdout(captured):
+            implementation.convert_markdown_to_docx(
+                markdown_path=markdown_path,
+                output_path=output_path,
+                document_title=document_title,
+            )
+    finally:
+        if cache_clear is not None:
+            cache_clear()
 
     _forward_progress(captured, progress)
 
