@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+import time
 from contextlib import closing
 from importlib.resources import files
 from pathlib import Path
@@ -294,18 +295,30 @@ class DiscordWorkspaceActions:
         return True
 
     def run_export(self, path: Path, progress):
-        progress("Validating and normalizing Discord export…")
-        result = archive_collector_export(Path(path), archive_root=self.workspace.root_path)
-        progress(f"Conversation archived: {result.message_count} message(s).")
-        progress(
+        started = time.monotonic()
+
+        def timed_progress(message: str) -> None:
+            elapsed = max(0, int(time.monotonic() - started))
+            hours, remainder = divmod(elapsed, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            progress(f"[+{hours:02d}:{minutes:02d}:{seconds:02d}] {message}")
+
+        timed_progress("Starting Discord archive workflow…")
+        result = archive_collector_export(
+            Path(path),
+            archive_root=self.workspace.root_path,
+            progress=timed_progress,
+        )
+        timed_progress(f"Conversation archived: {result.message_count} message(s).")
+        timed_progress(
             "Assets: "
             f"{result.available_assets} available, {result.downloaded_assets} downloaded, "
             f"{result.reused_assets} reused, {len(result.failed_assets)} failed."
         )
-        progress(f"Raw archive: {result.raw_path}")
-        progress(f"Canonical archive: {result.canonical_path}")
-        progress(f"DOCX: {result.docx_path}")
-        progress(f"Search index: {result.database_path}")
+        timed_progress(f"Raw archive: {result.raw_path}")
+        timed_progress(f"Canonical archive: {result.canonical_path}")
+        timed_progress(f"DOCX: {result.docx_path}")
+        timed_progress(f"Search index: {result.database_path}")
         return result
 
     def finish_export(self, result) -> bool:
