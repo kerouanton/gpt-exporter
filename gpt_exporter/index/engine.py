@@ -77,6 +77,7 @@ def _index_source(
     *,
     force: bool,
     native_indexer: NativeIndexer | None,
+    progress: ProgressCallback | None = None,
 ) -> bool:
     canonical = try_read_canonical_conversation(json_path)
     if canonical is not None:
@@ -86,6 +87,7 @@ def _index_source(
             source_path=json_path,
             archive_root=archive_root,
             force=force,
+            progress=progress,
         )
     if native_indexer is None:
         raise ValueError(
@@ -137,7 +139,7 @@ def update_index(
     connection = connect_database(resolved_database)
     try:
         indexed_mtimes = {} if force else _indexed_source_mtimes(connection)
-        for json_path in json_files:
+        for file_number, json_path in enumerate(json_files, start=1):
             try:
                 # The source path and nanosecond mtime are already stored in the
                 # index. Check those cheap filesystem values before opening an XZ
@@ -149,12 +151,17 @@ def update_index(
                         fast_skipped += 1
                         continue
 
+                _emit(
+                    progress,
+                    f"Indexing conversation source {file_number}/{len(json_files)}: {json_path.name}",
+                )
                 changed = _index_source(
                     connection,
                     json_path,
                     archive_root,
                     force=force,
                     native_indexer=native_indexer,
+                    progress=progress,
                 )
                 if changed:
                     updated += 1
