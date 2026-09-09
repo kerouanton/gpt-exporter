@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -18,6 +19,8 @@ from typing import Callable
 
 ProgressCallback = Callable[[str], None]
 _AUTHOR_AVATAR_PREFIX = "Author avatar: "
+_CHAT_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_CHAT_TIME_RE = re.compile(r"^\d{2}:\d{2}(?: · edited)?$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +118,71 @@ def _forward_progress(buffer: io.StringIO, progress: ProgressCallback | None) ->
             progress(line)
 
 
+def _bold_time_run(paragraph):
+    for run in paragraph.runs:
+        text = run.text.strip()
+        if run.bold and _CHAT_TIME_RE.fullmatch(text):
+            return run
+    return None
+
+
+def _apply_chat_metadata_styles(output_path: Path) -> None:
+    """Color compact chat authors/dates/timestamps using one shared DOCX style."""
+    from docx import Document
+    from docx.shared import RGBColor
+
+    document = Document(output_path)
+    paragraphs = document.paragraphs
+    time_indexes = {
+        index for index, paragraph in enumerate(paragraphs)
+        if _bold_time_run(paragraph) is not None
+    }
+    if not time_indexes:
+        return
+
+    blue = RGBColor(47, 117, 181)
+    changed = False
+
+    def style_run(run) -> None:
+        nonlocal changed
+        run.font.color.rgb = blue
+        run.bold = True
+        changed = True
+
+    def next_nonempty_index(start: int) -> int | None:
+        for index in range(start + 1, len(paragraphs)):
+            if paragraphs[index].text.strip():
+                return index
+        return None
+
+    for index, paragraph in enumerate(paragraphs):
+        text = paragraph.text.strip()
+        if not text:
+            continue
+
+        if _CHAT_DATE_RE.fullmatch(text):
+            for run in paragraph.runs:
+                if run.text.strip():
+                    style_run(run)
+            continue
+
+        time_run = _bold_time_run(paragraph)
+        if time_run is not None:
+            style_run(time_run)
+            continue
+
+        visible_runs = [run for run in paragraph.runs if run.text.strip()]
+        if not visible_runs or not all(run.bold for run in visible_runs):
+            continue
+        following = next_nonempty_index(index)
+        if following is not None and following in time_indexes:
+            for run in visible_runs:
+                style_run(run)
+
+    if changed:
+        document.save(output_path)
+
+
 def export_docx(
     markdown_path: Path | str,
     output_path: Path | str,
@@ -147,6 +215,7 @@ def export_docx(
                 output_path=output_path,
                 document_title=document_title,
             )
+        _apply_chat_metadata_styles(output_path)
     finally:
         if cache_clear is not None:
             cache_clear()
