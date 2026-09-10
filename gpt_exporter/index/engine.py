@@ -101,6 +101,15 @@ def _index_source(
     )
 
 
+def _discover_conversation_sources(downloads_dir: Path) -> list[Path]:
+    """Return indexable JSON archives while excluding provider raw snapshots."""
+    return sorted(
+        path
+        for path in downloads_dir.rglob("*.json.xz")
+        if not path.name.casefold().endswith(".raw.json.xz")
+    )
+
+
 def update_index(
     archive_root: Path | str,
     *,
@@ -126,7 +135,7 @@ def update_index(
         raise FileNotFoundError(f"Downloads directory does not exist: {resolved_downloads}")
 
     resolved_database.parent.mkdir(parents=True, exist_ok=True)
-    json_files = sorted(resolved_downloads.rglob("*.json.xz"))
+    json_files = _discover_conversation_sources(resolved_downloads)
     _emit(progress, f"Found {len(json_files)} compressed conversation JSON files")
     if not json_files:
         return IndexUpdateResult(
@@ -141,10 +150,6 @@ def update_index(
         indexed_mtimes = {} if force else _indexed_source_mtimes(connection)
         for file_number, json_path in enumerate(json_files, start=1):
             try:
-                # The source path and nanosecond mtime are already stored in the
-                # index. Check those cheap filesystem values before opening an XZ
-                # stream. This keeps application startup proportional to directory
-                # enumeration rather than to decompression/parsing of the archive.
                 if not force:
                     source_mtime_ns = json_path.stat().st_mtime_ns
                     if indexed_mtimes.get(_source_key(json_path)) == source_mtime_ns:
