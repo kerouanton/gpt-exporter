@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime
-from typing import Iterable
 
 from gpt_exporter.core import CanonicalConversation, CanonicalMessage
 
@@ -27,6 +26,40 @@ def _message_sort_key(message: CanonicalMessage) -> tuple[str, int, str]:
     except ValueError:
         numeric_id = 0
     return timestamp, numeric_id, raw_id
+
+
+def _message_bounds(conversation: CanonicalConversation) -> tuple[CanonicalMessage | None, CanonicalMessage | None]:
+    if not conversation.messages:
+        return None, None
+    ordered = sorted(conversation.messages, key=_message_sort_key)
+    return ordered[0], ordered[-1]
+
+
+def snapshot_covers_existing_history(
+    existing: CanonicalConversation | None,
+    incoming: CanonicalConversation,
+) -> bool:
+    """Return whether the incoming snapshot spans the complete known archive range.
+
+    This is deliberately conservative.  A collector snapshot that starts after
+    the first archived message (or ends before the last archived message) is a
+    partial window and cannot be used as evidence that omitted messages were
+    deleted remotely.
+
+    Covering the known range is not proof that Discord's absolute history was
+    reached; it is only enough evidence to compare omissions against history we
+    already possess locally.
+    """
+    if existing is None or not existing.messages:
+        return False
+    old_first, old_last = _message_bounds(existing)
+    new_first, new_last = _message_bounds(incoming)
+    if old_first is None or old_last is None or new_first is None or new_last is None:
+        return False
+    return (
+        _message_sort_key(new_first) <= _message_sort_key(old_first)
+        and _message_sort_key(new_last) >= _message_sort_key(old_last)
+    )
 
 
 def _merge_present_message(
@@ -70,7 +103,9 @@ def merge_dm_history(
     Rules are intentionally archive-oriented:
     - new message IDs are inserted;
     - present message IDs are refreshed and content changes are marked edited;
-    - archived IDs missing from the new snapshot are retained and marked deleted;
+    - missing archived IDs are marked deleted only when the incoming snapshot
+      spans the complete history range already known locally;
+    - partial snapshots retain omitted archived messages unchanged;
     - a previously deleted message that reappears has its deletion marker cleared.
     """
     if existing is None:
@@ -81,6 +116,7 @@ def merge_dm_history(
     observed_at = detected_at or _detected_at()
     incoming_by_id = {message.message_id: message for message in incoming.messages}
     existing_by_id = {message.message_id: message for message in existing.messages}
+    coverage_complete = snapshot_covers_existing_history(existing, incoming)
 
     changed = False
     merged_messages: list[CanonicalMessage] = []
@@ -97,12 +133,13 @@ def merge_dm_history(
             changed = changed or message_changed
             continue
 
-        metadata = dict(old_message.metadata)
-        if not metadata.get("deleted"):
-            metadata["deleted"] = True
-            metadata["deleted_detected_at"] = observed_at
-            old_message = replace(old_message, metadata=metadata)
-            changed = True
+        if coverage_complete:
+            metadata = dict(old_message.metadata)
+            if not metadata.get("deleted"):
+                metadata["deleted"] = True
+                metadata["deleted_detected_at"] = observed_at
+                old_message = replace(old_message, metadata=metadata)
+                changed = True
         merged_messages.append(old_message)
 
     for message_id, new_message in incoming_by_id.items():
@@ -116,17 +153,24 @@ def merge_dm_history(
     # cumulative message history to extend earlier than the current snapshot.
     created_at = merged_messages[0].created_at if merged_messages else incoming.created_at
     updated_at = merged_messages[-1].created_at if merged_messages else incoming.updated_at
+    conversation_metadata = dict(incoming.metadata)
+    conversation_metadata["snapshot_coverage"] = (
+        "covers-known-history" if coverage_complete else "partial-known-history"
+    )
     merged_conversation = replace(
         incoming,
         messages=tuple(merged_messages),
         created_at=created_at,
         updated_at=updated_at,
+        metadata=conversation_metadata,
     )
 
     if existing.title != merged_conversation.title:
+        changed = True
+    if dict(existing.metadata).get("snapshot_coverage") != conversation_metadata["snapshot_coverage"]:
         changed = True
 
     return merged_conversation, changed
 
 
-__all__ = ["merge_dm_history"]
+__all__ = ["merge_dm_history", "snapshot_covers_existing_history"]
