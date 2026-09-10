@@ -199,8 +199,34 @@ class DiscordRemoteDeleteTests(unittest.TestCase):
             self.assertIn('root.querySelector(\'[role="group"][aria-label="Message Actions"]\')', payload)
             self.assertIn('normalize(element.getAttribute("aria-label")) === "more"', payload)
             self.assertIn('normalize(element.textContent) === "delete message"', payload)
-            self.assertIn('!document.getElementById(targetElementId)', payload)
+            self.assertIn('document.getElementById(`chat-messages-${id}`)', payload)
             self.assertNotIn('root.querySelector(\'[aria-label="Message Actions"] [aria-label="Delete"]', payload)
+
+    def test_execute_payload_reacquires_dom_and_deletes_only_one_message_per_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            canonical = self._canonical(root, ("100", "101"))
+            dry_run = self._dry_run(root, ("100", "101"), {"100", "101"})
+            actions = self._actions(root)
+            plan = actions.prepare_remote_deletion(
+                {
+                    "conversation_id": "discord:123456",
+                    "title": "@soundy",
+                    "source_json_path": str(canonical),
+                },
+                dry_run,
+            )
+
+            self.assertTrue(actions.copy_remote_delete_execute(plan))
+            payload = actions.app.clipboard
+            self.assertIn("function materializedTargetRoot(id)", payload)
+            self.assertIn("async function deleteOne(id)", payload)
+            self.assertIn("const candidate = materializedTargetRoots().find", payload)
+            self.assertIn("await deleteOne(candidate.id);", payload)
+            self.assertNotIn("for (const { root, id } of materializedTargetRoots())", payload)
+            self.assertIn("consecutiveFailures", payload)
+            self.assertIn("backing off", payload)
+            self.assertIn("await sleep(650);", payload)
 
 
 if __name__ == "__main__":
