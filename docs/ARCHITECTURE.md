@@ -1,26 +1,30 @@
 # Architecture
 
-GPT Exporter is evolving into a provider-neutral conversation archive engine. ChatGPT is one provider implementation, not an architectural dependency of the engine.
+GPT Exporter is now a multi-provider conversation archive application in transition toward a fully packageable provider architecture. ChatGPT and Discord are concrete provider implementations; neither should become an architectural dependency of the shared engine.
+
+The next architectural milestone is specified in `PROVIDER_PACKAGE_ARCHITECTURE.md`. That document deliberately distinguishes the **current provider-neutral foundation** from the stronger future requirement of independently installable/discoverable provider packages.
 
 ## Dependency rule
 
 The primary invariant is one-way dependency:
 
 ```text
-providers\gpt      ------>  core/shared engine
-providers\discord  ------>  core/shared engine
-providers\...      ------>  core/shared engine
-
-core/shared engine  -X->  providers\*
+provider implementation  ------>  shared core/application contracts
+shared core              -X---->  concrete provider implementation
 ```
 
-Concrete providers may depend on shared contracts and services. Shared engine code must not require a concrete provider to exist.
+Today the repository contains:
 
-The strongest acceptance test is literal: deleting `gpt_exporter\providers\gpt\` must still leave the canonical model, serialization, canonical SQLite indexing, generic Markdown export, and generic resources operational. This is covered by `tests/test_provider_removal_resilience.py`, which copies the package, physically deletes the GPT provider directory, and exercises those services with a synthetic provider.
+```text
+gpt_exporter/providers/gpt/
+gpt_exporter/providers/discord/
+```
+
+The core provider registry itself imports no concrete provider, but `gpt_exporter/application.py` still explicitly composes ChatGPT and Discord. That is transitional coupling and is intentionally documented as next-milestone work rather than treated as solved.
 
 ## Canonical provider boundary
 
-Providers implement `gpt_exporter.core.ConversationProvider` and normalize their source schema into:
+Providers implement the canonical source boundary in `gpt_exporter.core` and normalize source data into:
 
 ```text
 CanonicalConversation
@@ -28,173 +32,249 @@ CanonicalMessage
 CanonicalAsset
 ```
 
-The canonical model contains only cross-provider concepts. Provider-only fields belong in provider metadata and must not become required core fields merely because one provider exposes them.
+The canonical model contains cross-provider concepts only. Provider-only fields remain provider metadata and must not become required shared fields merely because one service exposes them.
 
-Examples of ChatGPT-only source concepts include `mapping`, `current_node`, gizmo/Custom GPT identifiers, ChatGPT project/origin details, model slugs, browser asset pointers, and `chatgpt-archive-source.json`. A future Discord provider can expose guild/channel/thread metadata without changing the canonical model or shared SQLite schema.
+The current minimal `ConversationProvider` protocol supplies:
+
+```text
+descriptor
+discover(source)
+normalize(source)
+```
+
+That contract is intentionally small. The future package architecture will require a richer capability/registration layer for workspace defaults, collection, archive actions, regeneration, optional remote operations, CLI dispatch and compatibility/version negotiation without making every provider implement every capability.
+
+## Shared application layers
+
+The intended shared stack is:
+
+```text
+CLI -------------------+
+                       |
+GUI -------------------+--> shared application/workflows
+                               |
+                               v
+                     provider capability contracts
+                               |
+                               v
+                        installed providers
+```
+
+The GUI is not the engine. Provider and archive behavior must remain callable independently of Tkinter, and GUI/CLI must invoke the same underlying operations.
+
+Shared code owns, or is the intended owner of:
+
+- canonical conversation/message/asset representation;
+- canonical serialization;
+- shared SQLite indexing and FTS search;
+- canonical Markdown rendering and shared DOCX generation;
+- Browser and workspace shell;
+- categories, tags and work-project organization;
+- archive workflow/process/progress windows;
+- persistent workflow logs;
+- provider registry/discovery infrastructure;
+- application lifecycle and provider-neutral CLI dispatch;
+- explicit-root shared path abstractions.
+
+A provider owns source/service-specific behavior such as:
+
+- service/source discovery and acquisition;
+- browser collector resources or native import adapters;
+- provider export validation;
+- source-schema parsing and visibility/history rules;
+- normalization to the canonical model;
+- provider-specific identifiers and metadata;
+- provider-specific archive policy that cannot safely be generalized;
+- provider-specific default workspace proposal;
+- provider-specific remote-service operations;
+- provider-specific historical migrations and resources.
+
+Provider code should not clone a workflow or UI merely because the data source differs. When ChatGPT and Discord need the same lifecycle, that lifecycle belongs in the shared layer and provider capabilities feed it.
 
 ## Current package ownership
 
+A simplified view of the current tree is:
+
 ```text
-gpt_exporter\
-├── core\
-│   ├── model.py                 # canonical provider-neutral model
-│   ├── provider.py              # provider protocol
-│   └── serialization.py         # canonical durable JSON/XZ
-│
-├── index\
-│   ├── engine.py                # provider-neutral canonical index orchestration
-│   ├── canonical.py             # CanonicalConversation -> SQLite
-│   └── storage.py               # shared provider-neutral SQLite schema v5
-│
-├── export\
-│   ├── markdown.py              # canonical Markdown + lazy compatibility facade
-│   └── docx.py                  # shared Markdown -> DOCX
-│
-├── paths.py                     # explicit-root provider-neutral path model
-├── resources\                   # shared HELP/HISTORY only
-├── ui\                          # shared UI helpers
-│
-└── providers\
-    └── gpt\
-        ├── provider.py          # ChatGPT -> canonical adapter
-        ├── paths.py             # historical ChatGPT default archive location
-        ├── pipeline.py          # ChatGPT archive workflow
-        ├── importer\            # browser-bundle import
-        ├── indexing\            # native ChatGPT JSON indexing compatibility
-        ├── export\              # native Markdown + batch workflow
-        ├── archive\             # GPT asset inventory/manifest/audit
-        ├── resources\           # collect_chatgpt_archive.js
-        ├── cli\                 # ChatGPT-specific command implementations
-        └── ui\                  # ChatGPT workflow and application shell
+gpt_exporter/
+├── application.py                 # shared shell, but still explicit provider composition
+├── workspaces.py                  # provider-neutral workspace catalog/model
+├── core/
+│   ├── model.py                   # canonical provider-neutral model
+│   ├── provider.py                # provider protocol/descriptor
+│   ├── provider_registry.py       # registry with no concrete-provider imports
+│   └── serialization.py           # canonical durable JSON/XZ
+├── index/                         # shared canonical SQLite/indexing
+├── export/                        # shared Markdown/DOCX rendering
+├── ui/
+│   ├── archive_workflow.py        # shared collector/archive lifecycle UI
+│   ├── browser/                   # shared Browser
+│   └── ...                        # shared workspace/remote-deletion shells
+└── providers/
+    ├── gpt/                       # ChatGPT-specific source/archive behavior
+    └── discord/                   # Discord-specific source/archive behavior
 ```
 
-Historical root scripts remain only as compatibility launchers where existing commands must continue to work. They must not contain provider schema parsing or ChatGPT workflow logic.
+Historical repository-root scripts remain compatibility launchers where existing commands must continue to work. They should not regain provider schema/business logic.
 
-## ChatGPT archive flow
+## Shared archive workflow
 
-The GPT provider currently owns this source-specific flow:
+`gpt_exporter/ui/archive_workflow.py` is the reference pattern for provider-neutral UI composition.
+
+The shared UI owns:
+
+- the three-step collection/archive dialog;
+- export waiting/detection lifecycle;
+- background execution;
+- progress rendering;
+- persistent logs;
+- success/failure window behavior;
+- Browser refresh completion handling.
+
+Providers supply an `ArchiveWorkflowSpec` plus action methods for service-specific operations. New providers should extend this contract or its successor instead of implementing a separate archive window.
+
+## ChatGPT source flow
+
+The ChatGPT provider owns ChatGPT-specific acquisition and normalization:
 
 ```text
 Authenticated ChatGPT tab
         |
         v
-providers\gpt\resources\collect_chatgpt_archive.js
+providers/gpt/resources/collector
         |
         v
-chatgpt-archive-source.json
+ChatGPT browser export
         |
         v
-providers\gpt\importer / pipeline
-        |
-        +--> downloads\*.json.xz
-        +--> assets\*
+providers/gpt importer/pipeline
         |
         v
 ChatGPTProvider -> CanonicalConversation
 ```
 
-Existing native ChatGPT JSON/XZ behavior remains supported during the transition, but raw ChatGPT schema interpretation belongs to the provider.
+Provider-native compatibility paths remain provider-owned. Once normalized, shared indexing/rendering/browser infrastructure should be used wherever possible.
 
-## Shared engine responsibilities
+## Discord source flow
 
-Once provider data is canonical, shared code owns:
-
-- canonical conversation/message/asset representation;
-- durable canonical serialization;
-- generic indexing and full-text search storage;
-- canonical Markdown rendering and shared DOCX generation;
-- categories, tags and work-project organization;
-- generic UI components and browser behavior;
-- path derivation from an explicit archive root.
-
-Provider code owns:
-
-- source discovery and acquisition;
-- source-schema parsing and branch/visibility rules;
-- provider-specific asset identifiers and metadata;
-- provider-native compatibility import/index/export paths;
-- provider-specific GUI actions and command-line workflows;
-- provider-specific historical migrations;
-- provider-specific default filesystem locations.
-
-Shared code must not encode a concrete provider's archive directory name. New provider-neutral code constructs `ArchivePaths` with `ArchivePaths.from_root(explicit_root)`. Historical convenience defaults remain provider-owned and may be exposed through lazy compatibility shims only.
-
-## Provider-neutral SQLite schema v5
-
-Schema v5 removes the final ChatGPT-specific fields from the shared `conversations` table. Provider metadata is stored generically in:
+Discord is the second concrete provider and follows the same shared application model:
 
 ```text
-conversation_provider_metadata
-    conversation_id
-    provider_id
-    metadata_json
-    updated_at
+Authenticated Discord DM
+        |
+        v
+providers/discord/resources collector
+        |
+        v
+Discord browser export
+        |
+        v
+providers/discord archive/history/asset logic
+        |
+        v
+DiscordProvider -> CanonicalConversation
+        |
+        +--> shared index / Browser
+        +--> shared Markdown/DOCX renderer
 ```
 
-The v4 fields:
+Discord-specific history completeness, cumulative message merge, safe remote deletion and DM naming remain provider responsibilities. The workflow/progress UI and generic renderer are shared.
+
+See `DISCORD_PROVIDER.md` for the provider behavior and archive format.
+
+## Provider-neutral SQLite schema
+
+The shared SQLite model stores provider metadata generically in `conversation_provider_metadata` instead of adding one column per service-specific field.
+
+The current index schema has advanced beyond the historical v5 provider-extraction milestone; documentation and tests should refer to the active schema version rather than assuming the old v5 baseline. Provider-specific metadata must continue to fit the generic metadata mechanism without requiring a shared-schema change for every new provider.
+
+This remains a strict architectural requirement for future packages.
+
+## Archive authority and derived outputs
+
+Across providers, preserve the distinction between durable source/canonical data and derived presentation/index artifacts.
+
+For ChatGPT, historical preservation rules established by the frozen v2.7 line remain authoritative.
+
+For Discord, the current archive preserves a byte-exact compressed raw collector snapshot plus a cumulative canonical conversation. DOCX and SQLite are derived/rebuildable. Multipart DOCX does not create multiple logical conversations; it creates several derived views of one canonical conversation.
+
+## Discord multipart DOCX
+
+Large Discord DMs are split by message density, not by page count or file size.
+
+Current rule:
 
 ```text
-gizmo_id
-gizmo_type
-conversation_template_id
-conversation_origin
-default_model_slug
+threshold = 1000 messages
+sparse pre-dense years -> one historical range when useful
+dense year -> semester if semester count < threshold
+otherwise -> quarter
+minimum granularity -> quarter
 ```
 
-are migrated into `conversation_provider_metadata` with `provider_id = 'gpt'` and are no longer columns of the shared schema.
-
-The migration is covered by tests that verify:
-
-- all five legacy values are preserved;
-- the five GPT columns disappear from `conversations`;
-- child-table foreign keys remain valid after the table replacement;
-- `PRAGMA foreign_key_check` returns no errors;
-- another provider such as Discord can store its own metadata without any schema change.
-
-## Legacy ChatGPT DOCX migration
-
-The historical 42-conversation DOCX migration is closed. Its canonical promotion was verified from JSON only with:
-
-- 42 / 42 conversations;
-- 654 / 654 messages;
-- exact role counts;
-- zero DOCX dependencies in a rebuilt index.
-
-The active `gpt_exporter\legacy` runtime package no longer exists. Historical reconstruction code is retained only as non-importable snapshot material under:
+The validated 6,674-message Gadget MCS ↔ Littleloulita archive produces:
 
 ```text
-gpt_exporter\providers\gpt\archive\legacy_docx\snapshot\
+2022-2025 : 37
+2026Q1    : 1872
+2026Q2    : 2550
+2026Q3    : 2215
 ```
 
-The original local DOCX migration directory is no longer a runtime or rebuild dependency.
+The Browser still has one conversation row and records the latest part as the primary `docx_path`. Deferred Browser multipart navigation and incremental-part regeneration are recorded in `TODO.md`.
+
+## Remote deletion boundary
+
+Remote deletion is a provider capability, not a shared assumption.
+
+The shared application owns the safety workflow and confirmation surface. A provider that supports remote deletion supplies the service-specific dry run and execution mechanics. Discord is the first implementation.
+
+The local canonical archive is not deleted by the remote operation. Discord deletion is permitted only after the dry-run candidate set is proven covered by the local archive; unsafe/incomplete coverage blocks the action rather than offering an override.
 
 ## Compatibility facades
 
-Some historical public imports remain outside `providers\gpt` so existing scripts and callers do not break abruptly. These facades obey two rules:
+Historical public imports and root scripts may remain while migration is in progress, subject to two rules:
 
-1. they contain no ChatGPT parsing/business logic;
-2. generic package imports must not eagerly load `gpt_exporter.providers.gpt`.
+1. they contain no provider schema/business logic that should live in a provider package;
+2. generic package imports must not eagerly require a concrete provider.
 
-New code should call provider APIs directly when performing provider-specific work.
+Compatibility code is not justification for adding new concrete-provider coupling.
 
-## Architecture acceptance criteria
+## Current removal resilience versus future packageability
 
-A provider-neutral engine must satisfy all of the following:
+Existing tests already prove important parts of provider-removal resilience, especially for the shared core. That is necessary but not sufficient for the next milestone.
+
+The stronger future acceptance test is literal application composition:
 
 ```text
-1. Remove gpt_exporter\providers\gpt\ physically.
-2. Import the canonical model and serialization code.
-3. Serialize a conversation from a synthetic/non-GPT provider.
-4. Build/update its SQLite index.
-5. Export it to canonical Markdown.
-6. Use shared resources/UI helpers.
-7. No shared engine module imports a concrete provider as a runtime prerequisite.
-8. No provider-specific fields are required by the shared SQLite schema.
-9. Shared path derivation requires only an explicit archive root; concrete default paths belong to providers.
+remove ChatGPT provider -> app/CLI continue with Discord
+remove Discord provider -> app/CLI continue with ChatGPT
+remove all providers -> shared application imports/startup remain valid
+add unknown provider package -> discovered without main-app source edit
 ```
 
-Provider compatibility facades may fail when their provider has deliberately been removed; the engine itself must not.
+Today `application.py` still contains explicit provider imports/conditionals for registration, default workspaces, legacy launchers, workspace argument translation and workspace action creation. Those must move behind dynamic discovery/capabilities before provider packageability can be declared complete.
 
-## Versioning rule
+## Future independent provider development
 
-v2.7 remains the frozen behavioral baseline for established ChatGPT archive behavior while provider extraction proceeds. Refactors must preserve current user-visible behavior unless accompanied by explicit migration, changelog and rollback treatment.
+The package contract must eventually permit provider repositories such as:
+
+```text
+export-provider-chatgpt
+export-provider-discord
+export-provider-linkedin
+```
+
+A new provider repository should consume a stable shared provider API/SDK, run its own contract tests, and produce an installable artifact without modifying the exporter repository just to register the provider.
+
+The exact artifact format is deliberately undecided. See `PROVIDER_PACKAGE_ARCHITECTURE.md`.
+
+## Future product identity
+
+After provider independence/packageability is fully implemented and validated, the project is intended to be renamed **Multi Social Network Explorer (MSNE)**. The rename is a later milestone and should not be mixed into the provider-contract refactor.
+
+## Preservation/versioning rule
+
+The v2.7 ChatGPT frozen archive baseline remains historical preservation evidence. Subsequent multi-provider refactors must preserve established archive semantics unless an explicit migration, changelog entry and rollback strategy say otherwise.
+
+For current development state and next steps, see `HANDOVER_PROVIDER_PACKAGING.md` and `TODO.md`.
