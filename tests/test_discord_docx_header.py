@@ -110,6 +110,39 @@ class DiscordDocxHeaderTests(unittest.TestCase):
         self.assertEqual(_participant_label(records[0]), "@gadgetmcs — Gadget MCS")
         self.assertEqual(_participant_label(records[1]), "@soundy — soundy")
 
+    def test_empty_placeholder_participant_is_omitted_from_dm_header(self) -> None:
+        conversation = CanonicalConversation(
+            conversation_id="discord:994497416583708703",
+            provider_id="discord",
+            title="Gadget MCS ↔ Littleloulita",
+            messages=(),
+            metadata={
+                "current_user": {
+                    "id": "1",
+                    "username": "gadgetmcs",
+                    "display_name": "Gadget MCS",
+                    "is_self": True,
+                },
+                "participants": [
+                    {"id": "1", "name": "Gadget MCS", "is_self": True},
+                    {"id": "2", "name": "Littleloulita", "is_self": False},
+                    {
+                        "id": None,
+                        "username": None,
+                        "display_name": None,
+                        "name": None,
+                        "avatar_url": None,
+                        "is_self": False,
+                    },
+                ],
+            },
+        )
+
+        records = _participant_records(conversation)
+        labels = [_participant_label(record) for record in records]
+        self.assertEqual(labels, ["@gadgetmcs — Gadget MCS", "Littleloulita"])
+        self.assertNotIn("Unknown participant", labels)
+
     def test_prepend_header_keeps_body_and_uses_local_avatar_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
