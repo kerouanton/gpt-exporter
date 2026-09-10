@@ -337,17 +337,15 @@ def _participant_records(conversation) -> tuple[dict, ...]:
 
 
 def _participant_label(record: dict) -> str:
-    username = str(record.get("username") or "").strip()
+    """Prefer the human display name; fall back to username, then stable ID."""
     display_name = str(record.get("display_name") or record.get("name") or "").strip()
+    username = str(record.get("username") or "").strip()
     participant_id = str(record.get("id") or "").strip()
 
-    if username:
-        handle = username if username.startswith("@") else f"@{username}"
-        if display_name:
-            return f"{handle} — {display_name}"
-        return handle
     if display_name:
         return display_name
+    if username:
+        return username if username.startswith("@") else f"@{username}"
     return participant_id or "Unknown participant"
 
 
