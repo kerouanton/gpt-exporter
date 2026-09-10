@@ -282,8 +282,16 @@ def _without_author_avatars(conversation):
     return replace(conversation, messages=tuple(messages))
 
 
+def _participant_has_identity(record: dict) -> bool:
+    """Return whether a participant record has a usable human or stable identity."""
+    return any(
+        str(record.get(key) or "").strip()
+        for key in ("id", "username", "display_name", "name")
+    )
+
+
 def _participant_records(conversation) -> tuple[dict, ...]:
-    """Return DM participants with the current user's richer identity merged in."""
+    """Return identifiable DM participants with the current user's richer identity merged in."""
     metadata = dict(conversation.metadata)
     records: list[dict] = []
     by_id: dict[str, dict] = {}
@@ -310,6 +318,11 @@ def _participant_records(conversation) -> tuple[dict, ...]:
                 by_id[current_id] = target
             target.update({key: value for key, value in current.items() if value is not None})
             target["is_self"] = True
+
+    # Discord can expose placeholder participant objects with no usable identity.
+    # They are collector/UI artifacts, not real third participants in a DM, and must
+    # not become a visible "Unknown participant" token in every generated DOCX.
+    records = [record for record in records if _participant_has_identity(record)]
 
     title = str(conversation.title or "").strip()
     fallback_peer_username = title[1:].strip() if title.startswith("@") else ""
