@@ -3,7 +3,10 @@ from __future__ import annotations
 import unittest
 
 from gpt_exporter.core import CanonicalConversation, CanonicalMessage
-from gpt_exporter.providers.discord.history import merge_dm_history
+from gpt_exporter.providers.discord.history import (
+    merge_dm_history,
+    snapshot_covers_existing_history,
+)
 
 
 def conversation(*messages: CanonicalMessage) -> CanonicalConversation:
@@ -40,19 +43,34 @@ class DiscordHistoryMergeTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual([item.message_id for item in merged.messages], ["1", "2", "3"])
         self.assertFalse(any(item.metadata.get("deleted") for item in merged.messages))
+        self.assertEqual(merged.metadata["snapshot_coverage"], "covers-known-history")
 
-    def test_missing_archived_message_is_retained_and_marked_deleted(self) -> None:
-        existing = conversation(message("1", "old text"), message("2", "still here"))
-        incoming = conversation(message("2", "still here"))
+    def test_missing_archived_message_is_retained_and_marked_deleted_when_range_is_covered(self) -> None:
+        existing = conversation(message("1", "first"), message("2", "old text"), message("3", "still here"))
+        incoming = conversation(message("1", "first"), message("3", "still here"))
 
+        self.assertTrue(snapshot_covers_existing_history(existing, incoming))
         merged, changed = merge_dm_history(existing, incoming, detected_at="2026-09-09T12:34:56+02:00")
 
         self.assertTrue(changed)
-        first = merged.messages[0]
-        self.assertEqual(first.message_id, "1")
-        self.assertEqual(first.content, "old text")
-        self.assertTrue(first.metadata["deleted"])
-        self.assertEqual(first.metadata["deleted_detected_at"], "2026-09-09T12:34:56+02:00")
+        middle = merged.messages[1]
+        self.assertEqual(middle.message_id, "2")
+        self.assertEqual(middle.content, "old text")
+        self.assertTrue(middle.metadata["deleted"])
+        self.assertEqual(middle.metadata["deleted_detected_at"], "2026-09-09T12:34:56+02:00")
+        self.assertEqual(merged.metadata["snapshot_coverage"], "covers-known-history")
+
+    def test_partial_recent_snapshot_does_not_tombstone_older_archived_messages(self) -> None:
+        existing = conversation(message("1", "old"), message("2", "middle"), message("3", "new"))
+        incoming = conversation(message("3", "new"))
+
+        self.assertFalse(snapshot_covers_existing_history(existing, incoming))
+        merged, changed = merge_dm_history(existing, incoming, detected_at="2026-09-09T12:34:56+02:00")
+
+        self.assertTrue(changed)  # coverage metadata is recorded
+        self.assertEqual([item.message_id for item in merged.messages], ["1", "2", "3"])
+        self.assertFalse(any(item.metadata.get("deleted") for item in merged.messages))
+        self.assertEqual(merged.metadata["snapshot_coverage"], "partial-known-history")
 
     def test_deleted_message_that_reappears_clears_tombstone(self) -> None:
         existing = conversation(message("1", "one", deleted=True))
@@ -75,14 +93,15 @@ class DiscordHistoryMergeTests(unittest.TestCase):
         self.assertTrue(merged.messages[0].metadata["edited"])
         self.assertEqual(merged.messages[0].metadata["edited_detected_at"], "2026-09-09T14:00:00+02:00")
 
-    def test_identical_recapture_is_unchanged(self) -> None:
+    def test_identical_recapture_is_unchanged_after_coverage_metadata_exists(self) -> None:
         existing = conversation(message("1", "same"))
-        incoming = conversation(message("1", "same"))
+        first, changed = merge_dm_history(existing, existing, detected_at="2026-09-09T15:00:00+02:00")
+        self.assertTrue(changed)
+        self.assertEqual(first.metadata["snapshot_coverage"], "covers-known-history")
 
-        merged, changed = merge_dm_history(existing, incoming, detected_at="2026-09-09T15:00:00+02:00")
-
-        self.assertFalse(changed)
-        self.assertEqual(merged.messages, incoming.messages)
+        second, changed_again = merge_dm_history(first, existing, detected_at="2026-09-09T15:05:00+02:00")
+        self.assertFalse(changed_again)
+        self.assertEqual(second.messages, existing.messages)
 
 
 if __name__ == "__main__":
