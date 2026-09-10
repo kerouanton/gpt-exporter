@@ -34,7 +34,10 @@ class DiscordNamingTests(unittest.TestCase):
 
         self.assertIsNotNone(peer)
         self.assertEqual(peer["name"], "a33z")
-        self.assertEqual(dm_title(metadata, "(101) Discord | @a33z"), "@a33z")
+        self.assertEqual(
+            dm_title(metadata, "(101) Discord | @a33z"),
+            "Gadget MCS ↔ a33z",
+        )
         self.assertEqual(
             dm_artifact_stem(metadata, "1467602455704371264"),
             "Discord DM gadgetmcs ↔ a33z 1467602455704371264",
@@ -50,7 +53,39 @@ class DiscordNamingTests(unittest.TestCase):
         }
 
         self.assertEqual(dm_peer(metadata)["name"], "TomZ")
-        self.assertEqual(dm_title(metadata, "Discord | @TomZ"), "@TomZ")
+        self.assertEqual(dm_title(metadata, "Discord | @TomZ"), "me ↔ TomZ")
+
+    def test_title_matches_artifact_identity_order(self) -> None:
+        metadata = {
+            "participants": [
+                {
+                    "id": "little",
+                    "name": "Littleloulita",
+                    "display_name": "Littleloulita",
+                    "is_self": True,
+                },
+                {
+                    "id": "gadget",
+                    "name": "Gadget MCS",
+                    "display_name": "Gadget MCS",
+                    "is_self": False,
+                },
+            ],
+            "current_user": {
+                "id": "little",
+                "display_name": "Littleloulita",
+                "username": "littleloulita",
+            },
+        }
+
+        self.assertEqual(
+            dm_title(metadata, "@Gadget MCS"),
+            "Littleloulita ↔ Gadget MCS",
+        )
+        self.assertEqual(
+            dm_artifact_stem(metadata, "994497416583708703"),
+            "Discord DM Littleloulita ↔ Gadget MCS 994497416583708703",
+        )
 
 
 if __name__ == "__main__":
