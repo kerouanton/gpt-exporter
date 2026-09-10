@@ -25,7 +25,7 @@ from gpt_exporter.index import update_index
 
 from .assets import conversation_with_local_assets, download_conversation_assets
 from .history import merge_dm_history
-from .naming import dm_artifact_stem, dm_title, legacy_paths
+from .naming import discord_artifact_paths, dm_title, legacy_paths
 from .provider import DiscordProvider
 from .raw_archive import materialize_raw_json, read_raw_json, write_raw_archive
 
@@ -202,9 +202,17 @@ def _human_named_paths(directory: Path, channel_id: str, suffix: str) -> tuple[P
     return tuple(sorted(directory.glob(f"Discord DM * {channel_id}{suffix}")))
 
 
+def _canonical_candidates(downloads_dir: Path, channel_id: str) -> tuple[Path, ...]:
+    return tuple(
+        path
+        for path in _human_named_paths(downloads_dir, channel_id, ".json.xz")
+        if not path.name.casefold().endswith(".raw.json.xz")
+    )
+
+
 def _find_existing_canonical(downloads_dir: Path, channel_id: str, preferred: Path, legacy: Path):
     candidates: list[Path] = []
-    for path in (preferred, legacy, *_human_named_paths(downloads_dir, channel_id, ".json.xz")):
+    for path in (preferred, legacy, *_canonical_candidates(downloads_dir, channel_id)):
         if path not in candidates and path.is_file() and path.stat().st_size > 0:
             candidates.append(path)
 
@@ -246,6 +254,12 @@ def _remove_stale_artifacts(root: Path, channel_id: str, *, keep: set[Path]) -> 
         try:
             if path.resolve() not in keep_resolved:
                 path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    raw_dir = root / "raw"
+    if raw_dir.is_dir():
+        try:
+            raw_dir.rmdir()
         except OSError:
             pass
 
@@ -291,10 +305,6 @@ def _participant_records(conversation) -> tuple[dict, ...]:
             target.update({key: value for key, value in current.items() if value is not None})
             target["is_self"] = True
 
-    # Discord's browser title is normally the peer handle (for example
-    # ``@soundy``).  Older collector payloads did not store that username in
-    # ``participants``; use the already-humanized DM title as a conservative
-    # fallback while preserving the separately collected display name.
     title = str(conversation.title or "").strip()
     fallback_peer_username = title[1:].strip() if title.startswith("@") else ""
     if fallback_peer_username and " " not in fallback_peer_username:
@@ -357,13 +367,11 @@ def archive_collector_export(
     archive_root: Path | None = None,
     progress: ProgressCallback | None = None,
 ) -> DiscordArchiveResult:
-    """Normalize and archive one full-DM browser collector JSON."""
+    """Normalize and archive one Discord collector JSON."""
 
     source_path = Path(source_path).expanduser().resolve()
     root = Path(archive_root or default_archive_root()).expanduser().resolve()
-    raw_dir = root / "raw"
     downloads_dir = root / "downloads"
-    raw_dir.mkdir(parents=True, exist_ok=True)
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
     _emit(progress, "Reading and normalizing Discord collector export…")
@@ -374,10 +382,11 @@ def archive_collector_export(
             source_path=source_path,
         )
     channel_id = _channel_id(incoming.conversation_id)
-    stem = dm_artifact_stem(incoming.metadata, channel_id)
-    raw_path = raw_dir / f"{stem}.json.xz"
-    canonical_path = downloads_dir / f"{stem}.json.xz"
-    docx_path = root / f"{stem}.docx"
+    raw_path, canonical_path, docx_path = discord_artifact_paths(
+        root,
+        incoming.metadata,
+        channel_id,
+    )
     database_path = root / "conversations-index.sqlite"
     asset_dir = root / "assets" / channel_id
 
@@ -427,7 +436,7 @@ def archive_collector_export(
             dir=root,
         ) as temp_dir:
             markdown_dir = Path(temp_dir)
-            markdown_path = markdown_dir / f"{stem}.md"
+            markdown_path = markdown_dir / f"{docx_path.stem}.md"
             _emit(progress, "Preparing local asset references for export…")
             export_conversation = conversation_with_local_assets(
                 conversation,
