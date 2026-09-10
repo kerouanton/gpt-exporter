@@ -92,6 +92,10 @@ class DiscordCollectorTests(unittest.TestCase):
         self.assertIn('reached_top_of_conversation:', script)
         self.assertIn('top_of_history_marker_detected:', script)
         self.assertIn('Beginning evidence', script)
+        self.assertIn('Paramètres utilisateur', script)
+        self.assertIn('bottom-left-account-avatar', script)
+        self.assertIn('rect.left < 64', script)
+        self.assertIn('ambiguous-bottom-left-account-avatars', script)
 
     def test_validate_and_normalize_full_dm_collector_export(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
