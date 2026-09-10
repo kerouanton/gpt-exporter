@@ -241,7 +241,7 @@ def wait_for_new_export(
         )
         for candidate in candidates:
             try:
-                return validate_collector_export(candidate)
+                return validate_collector_export(candidate).path
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
                 last_error = error
         time.sleep(poll_seconds)
