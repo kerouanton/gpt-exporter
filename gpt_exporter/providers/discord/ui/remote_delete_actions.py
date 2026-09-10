@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import time
 from importlib.resources import files
@@ -18,8 +19,16 @@ from gpt_exporter.providers.discord.collector import (
     snapshot_exports,
     validate_collector_export,
 )
-from gpt_exporter.providers.discord.naming import dm_artifact_stem
-from gpt_exporter.providers.discord.raw_archive import iter_raw_files, read_raw_json
+from gpt_exporter.providers.discord.naming import (
+    discord_artifact_paths,
+    dm_artifact_stem,
+    dm_title,
+)
+from gpt_exporter.providers.discord.raw_archive import (
+    iter_raw_files,
+    migrate_plain_raw_file,
+    read_raw_json,
+)
 from gpt_exporter.ui.archive_workflow import (
     ArchiveProcessingDialog,
     ArchiveWorkflowSpec,
@@ -116,17 +125,165 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
 
     remote_delete_label = "Delete My Archived Messages from Discord…"
 
-    def regenerate_missing(self) -> bool:
-        raw_dir = self.workspace.root_path / "raw"
-        if not raw_dir.is_dir():
-            messagebox.showinfo(
-                "Regenerate Missing DOCX",
-                "No Discord raw archive directory exists in this workspace.",
-                parent=self.app,
-            )
-            return False
+    def _raw_archive_files(self) -> tuple[Path, ...]:
+        """Return new co-located raw snapshots plus historical raw-directory files."""
+        downloads = self.workspace.root_path / "downloads"
+        current = tuple(sorted(downloads.glob("*.raw.json.xz"))) if downloads.is_dir() else ()
+        legacy_dir = self.workspace.root_path / "raw"
+        legacy = iter_raw_files(legacy_dir) if legacy_dir.is_dir() else ()
+        seen: set[Path] = set()
+        result: list[Path] = []
+        for path in (*current, *legacy):
+            resolved = Path(path).resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                result.append(Path(path))
+        return tuple(result)
 
-        raw_files = list(iter_raw_files(raw_dir))
+    def prepare_index(self) -> bool:
+        """Migrate Discord artifacts to downloads/*.raw|canonical.json.xz and symmetric names."""
+        root = self.workspace.root_path
+        downloads = root / "downloads"
+        downloads.mkdir(parents=True, exist_ok=True)
+        changed = False
+        metadata_by_channel: dict[str, dict[str, Any]] = {}
+
+        for raw_path in self._raw_archive_files():
+            try:
+                payload = read_raw_json(raw_path)
+                conversation = payload.get("conversation") if isinstance(payload, dict) else None
+                channel_id = str(conversation.get("channel_id") or "") if isinstance(conversation, dict) else ""
+                if not channel_id:
+                    continue
+                metadata = {
+                    "participants": conversation.get("participants"),
+                    "current_user": payload.get("current_user"),
+                }
+                metadata_by_channel[channel_id] = metadata
+                target_raw, _target_canonical, _target_docx = discord_artifact_paths(
+                    root, metadata, channel_id
+                )
+                if raw_path.resolve() != target_raw.resolve():
+                    migrate_plain_raw_file(raw_path, target_raw)
+                    changed = True
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
+
+        historical_canonicals = tuple(
+            path
+            for path in sorted(downloads.glob("*.json.xz"))
+            if not path.name.casefold().endswith(".raw.json.xz")
+            and not path.name.casefold().endswith(".canonical.json.xz")
+        )
+        for source in historical_canonicals:
+            try:
+                canonical = read_canonical_conversation(source)
+            except (OSError, ValueError):
+                continue
+            if canonical.provider_id != "discord":
+                continue
+            channel_id = str(canonical.conversation_id).removeprefix("discord:")
+            metadata = dict(canonical.metadata)
+            metadata.update(metadata_by_channel.get(channel_id, {}))
+            _target_raw, target_canonical, target_docx = discord_artifact_paths(
+                root, metadata, channel_id
+            )
+            if source.resolve() != target_canonical.resolve() and not target_canonical.exists():
+                source.replace(target_canonical)
+                changed = True
+
+            old_docx_candidates = sorted(root.glob(f"Discord DM * {channel_id}.docx"))
+            if not target_docx.exists() and old_docx_candidates:
+                old_docx = max(old_docx_candidates, key=lambda path: path.stat().st_mtime_ns)
+                if old_docx.resolve() != target_docx.resolve():
+                    try:
+                        old_docx.replace(target_docx)
+                    except OSError:
+                        shutil.copy2(old_docx, target_docx)
+                        old_docx.unlink(missing_ok=True)
+                    changed = True
+
+        if self.workspace.database_path.is_file():
+            try:
+                with sqlite3.connect(self.workspace.database_path) as connection:
+                    connection.row_factory = sqlite3.Row
+                    rows = connection.execute(
+                        """
+                        SELECT c.conversation_id, c.title, c.source_json_path, c.docx_path,
+                               pm.metadata_json
+                        FROM conversations AS c
+                        LEFT JOIN conversation_provider_metadata AS pm
+                          ON pm.conversation_id = c.conversation_id
+                         AND pm.provider_id = 'discord'
+                        WHERE c.conversation_id LIKE 'discord:%'
+                        """
+                    ).fetchall()
+                    for row in rows:
+                        channel_id = str(row["conversation_id"]).removeprefix("discord:")
+                        metadata = dict(metadata_by_channel.get(channel_id, {}))
+                        raw_metadata = row["metadata_json"]
+                        if raw_metadata:
+                            try:
+                                parsed = json.loads(raw_metadata)
+                            except (TypeError, json.JSONDecodeError):
+                                parsed = {}
+                            if isinstance(parsed, dict):
+                                merged = dict(parsed)
+                                merged.update(metadata)
+                                metadata = merged
+                        target_raw, target_canonical, target_docx = discord_artifact_paths(
+                            root, metadata, channel_id
+                        )
+                        source_value = (
+                            str(target_canonical)
+                            if target_canonical.is_file()
+                            else str(row["source_json_path"] or "")
+                        )
+                        docx_value = (
+                            str(target_docx)
+                            if target_docx.is_file()
+                            else (str(row["docx_path"] or "") or None)
+                        )
+                        title = dm_title(metadata, str(row["title"] or ""))
+                        connection.execute(
+                            """
+                            UPDATE conversations
+                               SET title = ?, source_json_path = ?, docx_path = ?,
+                                   primary_origin_type = ?, primary_origin_id = ?
+                             WHERE conversation_id = ?
+                            """,
+                            (
+                                title,
+                                source_value,
+                                docx_value,
+                                "Direct Messages",
+                                channel_id,
+                                row["conversation_id"],
+                            ),
+                        )
+                        try:
+                            connection.execute(
+                                "UPDATE canonical_conversation_sources SET source_path = ? WHERE conversation_id = ?",
+                                (source_value, row["conversation_id"]),
+                            )
+                        except sqlite3.OperationalError:
+                            pass
+                    connection.commit()
+            except sqlite3.Error:
+                pass
+
+        legacy_raw_dir = root / "raw"
+        if legacy_raw_dir.is_dir():
+            try:
+                legacy_raw_dir.rmdir()
+            except OSError:
+                pass
+            else:
+                changed = True
+        return changed
+
+    def regenerate_missing(self) -> bool:
+        raw_files = list(self._raw_archive_files())
         if not raw_files:
             messagebox.showinfo(
                 "Regenerate Missing DOCX",
@@ -147,7 +304,11 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
                     "participants": conversation.get("participants"),
                     "current_user": payload.get("current_user"),
                 }
-                docx_path = self.workspace.root_path / f"{dm_artifact_stem(metadata, channel_id)}.docx"
+                _raw, _canonical, docx_path = discord_artifact_paths(
+                    self.workspace.root_path,
+                    metadata,
+                    channel_id,
+                )
             except (OSError, UnicodeError, json.JSONDecodeError):
                 continue
             if not docx_path.is_file() or docx_path.stat().st_size == 0:
@@ -168,7 +329,7 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
         ArchiveProcessingDialog(
             self.app,
             actions=actions,
-            export_path=raw_dir,
+            export_path=self.workspace.root_path / "downloads",
         )
         return True
 
