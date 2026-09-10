@@ -10,6 +10,7 @@
     const deleted = new Set();
     const attempts = new Map();
     const failures = new Map();
+    let consecutiveFailures = 0;
 
     function currentChannelId() {
         const parts = location.pathname.split("/").filter(Boolean);
@@ -65,6 +66,12 @@
         return [...document.querySelectorAll(MESSAGE_SELECTOR)]
             .map(root => ({ root, id: messageIdFromElement(root) }))
             .filter(item => item.id && targetIds.has(item.id) && !deleted.has(item.id));
+    }
+
+    function materializedTargetRoot(id) {
+        const element = document.getElementById(`chat-messages-${id}`);
+        if (element && messageIdFromElement(element) === id) return element;
+        return materializedTargetRoots().find(item => item.id === id)?.root || null;
     }
 
     function normalize(value) {
@@ -151,6 +158,11 @@
         return null;
     }
 
+    function dismissTransientUi() {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+        document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", code: "Escape", bubbles: true }));
+    }
+
     async function waitFor(predicate, timeoutMs, intervalMs = 75) {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
@@ -161,65 +173,104 @@
         return null;
     }
 
-    async function deleteOne(root, id) {
+    async function backoffAfterFailure() {
+        consecutiveFailures += 1;
+        const delay = Math.min(6000, 700 * (2 ** Math.min(consecutiveFailures - 1, 3)));
+        console.warn("[9c delete] backing off", { consecutiveFailures, delay_ms: delay });
+        dismissTransientUi();
+        await sleep(delay);
+    }
+
+    async function deleteOne(id) {
         const count = (attempts.get(id) || 0) + 1;
         attempts.set(id, count);
-        const targetElementId = root.id;
         try {
-            root.scrollIntoView({ block: "center" });
+            dismissTransientUi();
             await sleep(120);
+
+            let root = materializedTargetRoot(id);
+            if (!root) throw new Error("Target message is no longer materialized");
+            root.scrollIntoView({ block: "center" });
+            await sleep(180);
+
+            // Discord virtualizes the message list. Never retain a root across a DOM
+            // mutation or scroll: reacquire the exact message immediately before use.
+            root = materializedTargetRoot(id);
+            if (!root) throw new Error("Target message is no longer materialized");
 
             if (!materializeMessageActions(root)) {
                 throw new Error("React onMouseMove handler is not available inside the target message");
             }
 
-            let more = await waitFor(() => moreAction(root), 900);
+            let more = await waitFor(() => {
+                const currentRoot = materializedTargetRoot(id);
+                return currentRoot ? moreAction(currentRoot) : null;
+            }, 1200);
             if (!more) {
-                if (!materializeMessageActions(root)) {
+                root = materializedTargetRoot(id);
+                if (!root || !materializeMessageActions(root)) {
                     throw new Error("React onMouseMove handler is not available inside the target message");
                 }
-                more = await waitFor(() => moreAction(root), 900);
+                more = await waitFor(() => {
+                    const currentRoot = materializedTargetRoot(id);
+                    return currentRoot ? moreAction(currentRoot) : null;
+                }, 1200);
             }
             if (!more) throw new Error("More action is not available inside the target message");
 
             more.click();
-            const deleteItem = await waitFor(deleteMenuItem, 1200);
+            const deleteItem = await waitFor(deleteMenuItem, 1500);
             if (!deleteItem) throw new Error("Delete Message menu item was not found");
 
             deleteItem.click();
-            const confirm = await waitFor(confirmationButton, 1500);
+            const confirm = await waitFor(confirmationButton, 1800);
             if (!confirm) throw new Error("Discord delete confirmation dialog was not found");
 
             confirm.click();
-            const removed = await waitFor(() => !document.getElementById(targetElementId), 3000);
+            let removed = await waitFor(() => !document.getElementById(`chat-messages-${id}`), 4500);
+            if (!removed) {
+                // Large batches can make React/API acknowledgement lag behind the modal.
+                // Give Discord one extra quiet window before treating the attempt as failed.
+                await sleep(1800);
+                removed = !document.getElementById(`chat-messages-${id}`);
+            }
             if (!removed) throw new Error("Target message remained in the DOM after delete confirmation");
 
             deleted.add(id);
             failures.delete(id);
+            consecutiveFailures = 0;
             console.log("[9c delete] deleted", id);
+            await sleep(650);
             return true;
         } catch (error) {
             failures.set(id, String(error?.message || error));
             console.warn("[9c delete] could not delete", id, error);
+            await backoffAfterFailure();
             return false;
         }
     }
 
     async function processVisibleTargets() {
-        let progress = false;
-        for (const { root, id } of materializedTargetRoots()) {
-            if ((attempts.get(id) || 0) >= 3) continue;
-            if (await deleteOne(root, id)) progress = true;
-            await sleep(250);
-        }
-        return progress;
+        // Delete at most one message per cycle. A successful deletion mutates and may
+        // recycle Discord's virtualized DOM, so a snapshot of multiple roots becomes
+        // stale immediately after the first mutation.
+        const candidate = materializedTargetRoots().find(({ id }) => (attempts.get(id) || 0) < 3);
+        if (!candidate) return false;
+        await deleteOne(candidate.id);
+        return true;
     }
 
     async function sweepToBeginning(scroller) {
         let previousTop = null;
         let stable = 0;
         for (let iteration = 1; iteration <= 10000; iteration++) {
-            await processVisibleTargets();
+            const attempted = await processVisibleTargets();
+            if (attempted) {
+                previousTop = null;
+                stable = 0;
+                await sleep(250);
+                continue;
+            }
             const top = scroller.scrollTop;
             if (top <= 2 && previousTop !== null && Math.abs(top - previousTop) < 1) stable++; else stable = 0;
             if (stable >= 4) return;
@@ -234,8 +285,14 @@
         let stableBottom = 0;
         let previousTop = -1;
         for (let iteration = 1; iteration <= 30000; iteration++) {
-            await processVisibleTargets();
+            const attempted = await processVisibleTargets();
             if (deleted.size === targetIds.size) return;
+            if (attempted) {
+                stableBottom = 0;
+                previousTop = -1;
+                await sleep(250);
+                continue;
+            }
             const nearBottom = atBottom(scroller);
             const top = scroller.scrollTop;
             if (nearBottom && Math.abs(top - previousTop) < 1) stableBottom++; else stableBottom = 0;
