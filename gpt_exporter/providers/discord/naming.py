@@ -35,15 +35,7 @@ def dm_self(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
 
 
 def dm_peer(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    """Return the other DM participant, even when Discord cannot resolve their user id.
-
-    The collector can reliably identify the local account while the peer may have
-    ``is_self=None`` (for example older messages or users whose author id is not
-    available from the rendered DOM).  Treating the first participant as a fallback
-    can therefore select the local user and rename the conversation after ourselves.
-    Prefer explicit non-self entries, then any named participant that is not the
-    identified local account.
-    """
+    """Return the other DM participant, even when Discord cannot resolve their user id."""
     participants = metadata.get("participants")
     if not isinstance(participants, list):
         return None
@@ -90,18 +82,37 @@ def dm_title(metadata: Mapping[str, Any], fallback_title: str) -> str:
     return title or fallback_title
 
 
+def _display_identity(record: Mapping[str, Any] | None, *, fallback: str) -> str:
+    """Choose the same human-facing identity convention for both filename sides."""
+    if not record:
+        return fallback
+    return (
+        _text(record.get("display_name"))
+        or _text(record.get("name"))
+        or _text(record.get("username"))
+        or fallback
+    )
+
+
 def dm_artifact_stem(metadata: Mapping[str, Any], channel_id: str) -> str:
-    local = dm_self(metadata)
-    peer = dm_peer(metadata)
-    local_name = None
-    if local:
-        local_name = _text(local.get("username")) or _text(local.get("display_name")) or _text(local.get("name"))
-    peer_name = _text(peer.get("username")) if peer else None
-    if not peer_name and peer:
-        peer_name = _text(peer.get("name")) or _text(peer.get("display_name"))
-    local_name = safe_filename_component((local_name or "self").lstrip("@"))
-    peer_name = safe_filename_component((peer_name or "peer").lstrip("@"))
+    """Build a symmetric artifact stem using display names for both participants."""
+    local_name = _display_identity(dm_self(metadata), fallback="self")
+    peer_name = _display_identity(dm_peer(metadata), fallback="peer")
+    local_name = safe_filename_component(local_name.lstrip("@"))
+    peer_name = safe_filename_component(peer_name.lstrip("@"))
     return f"Discord DM {local_name} ↔ {peer_name} {channel_id}"
+
+
+def discord_artifact_paths(root: Path, metadata: Mapping[str, Any], channel_id: str) -> tuple[Path, Path, Path]:
+    """Return the canonical raw, canonical conversation and DOCX paths."""
+    root = Path(root)
+    stem = dm_artifact_stem(metadata, channel_id)
+    downloads = root / "downloads"
+    return (
+        downloads / f"{stem}.raw.json.xz",
+        downloads / f"{stem}.canonical.json.xz",
+        root / f"{stem}.docx",
+    )
 
 
 def legacy_paths(root: Path, channel_id: str) -> tuple[Path, Path, Path]:
@@ -112,4 +123,12 @@ def legacy_paths(root: Path, channel_id: str) -> tuple[Path, Path, Path]:
     )
 
 
-__all__ = ["dm_artifact_stem", "dm_peer", "dm_self", "dm_title", "legacy_paths", "safe_filename_component"]
+__all__ = [
+    "discord_artifact_paths",
+    "dm_artifact_stem",
+    "dm_peer",
+    "dm_self",
+    "dm_title",
+    "legacy_paths",
+    "safe_filename_component",
+]
