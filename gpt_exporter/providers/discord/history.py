@@ -35,21 +35,33 @@ def _message_bounds(conversation: CanonicalConversation) -> tuple[CanonicalMessa
     return ordered[0], ordered[-1]
 
 
+def _collector_history_complete(conversation: CanonicalConversation) -> bool:
+    """Return only explicit collector evidence that the full DM was traversed.
+
+    Older collector exports did not carry a trustworthy completeness signal.
+    Treat those snapshots as incomplete for deletion inference rather than
+    risking false tombstones when Discord supplied only a recent virtualized
+    window.
+    """
+    diagnostics = conversation.metadata.get("diagnostics")
+    return isinstance(diagnostics, dict) and diagnostics.get("history_complete") is True
+
+
 def snapshot_covers_existing_history(
     existing: CanonicalConversation | None,
     incoming: CanonicalConversation,
 ) -> bool:
-    """Return whether the incoming snapshot spans the complete known archive range.
+    """Return whether omissions in ``incoming`` are safe deletion evidence.
 
-    This is deliberately conservative.  A collector snapshot that starts after
-    the first archived message (or ends before the last archived message) is a
-    partial window and cannot be used as evidence that omitted messages were
-    deleted remotely.
+    Two independent conditions are required:
+    1. the collector explicitly proved that it reached the complete DM history;
+    2. the incoming message range spans the complete range already known locally.
 
-    Covering the known range is not proof that Discord's absolute history was
-    reached; it is only enough evidence to compare omissions against history we
-    already possess locally.
+    Range coverage alone is not sufficient: Discord's virtualized scroller can
+    expose only a recent window while temporarily reporting scrollTop == 0.
     """
+    if not _collector_history_complete(incoming):
+        return False
     if existing is None or not existing.messages:
         return False
     old_first, old_last = _message_bounds(existing)
@@ -103,9 +115,9 @@ def merge_dm_history(
     Rules are intentionally archive-oriented:
     - new message IDs are inserted;
     - present message IDs are refreshed and content changes are marked edited;
-    - missing archived IDs are marked deleted only when the incoming snapshot
-      spans the complete history range already known locally;
-    - partial snapshots retain omitted archived messages unchanged;
+    - missing archived IDs are marked deleted only after explicit full-history
+      collector evidence and complete coverage of the locally known range;
+    - partial or legacy snapshots retain omitted archived messages unchanged;
     - a previously deleted message that reappears has its deletion marker cleared.
     """
     if existing is None:
@@ -117,6 +129,7 @@ def merge_dm_history(
     incoming_by_id = {message.message_id: message for message in incoming.messages}
     existing_by_id = {message.message_id: message for message in existing.messages}
     coverage_complete = snapshot_covers_existing_history(existing, incoming)
+    collector_complete = _collector_history_complete(incoming)
 
     changed = False
     merged_messages: list[CanonicalMessage] = []
@@ -154,9 +167,13 @@ def merge_dm_history(
     created_at = merged_messages[0].created_at if merged_messages else incoming.created_at
     updated_at = merged_messages[-1].created_at if merged_messages else incoming.updated_at
     conversation_metadata = dict(incoming.metadata)
-    conversation_metadata["snapshot_coverage"] = (
-        "covers-known-history" if coverage_complete else "partial-known-history"
-    )
+    if coverage_complete:
+        coverage_label = "complete-verified"
+    elif collector_complete:
+        coverage_label = "complete-outside-known-range"
+    else:
+        coverage_label = "partial-or-unverified"
+    conversation_metadata["snapshot_coverage"] = coverage_label
     merged_conversation = replace(
         incoming,
         messages=tuple(merged_messages),
@@ -167,7 +184,7 @@ def merge_dm_history(
 
     if existing.title != merged_conversation.title:
         changed = True
-    if dict(existing.metadata).get("snapshot_coverage") != conversation_metadata["snapshot_coverage"]:
+    if dict(existing.metadata).get("snapshot_coverage") != coverage_label:
         changed = True
 
     return merged_conversation, changed
