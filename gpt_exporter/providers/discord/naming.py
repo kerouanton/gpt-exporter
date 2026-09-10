@@ -69,19 +69,6 @@ def dm_peer(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return None
 
 
-def dm_title(metadata: Mapping[str, Any], fallback_title: str) -> str:
-    peer = dm_peer(metadata)
-    peer_name = _text(peer.get("name")) if peer else None
-    if not peer_name and peer:
-        peer_name = _text(peer.get("display_name")) or _text(peer.get("username"))
-    if peer_name:
-        return peer_name if peer_name.startswith("@") else f"@{peer_name}"
-    title = _NOTIFICATION_PREFIX.sub("", fallback_title).strip()
-    if title.startswith("Discord |"):
-        title = title.split("|", 1)[1].strip()
-    return title or fallback_title
-
-
 def _display_identity(record: Mapping[str, Any] | None, *, fallback: str) -> str:
     """Choose the same human-facing identity convention for both filename sides."""
     if not record:
@@ -92,6 +79,21 @@ def _display_identity(record: Mapping[str, Any] | None, *, fallback: str) -> str
         or _text(record.get("username"))
         or fallback
     )
+
+
+def dm_title(metadata: Mapping[str, Any], fallback_title: str) -> str:
+    """Build the Browser title from the same two-sided identity convention as artifacts."""
+    local = dm_self(metadata)
+    peer = dm_peer(metadata)
+    if local or peer:
+        local_name = _display_identity(local, fallback="self").lstrip("@")
+        peer_name = _display_identity(peer, fallback="peer").lstrip("@")
+        return f"{local_name} ↔ {peer_name}"
+
+    title = _NOTIFICATION_PREFIX.sub("", fallback_title).strip()
+    if title.startswith("Discord |"):
+        title = title.split("|", 1)[1].strip()
+    return title or fallback_title
 
 
 def dm_artifact_stem(metadata: Mapping[str, Any], channel_id: str) -> str:
