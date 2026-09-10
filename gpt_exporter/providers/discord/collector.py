@@ -1,7 +1,7 @@
 """Browser-collector integration for the Discord provider.
 
 The provider deliberately does not read Discord tokens, cookies, passwords or local
-browser profiles.  Collection runs in the user's already-authenticated Discord web
+browser profiles. Collection runs in the user's already-authenticated Discord web
 session, mirroring the established ChatGPT collector workflow.
 """
 
@@ -35,6 +35,90 @@ _SEMANTIC_CONTENT_EMOJI_PATCH = (
     '        return normalizeText(clone.textContent);'
 )
 
+# Discord's message list is virtualized. In a large DM, scrollTop can briefly be
+# zero while Discord has only loaded a recent window; the old collector treated
+# four stable iterations at scrollTop == 0 as proof that the beginning had been
+# reached. Keep v15 compatibility but overlay a much more conservative traversal
+# that explicitly records whether a real top-of-history marker was observed.
+_TOP_TRAVERSAL_SENTINEL = '''    async function traverseToBeginning(scroller, currentUser, channelId) {
+        let previousOldest = null, stable = 0;
+        for (let iteration = 1; iteration <= 10000; iteration++) {
+            const status = collectMaterializedMessages(currentUser, channelId);
+            const oldest = oldestMaterializedRealId();
+            console.log("[9c exporter v15] UP", { iteration, oldest, ...status });
+            if (oldest && oldest === previousOldest) stable++; else stable = 0;
+            previousOldest = oldest;
+            if (stable >= 4 && scroller.scrollTop <= 2) { collectMaterializedMessages(currentUser, channelId); return; }
+            scroller.scrollTop = 0;
+            await sleep(1600);
+        }
+        throw new Error("Could not reach beginning of Discord DM.");
+    }'''
+
+_TOP_TRAVERSAL_PATCH = '''    function topOfHistoryMarkerVisible(scroller) {
+        const text = normalizeText(scroller?.innerText) || "";
+        if (/this is the beginning of (?:your )?(?:direct message|dm|conversation|chat) history/i.test(text)) return true;
+        if (/c['’]est le début de (?:votre|l['’])?(?:historique|conversation)/i.test(text)) return true;
+        if (/dies ist der anfang (?:deines|eures|der) (?:direktnachrichten|unterhaltung)/i.test(text)) return true;
+        return Boolean(scroller?.querySelector('[class*="emptyChannelIcon"], [class*="welcomeMessage"], [class*="channelIntro"]'));
+    }
+
+    async function traverseToBeginning(scroller, currentUser, channelId) {
+        let previousOldest = null, stable = 0, topMarkerStable = 0;
+        for (let iteration = 1; iteration <= 10000; iteration++) {
+            const status = collectMaterializedMessages(currentUser, channelId);
+            const oldest = oldestMaterializedRealId();
+            const topMarker = topOfHistoryMarkerVisible(scroller);
+            console.log("[9c exporter v15] UP", { iteration, oldest, topMarker, stable, ...status });
+            if (oldest && oldest === previousOldest) stable++; else stable = 0;
+            if (topMarker && scroller.scrollTop <= 2) topMarkerStable++; else topMarkerStable = 0;
+            previousOldest = oldest;
+            if (topMarkerStable >= 2) {
+                collectMaterializedMessages(currentUser, channelId);
+                return { reached_top: true, top_marker_detected: true, stable_iterations: stable, oldest_message_id: oldest };
+            }
+            // Do not hang forever when Discord stops loading older history. A
+            // stable scrollTop==0 without an explicit beginning marker is a
+            // partial/unverified capture, never deletion evidence.
+            if (stable >= 20 && scroller.scrollTop <= 2) {
+                collectMaterializedMessages(currentUser, channelId);
+                return { reached_top: false, top_marker_detected: false, stable_iterations: stable, oldest_message_id: oldest };
+            }
+            scroller.scrollTop = 0;
+            await sleep(1600);
+        }
+        return { reached_top: false, top_marker_detected: false, stable_iterations: stable, oldest_message_id: previousOldest };
+    }'''
+
+_BEGINNING_CALL_SENTINEL = '''    console.log("[9c exporter v15] Phase 1: finding beginning");
+    await traverseToBeginning(scroller, currentUser, channelId);
+    const launchNewestWasCollected = Boolean(launchNewestMessageId && collected.has(launchNewestMessageId));'''
+
+_BEGINNING_CALL_PATCH = '''    console.log("[9c exporter v15] Phase 1: finding beginning");
+    const beginning = await traverseToBeginning(scroller, currentUser, channelId);
+    console.log("[9c exporter v15] Beginning evidence", beginning);
+    const launchNewestWasCollected = Boolean(launchNewestMessageId && collected.has(launchNewestMessageId));'''
+
+_DIAGNOSTICS_SENTINEL = '''        launch_newest_was_collected: launchNewestWasCollected,
+        downward_traversal_used: downwardTraversalUsed,
+        enrichment_sweep_used: enrichmentSweepUsed,'''
+
+_DIAGNOSTICS_PATCH = '''        launch_newest_was_collected: launchNewestWasCollected,
+        downward_traversal_used: downwardTraversalUsed,
+        enrichment_sweep_used: enrichmentSweepUsed,
+        reached_top_of_conversation: beginning.reached_top === true,
+        top_of_history_marker_detected: beginning.top_marker_detected === true,
+        top_stable_iterations: beginning.stable_iterations || 0,
+        history_complete: Boolean(beginning.reached_top === true && launchAtBottom && launchNewestWasCollected && atBottom(scroller)),'''
+
+_COMPLETION_LOG_SENTINEL = '''    console.log(`[9c exporter v15] Enrichment sweep used: ${enrichmentSweepUsed}`);
+    console.log(`[9c exporter v15] Downloaded: ${filename}`);'''
+
+_COMPLETION_LOG_PATCH = '''    console.log(`[9c exporter v15] Enrichment sweep used: ${enrichmentSweepUsed}`);
+    console.log(`[9c exporter v15] History complete: ${diagnostics.history_complete}`);
+    console.log(`[9c exporter v15] Reached top: ${diagnostics.reached_top_of_conversation}`);
+    console.log(`[9c exporter v15] Downloaded: ${filename}`);'''
+
 
 @dataclass(frozen=True, slots=True)
 class CollectorExport:
@@ -50,13 +134,18 @@ def collector_javascript() -> str:
         "export_current_dm.js"
     )
     source = resource.read_text(encoding="utf-8")
-    if _SEMANTIC_CONTENT_SENTINEL not in source:
-        raise RuntimeError("Packaged Discord collector semanticContent function changed unexpectedly")
-    return source.replace(
-        _SEMANTIC_CONTENT_SENTINEL,
-        _SEMANTIC_CONTENT_EMOJI_PATCH,
-        1,
+    replacements = (
+        (_SEMANTIC_CONTENT_SENTINEL, _SEMANTIC_CONTENT_EMOJI_PATCH, "semanticContent"),
+        (_TOP_TRAVERSAL_SENTINEL, _TOP_TRAVERSAL_PATCH, "top traversal"),
+        (_BEGINNING_CALL_SENTINEL, _BEGINNING_CALL_PATCH, "beginning call"),
+        (_DIAGNOSTICS_SENTINEL, _DIAGNOSTICS_PATCH, "history diagnostics"),
+        (_COMPLETION_LOG_SENTINEL, _COMPLETION_LOG_PATCH, "completion logging"),
     )
+    for sentinel, patch, label in replacements:
+        if sentinel not in source:
+            raise RuntimeError(f"Packaged Discord collector {label} changed unexpectedly")
+        source = source.replace(sentinel, patch, 1)
+    return source
 
 
 def open_discord(channel_id: str | None = None) -> bool:
@@ -152,7 +241,7 @@ def wait_for_new_export(
         )
         for candidate in candidates:
             try:
-                return validate_collector_export(candidate).path
+                return validate_collector_export(candidate)
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
                 last_error = error
         time.sleep(poll_seconds)
