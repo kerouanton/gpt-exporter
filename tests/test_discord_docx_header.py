@@ -18,7 +18,7 @@ from gpt_exporter.providers.discord.archive import (
 
 
 class DiscordDocxHeaderTests(unittest.TestCase):
-    def test_compact_header_renders_two_inline_avatars_and_full_identities(self) -> None:
+    def test_compact_header_renders_two_inline_avatars_and_display_names(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self_avatar = root / "avatar-self.png"
@@ -28,8 +28,8 @@ class DiscordDocxHeaderTests(unittest.TestCase):
 
             markdown = root / "conversation.md"
             markdown.write_text(
-                "![Conversation participant avatar: @gadgetmcs — Gadget MCS](avatar-self.png) "
-                "![Conversation participant avatar: @soundy — soundy](avatar-peer.png)\n\n"
+                "![Conversation participant avatar: Gadget MCS](avatar-self.png) "
+                "![Conversation participant avatar: soundy](avatar-peer.png)\n\n"
                 "---\n\n"
                 "**2026-09-09**\n\n"
                 "**soundy**\n\n"
@@ -44,10 +44,11 @@ class DiscordDocxHeaderTests(unittest.TestCase):
             header = next(
                 paragraph
                 for paragraph in document.paragraphs
-                if "@gadgetmcs — Gadget MCS" in paragraph.text
+                if "Gadget MCS" in paragraph.text
             )
             self.assertIn("↔", header.text)
-            self.assertIn("@soundy — soundy", header.text)
+            self.assertIn("soundy", header.text)
+            self.assertNotIn("@gadgetmcs", header.text)
             self.assertGreaterEqual(len(header._p.xpath(".//w:drawing")), 2)
             self.assertTrue(any("initial document saved" in line for line in progress))
             self.assertTrue(any("chat metadata styles complete" in line for line in progress))
@@ -107,8 +108,8 @@ class DiscordDocxHeaderTests(unittest.TestCase):
         self.assertEqual([asset.metadata.get("kind") for asset in stripped.messages[0].assets], ["attachment"])
 
         records = _participant_records(conversation)
-        self.assertEqual(_participant_label(records[0]), "@gadgetmcs — Gadget MCS")
-        self.assertEqual(_participant_label(records[1]), "@soundy — soundy")
+        self.assertEqual(_participant_label(records[0]), "Gadget MCS")
+        self.assertEqual(_participant_label(records[1]), "soundy")
 
     def test_empty_placeholder_participant_is_omitted_from_dm_header(self) -> None:
         conversation = CanonicalConversation(
@@ -140,7 +141,7 @@ class DiscordDocxHeaderTests(unittest.TestCase):
 
         records = _participant_records(conversation)
         labels = [_participant_label(record) for record in records]
-        self.assertEqual(labels, ["@gadgetmcs — Gadget MCS", "Littleloulita"])
+        self.assertEqual(labels, ["Gadget MCS", "Littleloulita"])
         self.assertNotIn("Unknown participant", labels)
 
     def test_prepend_header_keeps_body_and_uses_local_avatar_paths(self) -> None:
@@ -178,8 +179,9 @@ class DiscordDocxHeaderTests(unittest.TestCase):
                 {self_url: self_avatar, peer_url: peer_avatar},
             )
             text = markdown.read_text(encoding="utf-8")
-            self.assertIn("Conversation participant avatar: @gadgetmcs — Gadget MCS", text)
-            self.assertIn("Conversation participant avatar: @soundy — soundy", text)
+            self.assertIn("Conversation participant avatar: Gadget MCS", text)
+            self.assertIn("Conversation participant avatar: soundy", text)
+            self.assertNotIn("@gadgetmcs", text)
             self.assertTrue(text.rstrip().endswith("BODY"))
 
 
