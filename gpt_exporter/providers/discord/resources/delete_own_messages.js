@@ -141,8 +141,28 @@
     }
 
     function deleteMenuItem() {
-        const selectors = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]';
-        return [...document.querySelectorAll(selectors)].find(element => isVisible(element) && normalize(element.textContent) === "delete message") || null;
+        const menus = [...document.querySelectorAll('[role="menu"]')]
+            .filter(element => isVisible(element) && normalize(element.getAttribute("aria-label")) === "message actions")
+            .reverse();
+
+        for (const menu of menus) {
+            const direct = [...menu.querySelectorAll('[role="menuitem"]')].find(element => {
+                const text = normalize(element.textContent);
+                const aria = normalize(element.getAttribute("aria-label"));
+                return text === "delete message" || aria === "delete message";
+            });
+            if (direct) return direct;
+
+            const descendant = [...menu.querySelectorAll("*")].find(element => {
+                const text = normalize(element.textContent);
+                const aria = normalize(element.getAttribute("aria-label"));
+                return text === "delete message" || aria === "delete message";
+            });
+            if (descendant) {
+                return descendant.closest('[role="menuitem"], button, [role="button"]') || descendant;
+            }
+        }
+        return null;
     }
 
     function confirmationButton() {
