@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import lzma
 import os
-import shutil
 import sqlite3
 import tempfile
 from contextlib import closing
@@ -24,6 +23,7 @@ from gpt_exporter.export.markdown import export_canonical_markdown
 from gpt_exporter.index import update_index
 
 from .assets import conversation_with_local_assets, download_conversation_assets
+from .docx_parts import conversation_for_part, docx_paths_for_parts, plan_docx_parts
 from .history import merge_dm_history
 from .naming import discord_artifact_paths, dm_title, legacy_paths
 from .provider import DiscordProvider
@@ -47,6 +47,7 @@ class DiscordArchiveResult:
     downloaded_assets: int = 0
     reused_assets: int = 0
     failed_assets: tuple[str, ...] = ()
+    docx_paths: tuple[Path, ...] = ()
 
 
 def _emit(progress: ProgressCallback | None, message: str) -> None:
@@ -202,6 +203,11 @@ def _human_named_paths(directory: Path, channel_id: str, suffix: str) -> tuple[P
     return tuple(sorted(directory.glob(f"Discord DM * {channel_id}{suffix}")))
 
 
+def _human_named_docx_paths(directory: Path, channel_id: str) -> tuple[Path, ...]:
+    """Include both legacy single DOCX and time-suffixed multipart DOCX files."""
+    return tuple(sorted(directory.glob(f"Discord DM * {channel_id}*.docx")))
+
+
 def _canonical_candidates(downloads_dir: Path, channel_id: str) -> tuple[Path, ...]:
     return tuple(
         path
@@ -245,7 +251,7 @@ def _find_prior_artifact(directory: Path, channel_id: str, suffix: str, legacy: 
 def _remove_stale_artifacts(root: Path, channel_id: str, *, keep: set[Path]) -> None:
     legacy_docx, legacy_raw, legacy_canonical = legacy_paths(root, channel_id)
     candidates = [legacy_docx, legacy_raw, legacy_canonical]
-    candidates.extend(_human_named_paths(root, channel_id, ".docx"))
+    candidates.extend(_human_named_docx_paths(root, channel_id))
     candidates.extend(_human_named_paths(root / "raw", channel_id, ".json"))
     candidates.extend(_human_named_paths(root / "raw", channel_id, ".json.xz"))
     candidates.extend(_human_named_paths(root / "downloads", channel_id, ".json.xz"))
@@ -382,7 +388,7 @@ def archive_collector_export(
             source_path=source_path,
         )
     channel_id = _channel_id(incoming.conversation_id)
-    raw_path, canonical_path, docx_path = discord_artifact_paths(
+    raw_path, canonical_path, base_docx_path = discord_artifact_paths(
         root,
         incoming.metadata,
         channel_id,
@@ -402,6 +408,16 @@ def archive_collector_export(
     conversation, updated = merge_dm_history(existing, incoming)
     _emit(progress, f"Cumulative conversation contains {len(conversation.messages)} message(s).")
 
+    parts = plan_docx_parts(conversation)
+    docx_paths = docx_paths_for_parts(base_docx_path, parts)
+    docx_path = docx_paths[-1] if docx_paths else base_docx_path
+    if len(parts) > 1:
+        _emit(
+            progress,
+            "DOCX split plan: "
+            + ", ".join(f"{part.label} ({part.message_count})" for part in parts),
+        )
+
     _emit(progress, "Writing latest raw collector snapshot…")
     write_raw_archive(source_path, raw_path)
 
@@ -417,7 +433,8 @@ def archive_collector_export(
     else:
         _emit(progress, "Canonical conversation is unchanged; keeping existing archive.")
 
-    if updated or not docx_path.exists():
+    missing_docx = any(not path.is_file() or path.stat().st_size == 0 for path in docx_paths)
+    if updated or missing_docx:
         _emit(progress, "Downloading/reusing Discord assets…")
         asset_result = download_conversation_assets(conversation, asset_dir)
         available_assets = asset_result.available
@@ -436,52 +453,64 @@ def archive_collector_export(
             dir=root,
         ) as temp_dir:
             markdown_dir = Path(temp_dir)
-            markdown_path = markdown_dir / f"{docx_path.stem}.md"
-            _emit(progress, "Preparing local asset references for export…")
-            export_conversation = conversation_with_local_assets(
-                conversation,
-                asset_result.source_paths,
-                relative_to=markdown_dir,
-            )
-            export_conversation = _without_author_avatars(export_conversation)
-            _emit(progress, "Rendering intermediate Markdown without per-message avatars…")
-            export_canonical_markdown(
-                export_conversation,
-                markdown_path,
-                include_timestamps=True,
-                include_title=False,
-                chat_style=True,
-            )
-            _emit(progress, "Adding one participant identity/avatar header…")
-            _prepend_dm_participant_header(
-                markdown_path,
-                conversation,
-                asset_result.source_paths,
-            )
-            _emit(progress, "Generating DOCX and embedding images…")
-            export_docx(
-                markdown_path,
-                docx_path,
-                document_title=None,
-                overwrite=True,
-                progress=progress,
-            )
-            try:
-                docx_size = docx_path.stat().st_size
-            except OSError:
-                docx_size = 0
-            _emit(progress, f"DOCX generated: {docx_size} bytes.")
+            total_parts = len(parts)
+            for index, (part, target_docx_path) in enumerate(zip(parts, docx_paths), start=1):
+                prefix = f"[{index}/{total_parts}] " if total_parts > 1 else ""
+                markdown_path = markdown_dir / f"{target_docx_path.stem}.md"
+                _emit(
+                    progress,
+                    f"{prefix}Preparing {part.label} ({part.message_count} messages)…",
+                )
+                part_conversation = conversation_for_part(conversation, part)
+                export_conversation = conversation_with_local_assets(
+                    part_conversation,
+                    asset_result.source_paths,
+                    relative_to=markdown_dir,
+                )
+                export_conversation = _without_author_avatars(export_conversation)
+                _emit(progress, f"{prefix}Rendering intermediate Markdown without per-message avatars…")
+                export_canonical_markdown(
+                    export_conversation,
+                    markdown_path,
+                    include_timestamps=True,
+                    include_title=False,
+                    chat_style=True,
+                )
+                _emit(progress, f"{prefix}Adding one participant identity/avatar header…")
+                _prepend_dm_participant_header(
+                    markdown_path,
+                    part_conversation,
+                    asset_result.source_paths,
+                )
+                _emit(progress, f"{prefix}Generating DOCX and embedding images…")
+                export_docx(
+                    markdown_path,
+                    target_docx_path,
+                    document_title=None,
+                    overwrite=True,
+                    progress=progress,
+                )
+                try:
+                    docx_size = target_docx_path.stat().st_size
+                except OSError:
+                    docx_size = 0
+                _emit(
+                    progress,
+                    f"{prefix}DOCX generated: {target_docx_path.name} ({docx_size} bytes).",
+                )
     else:
-        _emit(progress, "DOCX is already current; skipping regeneration.")
-        prior_docx = _find_prior_artifact(root, channel_id, ".docx", legacy_docx)
-        if prior_docx and prior_docx != docx_path and not docx_path.exists():
-            prior_docx.replace(docx_path)
+        _emit(progress, "DOCX parts are already current; skipping regeneration.")
+        if len(docx_paths) == 1:
+            prior_docx = _find_prior_artifact(root, channel_id, ".docx", legacy_docx)
+            if prior_docx and prior_docx != docx_path and not docx_path.exists():
+                prior_docx.replace(docx_path)
 
     _emit(progress, "Cleaning stale Discord artifacts…")
+    keep = {raw_path, canonical_path, *docx_paths}
     _remove_stale_artifacts(
         root,
         channel_id,
-        keep={raw_path, canonical_path, docx_path},
+        keep=keep,
     )
 
     _emit(progress, "Updating search index…")
@@ -509,4 +538,5 @@ def archive_collector_export(
         downloaded_assets=downloaded_assets,
         reused_assets=reused_assets,
         failed_assets=failed_assets,
+        docx_paths=docx_paths,
     )
