@@ -1,58 +1,175 @@
 # Discord provider
 
-Status: guided browser collection + canonical archive workflow.
+Status: guided browser collection, cumulative canonical archive, shared Browser/workflow integration, safe remote deletion, and density-based multipart DOCX for large DMs.
+
+Discord is the second concrete provider. Service-specific behavior lives below `gpt_exporter/providers/discord`, while the archive workflow UI, Browser, canonical model, index and generic rendering facilities are shared.
 
 ## Normal workflow
 
-Selecting **Discord** in the provider chooser opens a provider-owned archive window. No Discord data-package download is required.
+Selecting/using the Discord workspace follows the same shared archive workflow used by other providers.
 
-1. Click **Open Discord** and select the DM to archive in the normal authenticated browser session.
-2. Click **Start Archive…**. The validated browser collector JavaScript is copied to the clipboard and the application starts watching the standard Windows Downloads directory.
-3. In Discord press **F12**, open **Console**, paste with **Ctrl+V**, and run the collector.
-4. The provider detects the new `discord-dm-export-v15_*.json`, validates it, normalizes both participants into the shared canonical model, and archives the conversation automatically.
+1. Open Discord in the normal authenticated browser session and select the DM to archive.
+2. Start **Archive New Conversations…**. The provider's collector JavaScript is copied to the clipboard and the shared workflow starts watching Downloads.
+3. In Discord press **F12**, open **Console**, paste and run the collector.
+4. The provider detects the new `discord-dm-export-v15_*.json`, validates it, normalizes it, merges it into cumulative history, archives assets/JSON, generates DOCX output, updates the shared SQLite index, and refreshes the Browser.
 
-The collector is ported from `kerouanton/discord-exporter`. It traverses Discord's virtualized DM history, preserves author identity/self detection, message text, replies, reactions, links, attachments, stickers and external preview/media references. The application never reads Discord tokens, passwords, cookies, or browser profiles.
+The application does not read Discord tokens, passwords, cookies, or browser profiles.
+
+## Collector and history completeness
+
+Discord uses a virtualized message scroller, so reaching a stable scroll position is not sufficient evidence that the beginning of history was reached.
+
+The collector records explicit diagnostics such as whether the beginning marker was observed and whether the final capture satisfies the complete-history conditions. Tombstone/deletion inference is deliberately conservative: remotely missing messages are marked deleted in cumulative history only when the new capture provides sufficient full-history evidence.
+
+A partial/unverified collector run must not cause thousands of historical messages to be falsely marked deleted or silently shrink the canonical archive.
+
+## Current-user detection
+
+The collector detects the logged-in Discord user without depending solely on English UI labels. Locale-independent/fallback detection was added and validated with both sides of the same real DM during debugging.
+
+The `current_user` record is used to classify message ownership and enrich participant identity, but cross-account collection of the same DM is not a normal operating requirement.
 
 ## Archive layout
 
-The provider owns its default archive location:
+The provider owns its default workspace root:
 
 ```text
 %USERPROFILE%\Documents\Discord Archive\
-├── Discord DM <local> ↔ <peer> <channel-id>.docx
-├── downloads\
-│   └── Discord DM <local> ↔ <peer> <channel-id>.json.xz
-├── raw\
-│   └── Discord DM <local> ↔ <peer> <channel-id>.json.xz
 ├── assets\
-│   └── <channel-id>\...
+│   ├── attachment\...
+│   ├── dictation\...
+│   ├── image\...
+│   └── external\...
+├── downloads\
+│   ├── Discord DM <local> ↔ <peer> <channel-id>.raw.json.xz
+│   └── Discord DM <local> ↔ <peer> <channel-id>.canonical.json.xz
+├── reports\
+├── Discord DM <local> ↔ <peer> <channel-id>.docx
+│   OR multipart derived DOCX files
 └── conversations-index.sqlite
 ```
 
-The two `.json.xz` files have deliberately different roles:
+Raw and canonical XZ files are deliberately co-located in `downloads/` but have explicit suffixes and different roles:
 
-- `raw/*.json.xz` contains the original collector JSON bytes compressed directly with XZ. The JSON is never parsed and re-written before raw storage; decompressing the file reproduces the exact original collector bytes.
-- `downloads/*.json.xz` contains the provider-neutral canonical conversation produced by GPT Exporter after normalization.
+- `*.raw.json.xz` is the latest collector snapshot, compressed while preserving the original collector payload semantics;
+- `*.canonical.json.xz` is the cumulative provider-neutral conversation used as the durable normalized archive source.
 
-DOCX and SQLite are derived and rebuildable. Existing historical `raw/*.json` files are migrated automatically to verified `.json.xz` storage when the Discord workspace is prepared; the plain file is removed only after the decompressed XZ bytes have been verified against the original.
+Historical layouts using a separate `raw/` directory or older names are migrated/handled by provider compatibility code. The canonical index ignores raw snapshots.
 
-A newly collected DM may replace the existing canonical source only when every previously archived message ID is still present. A partial collector run therefore cannot silently shrink the archive.
+DOCX and SQLite are derived/rebuildable.
+
+## Cumulative DM history
+
+Recaptures merge by stable Discord message ID rather than replacing the canonical history wholesale.
+
+The merge behavior preserves:
+
+- newly seen messages;
+- previously archived messages absent from a later partial capture;
+- edit detection for same-ID content changes;
+- deletion tombstones when full-history evidence safely supports them;
+- reappearance of a previously tombstoned message.
+
+Canonical message content is retained; derived rendering may add discreet `(edited)` / `(deleted)` presentation markers where appropriate.
 
 ## Canonical mapping
 
-- current user's messages: `role = "user"`
-- other participant's messages: `role = "other"`
-- unresolved authors: `role = "unknown"`
-- Discord display names are preserved in `author_name`
-- attachment/media URLs become `CanonicalAsset.source_ref`
-- replies, reactions, mentions, content types and Discord-specific diagnostics remain provider/message metadata
+- current user's messages: `role = "user"`;
+- other participant's messages: `role = "other"`;
+- unresolved authors: `role = "unknown"`;
+- Discord display names are preserved as `author_name`;
+- attachment/media URLs become canonical assets;
+- replies, reactions, mentions, content types and Discord diagnostics remain provider/message metadata.
 
-The provider-neutral Markdown renderer uses `author_name` when available and retains canonical asset references as links, so Discord DOCX exports show real participant names instead of pretending the conversation is a ChatGPT-style user/assistant exchange.
+The shared chat renderer uses real author names rather than presenting Discord as a user/assistant exchange.
+
+## Human naming
+
+DM titles and artifact stems are symmetric and human-readable:
+
+```text
+Discord DM Gadget MCS ↔ Littleloulita 994497416583708703
+```
+
+The stable channel ID remains part of filenames for unambiguous identity.
+
+One Discord channel remains one logical Browser conversation even if exceptional debugging creates artifacts from both account orientations.
+
+## DOCX participant header
+
+Each derived Discord DOCX starts with one compact participant header using avatars when available and display names as the preferred visible labels:
+
+```text
+[avatar] Gadget MCS ↔ [avatar] Littleloulita
+```
+
+Username is a fallback only when a display name is unavailable; stable ID is the final fallback. Empty placeholder participant records are ignored and must not create an `Unknown participant` token.
+
+Per-message avatars are intentionally omitted from the body to keep large documents practical. Author names remain grouped in the shared chat rendering.
+
+## Density-based multipart DOCX
+
+One very large DOCX became impractical, so Discord DMs can now produce multiple derived DOCX parts while keeping **one raw snapshot, one canonical conversation, and one Browser row**.
+
+The split policy is based on message density:
+
+```text
+threshold = 1000 messages
+```
+
+Rules:
+
+- sparse years before the first dense year may be merged into one historical range;
+- a dense year uses semester parts when a semester remains below 1,000 messages;
+- otherwise the dense semester is split into quarters;
+- quarter is the minimum granularity;
+- the test is strictly `< 1000`, so exactly 1,000 escalates;
+- undated messages are preserved.
+
+The validated 6,674-message Gadget MCS ↔ Littleloulita conversation produces:
+
+```text
+Discord DM Gadget MCS ↔ Littleloulita 994497416583708703 - 2022-2025.docx
+Discord DM Gadget MCS ↔ Littleloulita 994497416583708703 - 2026Q1.docx
+Discord DM Gadget MCS ↔ Littleloulita 994497416583708703 - 2026Q2.docx
+Discord DM Gadget MCS ↔ Littleloulita 994497416583708703 - 2026Q3.docx
+```
+
+with message counts 37, 1,872, 2,550 and 2,215 respectively.
+
+A conversation whose plan has only one part keeps the historical unsuffixed DOCX filename.
+
+The Browser currently records the latest part as the primary `docx_path`. A future part picker and changed-period-only regeneration are explicitly deferred in `TODO.md`.
+
+## Missing-DOCX regeneration
+
+`Regenerate Missing DOCX…` rebuilds derived Discord DOCX output from the existing archived raw/canonical data. This is the accepted maintenance/test path after manually deleting DOCX files.
+
+There is intentionally no `Regenerate All DOCX…` command planned.
+
+## Remote deletion safety
+
+Discord is the first provider implementing the shared remote-deletion capability.
+
+The operation is intentionally conservative:
+
+1. the conversation must already exist in the local archive;
+2. a dry run collects candidate own-message IDs from the exact DM;
+3. every candidate must be present in the local canonical archive;
+4. incomplete/unsafe coverage blocks execution with no override;
+5. the user explicitly confirms the safe candidate set;
+6. destructive execution is pinned to the exact channel, current Discord user and dry-run message IDs;
+7. HTTP 429 responses are retried;
+8. the local canonical archive and derived documents are not deleted by the remote operation.
+
+This mechanism does not extract Discord authentication tokens or cookies.
 
 ## Native Discord data packages
 
-The earlier native data-package JSON/CSV adapter remains supported as a compatibility ingestion path, but it is no longer the normal UI workflow. The guided browser collector is the primary integration because it captures both sides of the currently displayed DM.
+The earlier native data-package JSON/CSV adapter remains a compatibility ingestion path. Guided browser collection is the normal workflow because it captures the currently displayed DM directly.
 
-## Boundary
+## Architectural boundary
 
-Everything specific to Discord collection, normalization, paths and archive policy remains under `gpt_exporter/providers/discord`. Shared core/index/export code has no dependency on Discord, and ChatGPT archive behavior is unchanged.
+Discord-specific collection, schema interpretation, history safety, naming, remote-service actions and migrations remain provider responsibilities.
+
+The Browser, canonical model, shared index, shared DOCX renderer, workflow/progress/log windows and application shell should remain provider-neutral. The next milestone will make provider discovery/package installation independent as described in `PROVIDER_PACKAGE_ARCHITECTURE.md`.
