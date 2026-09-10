@@ -35,6 +35,95 @@ _SEMANTIC_CONTENT_EMOJI_PATCH = (
     '        return normalizeText(clone.textContent);'
 )
 
+# Discord localizes the account/settings controls, so the old exact English
+# aria-label lookup fails on e.g. French clients. Prefer the known account panel
+# when available, then use a strict language-independent geometric fallback: a
+# unique Discord avatar in the bottom-left account strip, outside message rows.
+_CURRENT_USER_SENTINEL = '''    function detectCurrentUser() {
+        const settingsButton = document.querySelector('[aria-label="User Settings"], [aria-label="User settings"]');
+        if (!settingsButton) {
+            return { id: null, display_name: null, username: null, avatar_url: null, detection: "not-found" };
+        }
+        let container = settingsButton.parentElement;
+        for (let depth = 0; container && depth < 8; depth++, container = container.parentElement) {
+            const avatar = container.querySelector('img[src*="/avatars/"]');
+            if (!avatar) continue;
+            const avatarUrl = avatar.currentSrc || avatar.src || null;
+            const id = discordUserIdFromAvatarUrl(avatarUrl);
+            const textLines = (container.innerText || "").split("\\n").map(x => x.trim()).filter(Boolean);
+            return {
+                id,
+                display_name: textLines[0] || null,
+                username: textLines[1] || null,
+                avatar_url: avatarUrl,
+                detection: "user-settings-panel",
+            };
+        }
+        return { id: null, display_name: null, username: null, avatar_url: null, detection: "settings-found-avatar-not-found" };
+    }'''
+
+_CURRENT_USER_PATCH = '''    function currentUserFromAvatar(avatar, detection) {
+        if (!avatar) return null;
+        const avatarUrl = avatar.currentSrc || avatar.src || null;
+        const id = discordUserIdFromAvatarUrl(avatarUrl);
+        if (!id) return null;
+        let container = avatar.parentElement;
+        let textLines = [];
+        for (let depth = 0; container && depth < 6; depth++, container = container.parentElement) {
+            const lines = (container.innerText || "").split("\\n").map(x => x.trim()).filter(Boolean);
+            if (lines.length && lines.length <= 8) { textLines = lines; break; }
+        }
+        return {
+            id,
+            display_name: textLines[0] || normalizeText(avatar.getAttribute("alt")) || null,
+            username: null,
+            avatar_url: avatarUrl,
+            detection,
+        };
+    }
+
+    function detectCurrentUser() {
+        const settingsButton = document.querySelector([
+            '[aria-label="User Settings"]',
+            '[aria-label="User settings"]',
+            '[aria-label="Paramètres utilisateur"]',
+            '[aria-label="Paramètres de l’utilisateur"]',
+            '[aria-label="Benutzereinstellungen"]'
+        ].join(','));
+        if (settingsButton) {
+            let container = settingsButton.parentElement;
+            for (let depth = 0; container && depth < 8; depth++, container = container.parentElement) {
+                const avatar = container.querySelector('img[src*="/avatars/"]');
+                const found = currentUserFromAvatar(avatar, "user-settings-panel");
+                if (found) return found;
+            }
+        }
+
+        const candidates = [...document.querySelectorAll('img[src*="/avatars/"]')]
+            .filter(avatar => !avatar.closest('[id^="chat-messages-"]'))
+            .filter(avatar => {
+                const rect = avatar.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.left < 64 &&
+                    rect.top >= 0 && rect.bottom >= window.innerHeight - 140 && rect.bottom <= window.innerHeight;
+            });
+        const byId = new Map();
+        for (const avatar of candidates) {
+            const avatarUrl = avatar.currentSrc || avatar.src || null;
+            const id = discordUserIdFromAvatarUrl(avatarUrl);
+            if (id && !byId.has(id)) byId.set(id, avatar);
+        }
+        if (byId.size === 1) {
+            return currentUserFromAvatar([...byId.values()][0], "bottom-left-account-avatar");
+        }
+        return {
+            id: null,
+            display_name: null,
+            username: null,
+            avatar_url: null,
+            detection: byId.size ? "ambiguous-bottom-left-account-avatars" : "not-found",
+        };
+    }'''
+
 # Discord's message list is virtualized. In a large DM, scrollTop can briefly be
 # zero while Discord has only loaded a recent window; the old collector treated
 # four stable iterations at scrollTop == 0 as proof that the beginning had been
@@ -136,6 +225,7 @@ def collector_javascript() -> str:
     source = resource.read_text(encoding="utf-8")
     replacements = (
         (_SEMANTIC_CONTENT_SENTINEL, _SEMANTIC_CONTENT_EMOJI_PATCH, "semanticContent"),
+        (_CURRENT_USER_SENTINEL, _CURRENT_USER_PATCH, "current-user detection"),
         (_TOP_TRAVERSAL_SENTINEL, _TOP_TRAVERSAL_PATCH, "top traversal"),
         (_BEGINNING_CALL_SENTINEL, _BEGINNING_CALL_PATCH, "beginning call"),
         (_DIAGNOSTICS_SENTINEL, _DIAGNOSTICS_PATCH, "history diagnostics"),
