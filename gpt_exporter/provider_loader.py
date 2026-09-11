@@ -1,16 +1,18 @@
-"""Provider discovery bridge for installed plugins and in-tree compatibility providers.
+"""Provider discovery bridge for installed plugins and source-checkout packages.
 
-External providers are discovered through the public entry-point contract. During
-this repository's migration period, provider packages that still live below
-``gpt_exporter.providers`` are discovered generically by package scanning so the
-application composition layer never names ChatGPT or Discord.
+Installed providers are discovered through the public entry-point contract. When
+running directly from this repository without installing the provider distributions,
+the loader can also discover provider packages generically below ``packages/``.
+The shared application never imports or names a concrete provider.
 """
 
 from __future__ import annotations
 
 import importlib
-import pkgutil
+import sys
+import tomllib
 from collections.abc import Callable
+from pathlib import Path
 from typing import Iterable
 
 from gpt_exporter.core import ConversationProvider
@@ -18,36 +20,46 @@ from gpt_exporter.core.provider_discovery import (
     PROVIDER_API_VERSION,
     ProviderDiscoveryFailure,
     ProviderDiscoveryResult,
+    PROVIDER_ENTRY_POINT_GROUP,
     discover_providers,
 )
 
 
-def _embedded_provider_candidates() -> Iterable[tuple[str, str, object]]:
-    """Yield generic plugin factories from the temporary in-tree namespace."""
+def _source_package_candidates() -> Iterable[tuple[str, str, object]]:
+    """Yield provider factories declared by distributions in the source checkout."""
 
-    try:
-        package = importlib.import_module("gpt_exporter.providers")
-    except ModuleNotFoundError:
-        return ()
-
-    package_path = getattr(package, "__path__", None)
-    if package_path is None:
+    repository_root = Path(__file__).resolve().parents[1]
+    packages_root = repository_root / "packages"
+    if not packages_root.is_dir():
         return ()
 
     result: list[tuple[str, str, object]] = []
-    for item in sorted(pkgutil.iter_modules(package_path), key=lambda value: value.name.casefold()):
-        if not item.ispkg:
-            continue
-        module_name = f"{package.__name__}.{item.name}.plugin"
+    for metadata_path in sorted(packages_root.glob("*/pyproject.toml")):
         try:
+            metadata = tomllib.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+            continue
+
+        entry_points = (
+            metadata.get("project", {})
+            .get("entry-points", {})
+            .get(PROVIDER_ENTRY_POINT_GROUP, {})
+        )
+        if not isinstance(entry_points, dict) or not entry_points:
+            continue
+
+        source_root = metadata_path.parent / "src"
+        if source_root.is_dir() and str(source_root) not in sys.path:
+            sys.path.insert(0, str(source_root))
+
+        for name, value in sorted(entry_points.items(), key=lambda item: str(item[0]).casefold()):
+            module_name, separator, attribute = str(value).partition(":")
+            if not separator or not module_name or not attribute:
+                raise ValueError(f"invalid provider entry point {name!r}: {value!r}")
             module = importlib.import_module(module_name)
-        except ModuleNotFoundError as error:
-            if error.name == module_name:
-                continue
-            raise
-        factory = getattr(module, "create_provider", None)
-        if factory is not None:
-            result.append((item.name, module_name, factory))
+            factory = getattr(module, attribute)
+            result.append((str(name), str(value), factory))
+
     return tuple(result)
 
 
@@ -66,14 +78,15 @@ def discover_available_providers(
     include_embedded: bool = True,
     entry_points: Callable[[], object] | None = None,
 ) -> ProviderDiscoveryResult:
-    """Discover external entry points plus optional temporary in-tree providers.
+    """Discover installed entry points plus optional source-checkout packages.
 
-    ``include_embedded=False`` exercises the installed-package architecture without
-    the source-tree compatibility bridge. This is also the intended steady-state
-    behavior once the historical provider namespaces are removed.
+    ``include_embedded=False`` means entry-point-only discovery and is used by the
+    installation matrix to prove that the host works with independently installed
+    provider distributions. The compatibility flag name is retained temporarily
+    while the historical in-tree provider namespaces are being removed.
 
-    Entry-point providers win when an in-tree provider exposes the same stable
-    provider ID. Individual plugin failures remain non-fatal.
+    Installed entry-point providers win when a source package exposes the same
+    stable provider ID. Individual provider failures remain non-fatal.
     """
 
     external = (
@@ -89,18 +102,18 @@ def discover_available_providers(
         return ProviderDiscoveryResult(registry=registry, failures=tuple(failures))
 
     try:
-        embedded = _embedded_provider_candidates()
+        source_packages = _source_package_candidates()
     except Exception as error:
         failures.append(
             ProviderDiscoveryFailure(
-                name="embedded",
-                value="gpt_exporter.providers",
+                name="source-packages",
+                value="packages/*/pyproject.toml",
                 error=f"{type(error).__name__}: {error}",
             )
         )
-        embedded = ()
+        source_packages = ()
 
-    for name, value, factory in embedded:
+    for name, value, factory in source_packages:
         try:
             provider = _instantiate(factory)
             descriptor = provider.descriptor
