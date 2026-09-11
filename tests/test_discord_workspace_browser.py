@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 import sqlite3
 import tempfile
@@ -22,7 +23,7 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             workspace = ConversationWorkspace("Discord", "discord", root)
-            old_docx = root / "Discord DM 123456.docx"
+            old_docx = root / "Discord DM gadgetmcs ↔ soundy 123456.docx"
             old_docx.write_bytes(b"PK-existing-docx")
             old_raw = root / "raw" / "discord_dm_123456.json"
             old_raw.parent.mkdir()
@@ -137,6 +138,8 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
                 actions.resolve_docx_path({"conversation_id": "discord:123456"}),
                 new_docx,
             )
+            del actions
+            gc.collect()
 
     def test_switch_workspace_menu_reuses_active_tk_parent_and_switches_selection(self) -> None:
         fake = SimpleNamespace(
