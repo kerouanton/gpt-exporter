@@ -130,8 +130,8 @@ class DiscordCollectorTests(unittest.TestCase):
 
             fresh = root / "discord-dm-export-v15_123456_new.json"
             fresh.write_text(json.dumps(collector_payload()), encoding="utf-8")
-            summary = wait_for_new_export(root, known_files=known, timeout_seconds=0.2, poll_seconds=0.01)
-            self.assertEqual(summary.path, fresh.resolve())
+            result = wait_for_new_export(root, known_files=known, timeout_seconds=0.2, poll_seconds=0.01)
+            self.assertEqual(result, fresh.resolve())
 
     def test_invalid_or_partial_schema_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
