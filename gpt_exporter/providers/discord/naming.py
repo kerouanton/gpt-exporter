@@ -70,8 +70,12 @@ def dm_peer(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
 
 
 def _peer_name_from_fallback_title(fallback_title: str) -> str | None:
-    """Recover a 1:1 DM peer username from Discord's page title when rows are unresolved."""
+    """Recover a 1:1 DM peer from a normalized Browser title or Discord page title."""
     title = _NOTIFICATION_PREFIX.sub("", fallback_title).strip()
+    if "↔" in title:
+        peer = title.rsplit("↔", 1)[1].strip().lstrip("@")
+        if peer and peer.casefold() not in {"peer", "unknown participant"}:
+            return peer
     if title.startswith("Discord |"):
         title = title.split("|", 1)[1].strip()
     if not title.startswith("@"):
