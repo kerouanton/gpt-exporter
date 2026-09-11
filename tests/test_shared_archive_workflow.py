@@ -107,7 +107,9 @@ class SharedArchiveWorkflowTests(unittest.TestCase):
             self.assertIs(actions.run_export(Path("C:/Downloads/export.json"), lines.append), result)
 
         archive.assert_called_once_with(
-            Path("C:/Downloads/export.json"), archive_root=Path("C:/archive")
+            Path("C:/Downloads/export.json"),
+            archive_root=Path("C:/archive"),
+            progress=mock.ANY,
         )
         self.assertTrue(any("12 message" in line for line in lines))
         self.assertTrue(any("Assets:" in line for line in lines))
