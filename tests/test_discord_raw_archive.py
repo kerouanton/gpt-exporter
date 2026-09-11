@@ -12,7 +12,7 @@ from gpt_exporter.providers.discord.raw_archive import (
     read_raw_json,
     write_raw_archive,
 )
-from gpt_exporter.providers.discord.ui.workspace_actions import DiscordWorkspaceActions
+from gpt_exporter.providers.discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
 from gpt_exporter.workspaces import ConversationWorkspace
 
 
@@ -85,7 +85,7 @@ class DiscordRawArchiveTests(unittest.TestCase):
                 provider_id="discord",
                 root_path=root,
             )
-            actions = DiscordWorkspaceActions(mock.Mock(), workspace)
+            actions = DiscordRemoteDeleteActions(mock.Mock(), workspace)
 
             changed = actions.prepare_index()
 
