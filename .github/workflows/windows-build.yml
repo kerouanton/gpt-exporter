@@ -32,7 +32,7 @@ jobs:
       - name: Install build dependencies and provider distributions
         run: |
           python -m pip install -r requirements-build.txt
-          python -m pip install -e . -e packages/export-provider-chatgpt -e packages/export-provider-discord
+          python -m pip install --no-deps -e packages/export-provider-chatgpt -e packages/export-provider-discord
 
       - name: Verify provider entry points before freezing
         run: |
@@ -78,7 +78,7 @@ jobs:
           python -c "import pefile; p=pefile.PE(r'dist\GPT Exporter\GPT Exporter.exe', fast_load=True); assert p.OPTIONAL_HEADER.Subsystem == 2, f'Expected Windows GUI subsystem (2), got {p.OPTIONAL_HEADER.Subsystem}'; print('Windowed PE subsystem OK')"
           Write-Host "Windows version metadata OK: $expectedName $expectedVersion"
 
-      - name: Verify packaged resources
+      - name: Verify packaged resources and provider metadata
         shell: pwsh
         run: |
           $genericResourceRoot = ".\dist\GPT Exporter\_internal\gpt_exporter\resources"
@@ -105,7 +105,21 @@ jobs:
               }
           }
 
-          Write-Host "Packaged extracted-provider resources OK"
+          $metadataRoots = @(
+              Get-ChildItem ".\dist\GPT Exporter\_internal" -Directory -Filter "export_provider_chatgpt-*.dist-info",
+              Get-ChildItem ".\dist\GPT Exporter\_internal" -Directory -Filter "export_provider_discord-*.dist-info"
+          )
+          foreach ($metadataRoot in $metadataRoots) {
+              if ($null -eq $metadataRoot) {
+                  throw "Required provider distribution metadata is missing"
+              }
+              $entryPoints = Join-Path $metadataRoot.FullName "entry_points.txt"
+              if (-not (Test-Path $entryPoints -PathType Leaf)) {
+                  throw "Provider entry-point metadata is missing: $entryPoints"
+              }
+          }
+
+          Write-Host "Packaged extracted-provider resources and metadata OK"
 
       - name: Upload Windows onedir artifact
         uses: actions/upload-artifact@v4
