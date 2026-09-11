@@ -27,7 +27,26 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
             old_docx.write_bytes(b"PK-existing-docx")
             old_raw = root / "raw" / "discord_dm_123456.json"
             old_raw.parent.mkdir()
-            old_raw.write_text("{}", encoding="utf-8")
+            raw_payload_text = json.dumps(
+                {
+                    "conversation": {
+                        "channel_id": "123456",
+                        "title": "(117) Discord | @soundy",
+                        "type": "dm",
+                        "participants": [
+                            {"id": "2", "name": "soundy", "is_self": False},
+                            {"id": "1", "name": "Gadget MCS", "is_self": True},
+                        ],
+                    },
+                    "current_user": {
+                        "id": "1",
+                        "username": "gadgetmcs",
+                        "display_name": "Gadget MCS",
+                    },
+                    "messages": [],
+                }
+            )
+            old_raw.write_text(raw_payload_text, encoding="utf-8")
             old_canonical = root / "downloads" / "discord_dm_123456.json.xz"
             old_canonical.parent.mkdir()
 
@@ -107,7 +126,7 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
             new_canonical = root / "downloads" / f"{stem}.canonical.json.xz"
             self.assertTrue(new_docx.is_file())
             self.assertTrue(new_raw.is_file())
-            self.assertEqual(read_raw_bytes(new_raw), b"{}")
+            self.assertEqual(read_raw_bytes(new_raw), raw_payload_text.encode("utf-8"))
             self.assertTrue(new_canonical.is_file())
             self.assertFalse(old_docx.exists())
             self.assertFalse(old_raw.exists())
