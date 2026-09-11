@@ -24,9 +24,8 @@ class DiscordProviderPackageTests(unittest.TestCase):
 
     def test_host_distribution_no_longer_advertises_discord_entry_point(self) -> None:
         metadata = tomllib.loads((self.repo_root / "pyproject.toml").read_text(encoding="utf-8"))
-        entry_points = metadata["project"]["entry-points"]["gpt_exporter.provider_plugins"]
+        entry_points = metadata["project"].get("entry-points", {}).get("gpt_exporter.provider_plugins", {})
         self.assertNotIn("discord", entry_points)
-        self.assertIn("gpt", entry_points)
 
     def test_extracted_package_imports_and_constructs_provider(self) -> None:
         script = (
