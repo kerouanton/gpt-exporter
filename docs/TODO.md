@@ -11,7 +11,7 @@ Deferred improvements:
 - **Browser multipart navigation:** the Browser currently stores/opens one `docx_path`, intentionally the most recent part. Later, expose all DOCX parts for one logical conversation without creating duplicate Browser conversation rows. A part picker/history surface is preferable to treating parts as independent conversations.
 - **Incremental multipart regeneration:** when only the current period changes, avoid rebuilding historical DOCX parts that are already current. The first multipart conversion must still build all required parts. Correctness takes precedence over optimization.
 - **Result/progress reporting:** provider workflow status currently emphasizes the primary/latest DOCX path. Later, display or log all generated multipart paths consistently where useful.
-- **Resolver cleanup:** review provider path-resolution helpers that still assume a single unsuffixed DOCX and make them multipart-aware only where the shared Browser/workflow actually requires it.
+- **Resolver cleanup:** some provider fallback/path-resolution and `Regenerate Missing DOCX…` checks still assume a single unsuffixed DOCX. Normal archived multipart conversations are safe because the archive pipeline records the latest generated part in the index, but a fallback after metadata loss/rebuild can target the unsuffixed legacy name and the missing-DOCX repair path can conservatively regenerate an already complete multipart set. Make these helpers explicitly multipart-aware when the Browser multipart navigation work is done.
 
 Do **not** add a `Regenerate All DOCX…` command. Manual deletion plus `Regenerate Missing DOCX…` is the accepted recovery/test workflow.
 
