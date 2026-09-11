@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from gpt_exporter.export.batch import export_batch
+from gpt_exporter.provider_loader import prepare_source_provider_imports
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -131,9 +132,10 @@ class BatchExportLibraryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             archive_root = Path(temporary) / "archive"
             self._write_conversation(archive_root)
+            prepare_source_provider_imports()
 
             with mock.patch(
-                "gpt_exporter.providers.gpt.export.batch.export_docx",
+                "export_provider_chatgpt.export.batch.export_docx",
                 side_effect=RuntimeError("synthetic DOCX failure"),
             ):
                 result = export_batch(archive_root=archive_root)
@@ -165,9 +167,10 @@ class BatchExportLibraryTests(unittest.TestCase):
         launcher = (REPOSITORY_ROOT / "export_all.py").read_text(encoding="utf-8")
         provider_cli = (
             REPOSITORY_ROOT
-            / "gpt_exporter"
-            / "providers"
-            / "gpt"
+            / "packages"
+            / "export-provider-chatgpt"
+            / "src"
+            / "export_provider_chatgpt"
             / "cli"
             / "export_all.py"
         ).read_text(encoding="utf-8")
