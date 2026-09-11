@@ -10,7 +10,7 @@ from .provider import ConversationProvider
 from .provider_registry import ProviderRegistry
 
 PROVIDER_API_VERSION = 1
-PROVIDER_ENTRY_POINT_GROUP = "gpt_exporter.providers"
+PROVIDER_ENTRY_POINT_GROUP = "gpt_exporter.provider_plugins"
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,9 +33,9 @@ class ProviderDiscoveryResult:
 def _instantiate_provider(candidate):
     """Accept an entry point exposing either a provider instance or zero-arg factory/class."""
 
-    if isinstance(candidate, ConversationProvider):
-        return candidate
-    if callable(candidate):
+    if isinstance(candidate, type):
+        candidate = candidate()
+    elif not isinstance(candidate, ConversationProvider) and callable(candidate):
         candidate = candidate()
     if not isinstance(candidate, ConversationProvider):
         raise TypeError("entry point did not produce a ConversationProvider")
