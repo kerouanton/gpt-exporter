@@ -1,6 +1,11 @@
 import unittest
 
-from gpt_exporter.providers.discord.naming import dm_artifact_stem, dm_peer, dm_title
+from gpt_exporter.providers.discord.naming import (
+    dm_artifact_stem,
+    dm_peer,
+    dm_title,
+    is_group_dm,
+)
 
 
 class DiscordNamingTests(unittest.TestCase):
@@ -85,6 +90,52 @@ class DiscordNamingTests(unittest.TestCase):
         self.assertEqual(
             dm_artifact_stem(metadata, "994497416583708703"),
             "Discord DM Littleloulita ↔ Gadget MCS 994497416583708703",
+        )
+
+    def test_group_dm_uses_group_name_in_title_and_artifacts(self) -> None:
+        metadata = {
+            "conversation_type": "dm",
+            "participants": [
+                {"id": None, "name": None, "is_self": None},
+                {"id": "little", "name": "Littleloulita", "is_self": False},
+                {"id": "moon", "name": "moomoon", "is_self": False},
+                {"id": "self", "name": "Gadget MCS", "is_self": True},
+                {"id": "angel", "name": "Angelmunks 🪽", "is_self": False},
+            ],
+            "current_user": {
+                "id": "self",
+                "display_name": "Gadget MCS",
+                "username": "gadgetmcs",
+            },
+        }
+
+        self.assertTrue(is_group_dm(metadata))
+        self.assertEqual(
+            dm_title(metadata, "(104) Discord | la Tanière Orga"),
+            "la Tanière Orga",
+        )
+        self.assertEqual(metadata["conversation_type"], "group_dm")
+        self.assertEqual(metadata["group_name"], "la Tanière Orga")
+        self.assertEqual(
+            dm_artifact_stem(metadata, "1461351991145140234"),
+            "Discord Group DM la Tanière Orga 1461351991145140234",
+        )
+
+    def test_unnamed_group_dm_falls_back_to_other_participants(self) -> None:
+        metadata = {
+            "conversation_type": "group_dm",
+            "participants": [
+                {"id": "self", "name": "Gadget MCS", "is_self": True},
+                {"id": "m", "name": "Miziix", "is_self": False},
+                {"id": "x", "name": "Xylitol", "is_self": False},
+                {"id": "c", "name": "M7Cryptic", "is_self": False},
+            ],
+            "current_user": {"id": "self", "display_name": "Gadget MCS"},
+        }
+
+        self.assertEqual(
+            dm_artifact_stem(metadata, "123"),
+            "Discord Group DM Miziix · Xylitol · M7Cryptic 123",
         )
 
 
