@@ -12,7 +12,7 @@ import importlib
 import pkgutil
 from typing import Iterable
 
-from gpt_exporter.core import ConversationProvider, ProviderRegistry
+from gpt_exporter.core import ConversationProvider
 from gpt_exporter.core.provider_discovery import (
     PROVIDER_API_VERSION,
     ProviderDiscoveryFailure,
@@ -22,7 +22,7 @@ from gpt_exporter.core.provider_discovery import (
 
 
 def _embedded_provider_candidates() -> Iterable[tuple[str, str, object]]:
-    """Yield generic provider factories from the temporary in-tree namespace."""
+    """Yield generic plugin factories from the temporary in-tree namespace."""
 
     try:
         package = importlib.import_module("gpt_exporter.providers")
@@ -37,7 +37,7 @@ def _embedded_provider_candidates() -> Iterable[tuple[str, str, object]]:
     for item in sorted(pkgutil.iter_modules(package_path), key=lambda value: value.name.casefold()):
         if not item.ispkg:
             continue
-        module_name = f"{package.__name__}.{item.name}.provider"
+        module_name = f"{package.__name__}.{item.name}.plugin"
         try:
             module = importlib.import_module(module_name)
         except ModuleNotFoundError as error:
