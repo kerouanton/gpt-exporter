@@ -26,9 +26,17 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-build.txt
+            packages/export-provider-chatgpt/pyproject.toml
+            packages/export-provider-discord/pyproject.toml
 
-      - name: Install build dependencies
-        run: python -m pip install -r requirements-build.txt
+      - name: Install build dependencies and provider distributions
+        run: |
+          python -m pip install -r requirements-build.txt
+          python -m pip install -e . -e packages/export-provider-chatgpt -e packages/export-provider-discord
+
+      - name: Verify provider entry points before freezing
+        run: |
+          python -c "from importlib.metadata import entry_points; eps={ep.name:ep.value for ep in entry_points(group='gpt_exporter.provider_plugins')}; assert eps['gpt']=='export_provider_chatgpt.plugin:create_provider'; assert eps['discord']=='export_provider_discord.plugin:create_provider'; print(eps)"
 
       - name: Build Windows onedir application
         run: python -m PyInstaller --noconfirm --clean packaging/gpt_exporter.spec
@@ -85,8 +93,8 @@ jobs:
           }
 
           $collectors = @(
-              ".\dist\GPT Exporter\_internal\gpt_exporter\providers\gpt\resources\collect_chatgpt_archive.js",
-              ".\dist\GPT Exporter\_internal\gpt_exporter\providers\discord\resources\export_current_dm.js"
+              ".\dist\GPT Exporter\_internal\export_provider_chatgpt\resources\collect_chatgpt_archive.js",
+              ".\dist\GPT Exporter\_internal\export_provider_discord\resources\export_current_dm.js"
           )
           foreach ($collector in $collectors) {
               if (-not (Test-Path $collector -PathType Leaf)) {
@@ -97,7 +105,7 @@ jobs:
               }
           }
 
-          Write-Host "Packaged resources OK"
+          Write-Host "Packaged extracted-provider resources OK"
 
       - name: Upload Windows onedir artifact
         uses: actions/upload-artifact@v4
