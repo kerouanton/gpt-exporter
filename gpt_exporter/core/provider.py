@@ -16,6 +16,8 @@ class ProviderDescriptor:
     provider_id: str
     display_name: str
     version: str
+    api_version: int = 1
+    capabilities: tuple[str, ...] = ()
 
 
 @runtime_checkable
