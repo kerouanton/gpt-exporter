@@ -8,68 +8,33 @@ from collections.abc import Callable
 from pathlib import Path
 
 from gpt_exporter.core import ProviderRegistry
+from gpt_exporter.provider_loader import discover_available_providers
 from gpt_exporter.version import APP_NAME, display_version
 from gpt_exporter.workspaces import ConversationWorkspace, WorkspaceCatalog
 
 ProviderLauncher = Callable[[list[str]], int]
 
 
-def _provider_package_missing(error: ModuleNotFoundError, package: str) -> bool:
-    return bool(error.name and (error.name == package or error.name.startswith(package + ".")))
-
-
 def build_provider_registry() -> ProviderRegistry:
-    """Register concrete providers only at the application composition boundary."""
-    registry = ProviderRegistry()
+    """Discover installed/in-tree providers without naming concrete implementations."""
 
-    try:
-        from gpt_exporter.providers.gpt.provider import ChatGPTProvider
-    except ModuleNotFoundError as error:
-        if not _provider_package_missing(error, "gpt_exporter.providers.gpt"):
-            raise
-    else:
-        registry.register(ChatGPTProvider())
-
-    try:
-        from gpt_exporter.providers.discord.provider import DiscordProvider
-    except ModuleNotFoundError as error:
-        if not _provider_package_missing(error, "gpt_exporter.providers.discord"):
-            raise
-    else:
-        registry.register(DiscordProvider())
-
-    return registry
+    return discover_available_providers().registry
 
 
 def build_default_workspaces(registry: ProviderRegistry) -> tuple[ConversationWorkspace, ...]:
     """Compose provider-owned defaults into provider-neutral named workspaces."""
-    provider_ids = set(registry.provider_ids())
+
     workspaces: list[ConversationWorkspace] = []
-
-    if "gpt" in provider_ids:
-        from gpt_exporter.providers.gpt.paths import default_archive_paths
-
-        workspaces.append(
-            ConversationWorkspace(
-                name="ChatGPT",
-                provider_id="gpt",
-                root_path=default_archive_paths().root,
-                description="Default ChatGPT conversation archive.",
-            )
-        )
-
-    if "discord" in provider_ids:
-        from gpt_exporter.providers.discord.archive import default_archive_root
-
-        workspaces.append(
-            ConversationWorkspace(
-                name="Discord",
-                provider_id="discord",
-                root_path=default_archive_root(),
-                description="Default Discord conversation archive.",
-            )
-        )
-
+    for provider in registry.providers():
+        factory = getattr(provider, "default_workspaces", None)
+        if not callable(factory):
+            continue
+        for workspace in factory():
+            if workspace.provider_id != provider.descriptor.provider_id:
+                raise ValueError(
+                    f"Provider {provider.descriptor.provider_id} returned a workspace for {workspace.provider_id}"
+                )
+            workspaces.append(workspace)
     return tuple(workspaces)
 
 
@@ -93,61 +58,55 @@ def _run_provider_main(provider_main: Callable[[], int], arguments: list[str]) -
         sys.argv = previous
 
 
-def _launch_gpt(arguments: list[str]) -> int:
-    from gpt_exporter.providers.gpt.ui import app as provider_app
+def build_provider_launchers(
+    registry: ProviderRegistry | None = None,
+) -> dict[str, ProviderLauncher]:
+    """Build compatibility launchers from optional provider capabilities."""
 
-    return _run_provider_main(provider_app.main, arguments)
-
-
-def _launch_discord(arguments: list[str]) -> int:
-    from gpt_exporter.providers.discord.ui import app as provider_app
-
-    return _run_provider_main(provider_app.main, arguments)
-
-
-def build_provider_launchers() -> dict[str, ProviderLauncher]:
-    """Compatibility launchers for explicit legacy ``--provider`` execution."""
+    registry = registry or build_provider_registry()
     launchers: dict[str, ProviderLauncher] = {}
+    for provider in registry.providers():
+        legacy_main = getattr(provider, "legacy_main", None)
+        if not callable(legacy_main):
+            continue
 
-    try:
-        from gpt_exporter.providers.gpt import provider as _gpt_provider  # noqa: F401
-    except ModuleNotFoundError as error:
-        if not _provider_package_missing(error, "gpt_exporter.providers.gpt"):
-            raise
-    else:
-        launchers["gpt"] = _launch_gpt
+        def launch(arguments: list[str], *, _provider=provider) -> int:
+            provider_main = _provider.legacy_main()
+            return _run_provider_main(provider_main, arguments)
 
-    try:
-        from gpt_exporter.providers.discord import provider as _discord_provider  # noqa: F401
-    except ModuleNotFoundError as error:
-        if not _provider_package_missing(error, "gpt_exporter.providers.discord"):
-            raise
-    else:
-        launchers["discord"] = _launch_discord
-
+        launchers[provider.descriptor.provider_id] = launch
     return launchers
 
 
-def workspace_provider_arguments(workspace: ConversationWorkspace) -> list[str]:
-    """Translate a provider-neutral workspace into historical provider CLI inputs."""
-    if workspace.provider_id == "gpt":
-        return ["--database", str(workspace.database_path)]
-    if workspace.provider_id == "discord":
-        return ["--archive-root", str(workspace.root_path)]
-    return []
+def workspace_provider_arguments(
+    workspace: ConversationWorkspace,
+    registry: ProviderRegistry | None = None,
+) -> list[str]:
+    """Ask the owning provider to translate a workspace into legacy CLI inputs."""
+
+    registry = registry or build_provider_registry()
+    provider = registry.get(workspace.provider_id)
+    factory = getattr(provider, "workspace_arguments", None)
+    if not callable(factory):
+        return []
+    return list(factory(workspace))
 
 
-def build_workspace_actions(app, workspace: ConversationWorkspace):
-    """Build provider commands for the common workspace shell, lazily."""
-    if workspace.provider_id == "gpt":
-        from gpt_exporter.providers.gpt.ui.workspace_actions import GPTWorkspaceActions
+def build_workspace_actions(
+    app,
+    workspace: ConversationWorkspace,
+    registry: ProviderRegistry | None = None,
+):
+    """Build provider commands for the common workspace shell through provider hooks."""
 
-        return GPTWorkspaceActions(app, workspace)
-    if workspace.provider_id == "discord":
-        from gpt_exporter.providers.discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
-
-        return DiscordRemoteDeleteActions(app, workspace)
-    raise ValueError(f"No shared-shell actions are registered for provider: {workspace.provider_id}")
+    registry = registry or build_provider_registry()
+    provider = registry.get(workspace.provider_id)
+    factory = getattr(provider, "build_workspace_actions", None)
+    if not callable(factory):
+        raise ValueError(
+            f"No shared-shell actions are registered for provider: {workspace.provider_id}"
+        )
+    return factory(app, workspace)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -171,7 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--provider",
-        help="Compatibility option: launch the historical provider-specific GUI directly.",
+        help="Compatibility option: launch a provider-specific GUI directly when available.",
     )
     parser.add_argument(
         "--debug",
@@ -211,8 +170,7 @@ def _first_available_workspace(
     )
     if not enabled:
         raise RuntimeError("No enabled conversation workspace is available.")
-    preferred = next((item for item in enabled if item.name == "ChatGPT"), None)
-    return preferred or enabled[0]
+    return enabled[0]
 
 
 def _resolve_workspace(
@@ -223,7 +181,13 @@ def _resolve_workspace(
     if requested_name:
         workspace = catalog.get(requested_name)
     else:
-        workspace = catalog.get_active() or _first_available_workspace(catalog, registry)
+        active = catalog.get_active()
+        available_ids = set(registry.provider_ids())
+        workspace = (
+            active
+            if active is not None and active.provider_id in available_ids and active.enabled
+            else _first_available_workspace(catalog, registry)
+        )
 
     if not workspace.enabled:
         raise ValueError(f"Workspace '{workspace.name}' is disabled")
@@ -254,7 +218,11 @@ def _launch_shared_shell(
             catalog=catalog,
             registry=registry,
             workspace=workspace,
-            action_factory=build_workspace_actions,
+            action_factory=lambda owner, selected: build_workspace_actions(
+                owner,
+                selected,
+                registry=registry,
+            ),
             debug=debug,
         )
     except (OSError, ValueError, sqlite3.Error) as error:
@@ -275,10 +243,9 @@ def main(argv: list[str] | None = None) -> int:
     registry = build_provider_registry()
     catalog = build_workspace_catalog(registry, path=arguments.workspace_catalog)
 
-    # Keep the old provider GUIs reachable for scripts/tests during migration.
-    # Normal interactive startup no longer opens a provider/workspace chooser.
+    # Keep provider-owned compatibility GUIs reachable during migration.
     if arguments.provider:
-        launchers = build_provider_launchers()
+        launchers = build_provider_launchers(registry)
         provider_id = arguments.provider
         if provider_id not in launchers:
             raise ValueError(f"Unknown or unavailable provider: {provider_id}")
@@ -286,7 +253,10 @@ def main(argv: list[str] | None = None) -> int:
         launch_arguments = list(provider_arguments)
         if workspace is not None:
             catalog.set_active(workspace.name)
-            launch_arguments = [*workspace_provider_arguments(workspace), *launch_arguments]
+            launch_arguments = [
+                *workspace_provider_arguments(workspace, registry=registry),
+                *launch_arguments,
+            ]
         return int(launchers[provider_id](launch_arguments))
 
     workspace = _resolve_workspace(catalog, registry, arguments.workspace)

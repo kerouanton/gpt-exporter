@@ -34,14 +34,17 @@ class ProviderRegistry:
         except KeyError as error:
             raise KeyError(f"unknown provider: {provider_id}") from error
 
-    def descriptors(self) -> tuple[ProviderDescriptor, ...]:
+    def providers(self) -> tuple[ConversationProvider, ...]:
+        """Return providers in stable display order for shared composition code."""
         return tuple(
-            provider.descriptor
-            for provider in sorted(
+            sorted(
                 self._providers.values(),
                 key=lambda item: (item.descriptor.display_name.casefold(), item.descriptor.provider_id),
             )
         )
+
+    def descriptors(self) -> tuple[ProviderDescriptor, ...]:
+        return tuple(provider.descriptor for provider in self.providers())
 
     def provider_ids(self) -> tuple[str, ...]:
         return tuple(descriptor.provider_id for descriptor in self.descriptors())
