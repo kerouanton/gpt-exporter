@@ -45,8 +45,17 @@ class ProviderSelectionTests(unittest.TestCase):
             ("a", "z"),
         )
 
-    def test_installed_registry_contains_chatgpt_and_discord(self) -> None:
-        self.assertEqual(build_provider_registry().provider_ids(), ("gpt", "discord"))
+    def test_source_checkout_registry_uses_extracted_provider_packages(self) -> None:
+        registry = build_provider_registry()
+        self.assertEqual(registry.provider_ids(), ("gpt", "discord"))
+        self.assertEqual(
+            registry.get("gpt").__class__.__module__,
+            "export_provider_chatgpt.plugin",
+        )
+        self.assertEqual(
+            registry.get("discord").__class__.__module__,
+            "export_provider_discord.plugin",
+        )
 
     def test_direct_provider_selection_launches_legacy_provider_ui_for_compatibility(self) -> None:
         registry = ProviderRegistry([_SyntheticProvider()])
@@ -109,7 +118,8 @@ class ProviderSelectionTests(unittest.TestCase):
         script = (
             "import sys; import gpt_exporter.application; "
             "raise SystemExit(int(any(name.startswith(('gpt_exporter.providers.gpt', "
-            "'gpt_exporter.providers.discord')) for name in sys.modules)))"
+            "'gpt_exporter.providers.discord', 'export_provider_chatgpt', "
+            "'export_provider_discord')) for name in sys.modules)))"
         )
         result = subprocess.run(
             [sys.executable, "-c", script],
