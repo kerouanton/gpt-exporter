@@ -13,8 +13,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackageClosureTests(unittest.TestCase):
-    def test_core_package_loads_without_repository_root_modules(self) -> None:
-        """Exercise packaged implementations from package-only imports."""
+    def test_core_package_loads_without_repository_root_modules_or_providers(self) -> None:
+        """Exercise the provider-neutral host from package-only imports."""
 
         with tempfile.TemporaryDirectory() as temporary:
             temporary_root = Path(temporary)
@@ -24,6 +24,7 @@ class PackageClosureTests(unittest.TestCase):
             import shutil
 
             shutil.copytree(source_package, target_package)
+            shutil.rmtree(target_package / "providers", ignore_errors=True)
             environment = os.environ.copy()
             environment["PYTHONPATH"] = str(temporary_root)
 
@@ -35,25 +36,22 @@ class PackageClosureTests(unittest.TestCase):
                     "assert importlib.util.find_spec('export_markdown') is None",
                     "assert importlib.util.find_spec('export_docx') is None",
                     "assert importlib.util.find_spec('index_chatgpt_archive') is None",
+                    "assert importlib.util.find_spec('export_provider_chatgpt') is None",
+                    "assert importlib.util.find_spec('export_provider_discord') is None",
+                    "import gpt_exporter.application",
                     "import gpt_exporter.pipeline",
                     "from gpt_exporter.archive import importer",
                     "from gpt_exporter.export import markdown, docx",
                     "from gpt_exporter.index import engine",
-                    "from gpt_exporter.providers.gpt.importer import _bundle_importer",
-                    "from gpt_exporter.providers.gpt import indexing",
-                    "from gpt_exporter.providers.gpt.export import markdown as gpt_markdown",
-                    "from gpt_exporter.providers.gpt.resources import collector_path",
+                    "from gpt_exporter.provider_loader import discover_available_providers",
                     "assert callable(importer.import_bundle)",
-                    "assert _bundle_importer.__name__ == 'gpt_exporter.providers.gpt.importer._bundle_importer'",
                     "assert callable(markdown.export_canonical_markdown)",
-                    "assert callable(gpt_markdown.export_markdown)",
-                    "assert 'gpt_exporter.providers.gpt.export._native_markdown' not in sys.modules",
                     "assert docx._implementation().__name__ == 'gpt_exporter.export._markdown_docx_v28'",
                     "assert callable(engine.update_index)",
-                    "assert callable(indexing.update_index)",
-                    "assert 'gpt_exporter.providers.gpt.indexing._native_indexer' not in sys.modules",
-                    "assert collector_path().is_file()",
-                    "assert 'chatgpt-archive-source.json' in collector_path().read_text(encoding='utf-8')",
+                    "result = discover_available_providers(include_embedded=False, entry_points=lambda: [])",
+                    "assert result.registry.provider_ids() == ()",
+                    "assert result.failures == ()",
+                    "assert not any(name.startswith('gpt_exporter.providers.') for name in sys.modules)",
                 ]
             )
 
@@ -69,12 +67,13 @@ class PackageClosureTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(completed.stdout, "")
 
-    def test_chatgpt_collector_exists_only_under_provider(self) -> None:
+    def test_chatgpt_collector_exists_only_under_extracted_provider(self) -> None:
         provider_collector = (
             REPOSITORY_ROOT
-            / "gpt_exporter"
-            / "providers"
-            / "gpt"
+            / "packages"
+            / "export-provider-chatgpt"
+            / "src"
+            / "export_provider_chatgpt"
             / "resources"
             / "collect_chatgpt_archive.js"
         )

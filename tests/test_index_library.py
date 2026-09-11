@@ -15,6 +15,7 @@ from unittest import mock
 
 import gpt_exporter.index.engine as index_engine
 from gpt_exporter.index import update_index
+from gpt_exporter.provider_loader import prepare_source_provider_imports
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -201,9 +202,10 @@ class IndexLibraryTests(unittest.TestCase):
             archive_root = Path(temporary) / "archive"
             self._write_conversation(archive_root)
             database_path = archive_root / "conversations-index.sqlite"
+            prepare_source_provider_imports()
 
             with mock.patch(
-                "gpt_exporter.providers.gpt.indexing.index_native_conversation",
+                "export_provider_chatgpt.indexing.index_native_conversation",
                 side_effect=sqlite3.OperationalError("database is locked"),
             ):
                 with self.assertRaises(sqlite3.OperationalError):

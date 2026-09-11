@@ -59,10 +59,13 @@ def default_archive_paths(
     """Compatibility helper for the historical GPT Exporter default.
 
     New provider-neutral code should use :meth:`ArchivePaths.from_root` with an
-    explicit root.  The concrete provider is imported lazily so merely importing
-    ``gpt_exporter.paths`` remains provider-independent.
+    explicit root. The extracted ChatGPT distribution is imported lazily so merely
+    importing ``gpt_exporter.paths`` remains provider-independent.
     """
-    from gpt_exporter.providers.gpt.paths import default_archive_paths as gpt_default
+    from gpt_exporter.provider_loader import prepare_source_provider_imports
+
+    prepare_source_provider_imports()
+    from export_provider_chatgpt.paths import default_archive_paths as gpt_default
 
     return gpt_default(environ, home=home)
 
