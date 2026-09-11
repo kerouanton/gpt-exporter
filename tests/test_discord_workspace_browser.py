@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from gpt_exporter.providers.discord.raw_archive import read_raw_bytes
-from gpt_exporter.providers.discord.ui.workspace_actions import DiscordWorkspaceActions
+from gpt_exporter.providers.discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
 from gpt_exporter.ui import workspace_shell
 from gpt_exporter.workspaces import ConversationWorkspace
 
@@ -85,7 +85,7 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
                 )
                 connection.commit()
 
-            actions = DiscordWorkspaceActions(SimpleNamespace(), workspace)
+            actions = DiscordRemoteDeleteActions(SimpleNamespace(), workspace)
             self.assertTrue(actions.prepare_index())
 
             stem = "Discord DM Gadget MCS ↔ soundy 123456"
