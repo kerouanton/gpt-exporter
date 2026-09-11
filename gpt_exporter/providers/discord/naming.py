@@ -69,6 +69,47 @@ def dm_peer(metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return None
 
 
+def _peer_name_from_fallback_title(fallback_title: str) -> str | None:
+    """Recover a 1:1 DM peer username from Discord's page title when rows are unresolved."""
+    title = _NOTIFICATION_PREFIX.sub("", fallback_title).strip()
+    if title.startswith("Discord |"):
+        title = title.split("|", 1)[1].strip()
+    if not title.startswith("@"):
+        return None
+    name = title[1:].strip()
+    if not name or any(character.isspace() for character in name):
+        return None
+    return name
+
+
+def _ensure_peer_from_fallback_title(
+    metadata: Mapping[str, Any], fallback_title: str
+) -> Mapping[str, Any] | None:
+    """Persist a title-derived peer only for unresolved 1:1 browser-collected DMs."""
+    peer = dm_peer(metadata)
+    if peer is not None:
+        return peer
+    if _text(metadata.get("conversation_type")) != "dm":
+        return None
+    name = _peer_name_from_fallback_title(fallback_title)
+    if not name:
+        return None
+
+    fallback = {
+        "id": None,
+        "name": name,
+        "username": name,
+        "avatar_url": None,
+        "is_self": False,
+        "identity_source": "document-title-fallback",
+    }
+    if isinstance(metadata, dict):
+        participants = metadata.get("participants")
+        existing = list(participants) if isinstance(participants, list) else []
+        metadata["participants"] = [*existing, fallback]
+    return fallback
+
+
 def _display_identity(record: Mapping[str, Any] | None, *, fallback: str) -> str:
     """Choose the same human-facing identity convention for both filename sides."""
     if not record:
@@ -84,7 +125,7 @@ def _display_identity(record: Mapping[str, Any] | None, *, fallback: str) -> str
 def dm_title(metadata: Mapping[str, Any], fallback_title: str) -> str:
     """Build the Browser title from the same two-sided identity convention as artifacts."""
     local = dm_self(metadata)
-    peer = dm_peer(metadata)
+    peer = _ensure_peer_from_fallback_title(metadata, fallback_title)
     if local or peer:
         local_name = _display_identity(local, fallback="self").lstrip("@")
         peer_name = _display_identity(peer, fallback="peer").lstrip("@")
