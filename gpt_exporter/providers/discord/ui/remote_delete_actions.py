@@ -39,6 +39,7 @@ from gpt_exporter.ui.remote_delete import RemoteDeletionPlan
 from .workspace_actions import DiscordWorkspaceActions
 
 
+_DIRECT_DM_CATEGORY = "Discord Direct Message"
 _GROUP_DM_CATEGORY = "Discord Group DM"
 
 
@@ -145,7 +146,7 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
         return tuple(result)
 
     def prepare_index(self) -> bool:
-        """Migrate Discord artifacts, normalize titles, and classify Group DMs."""
+        """Migrate Discord artifacts, normalize titles, and classify DM kinds."""
         root = self.workspace.root_path
         downloads = root / "downloads"
         downloads.mkdir(parents=True, exist_ok=True)
@@ -165,8 +166,6 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
                     "current_user": payload.get("current_user"),
                     "conversation_type": conversation.get("type"),
                 }
-                # Normalize/mutate provider metadata now so Group DM artifact paths
-                # use the human group name rather than a participant-list fallback.
                 dm_title(metadata, raw_title)
                 metadata_by_channel[channel_id] = metadata
                 target_raw, _target_canonical, _target_docx = discord_artifact_paths(
@@ -219,15 +218,21 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
             try:
                 with sqlite3.connect(self.workspace.database_path) as connection:
                     connection.row_factory = sqlite3.Row
-                    connection.execute(
-                        "INSERT OR IGNORE INTO categories (name, description, created_at) VALUES (?, ?, datetime('now'))",
+                    for name, description in (
+                        (_DIRECT_DM_CATEGORY, "Discord one-to-one direct-message conversations"),
                         (_GROUP_DM_CATEGORY, "Discord multi-participant direct-message conversations"),
-                    )
-                    category_row = connection.execute(
-                        "SELECT category_id FROM categories WHERE name = ? COLLATE NOCASE",
-                        (_GROUP_DM_CATEGORY,),
-                    ).fetchone()
-                    group_category_id = int(category_row["category_id"]) if category_row else None
+                    ):
+                        connection.execute(
+                            "INSERT OR IGNORE INTO categories (name, description, created_at) VALUES (?, ?, datetime('now'))",
+                            (name, description),
+                        )
+                    category_rows = connection.execute(
+                        "SELECT category_id, name FROM categories WHERE name IN (?, ?) COLLATE NOCASE",
+                        (_DIRECT_DM_CATEGORY, _GROUP_DM_CATEGORY),
+                    ).fetchall()
+                    category_ids = {str(item["name"]): int(item["category_id"]) for item in category_rows}
+                    direct_category_id = category_ids.get(_DIRECT_DM_CATEGORY)
+                    group_category_id = category_ids.get(_GROUP_DM_CATEGORY)
 
                     rows = connection.execute(
                         """
@@ -285,25 +290,29 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
                                 row["conversation_id"],
                             ),
                         )
-                        if group_category_id is not None:
-                            if is_group_dm(metadata):
-                                before = connection.total_changes
-                                connection.execute(
-                                    """
-                                    INSERT OR IGNORE INTO conversation_categories (
-                                        conversation_id, category_id, assigned_at
-                                    ) VALUES (?, ?, datetime('now'))
-                                    """,
-                                    (row["conversation_id"], group_category_id),
-                                )
-                                changed = changed or connection.total_changes > before
-                            else:
-                                before = connection.total_changes
-                                connection.execute(
-                                    "DELETE FROM conversation_categories WHERE conversation_id = ? AND category_id = ?",
-                                    (row["conversation_id"], group_category_id),
-                                )
-                                changed = changed or connection.total_changes > before
+
+                        group_dm = is_group_dm(metadata)
+                        desired_category_id = group_category_id if group_dm else direct_category_id
+                        obsolete_category_id = direct_category_id if group_dm else group_category_id
+                        if desired_category_id is not None:
+                            before = connection.total_changes
+                            connection.execute(
+                                """
+                                INSERT OR IGNORE INTO conversation_categories (
+                                    conversation_id, category_id, assigned_at
+                                ) VALUES (?, ?, datetime('now'))
+                                """,
+                                (row["conversation_id"], desired_category_id),
+                            )
+                            changed = changed or connection.total_changes > before
+                        if obsolete_category_id is not None:
+                            before = connection.total_changes
+                            connection.execute(
+                                "DELETE FROM conversation_categories WHERE conversation_id = ? AND category_id = ?",
+                                (row["conversation_id"], obsolete_category_id),
+                            )
+                            changed = changed or connection.total_changes > before
+
                         try:
                             connection.execute(
                                 "UPDATE canonical_conversation_sources SET source_path = ? WHERE conversation_id = ?",
