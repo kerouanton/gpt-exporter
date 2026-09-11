@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 
 ROOT = Path(SPECPATH).parent.resolve()
@@ -20,8 +20,8 @@ RESOURCE_NAMES = (
     "HISTORY.md",
 )
 PROVIDER_PACKAGES = (
-    "export_provider_chatgpt",
-    "export_provider_discord",
+    ("export_provider_chatgpt", "export-provider-chatgpt"),
+    ("export_provider_discord", "export-provider-discord"),
 )
 CONSOLE_BUILD = os.environ.get("GPT_EXPORTER_CONSOLE", "").strip() == "1"
 VERSION_INFO_PATH = Path(SPECPATH) / ".gpt_exporter-version-info.txt"
@@ -71,9 +71,10 @@ datas = [
     for name in RESOURCE_NAMES
 ]
 hiddenimports = []
-for provider_package in PROVIDER_PACKAGES:
+for provider_package, distribution_name in PROVIDER_PACKAGES:
     hiddenimports.extend(collect_submodules(provider_package))
     datas.extend(collect_data_files(provider_package))
+    datas.extend(copy_metadata(distribution_name))
 
 
 a = Analysis(
