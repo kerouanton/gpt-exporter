@@ -2,7 +2,11 @@
 
 
 def _implementation():
-    from gpt_exporter.providers.gpt.archive import manifest as implementation
+    from gpt_exporter.provider_loader import prepare_source_provider_imports
+
+    prepare_source_provider_imports()
+    from export_provider_chatgpt.archive import manifest as implementation
+
     return implementation
 
 
