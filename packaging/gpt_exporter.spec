@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
 
 ROOT = Path(SPECPATH).parent.resolve()
 if str(ROOT) not in sys.path:
@@ -17,10 +19,10 @@ RESOURCE_NAMES = (
     "HELP.md",
     "HISTORY.md",
 )
-GPT_RESOURCE_DIRECTORY = ROOT / "gpt_exporter" / "providers" / "gpt" / "resources"
-GPT_RESOURCE_NAMES = ("collect_chatgpt_archive.js",)
-DISCORD_RESOURCE_DIRECTORY = ROOT / "gpt_exporter" / "providers" / "discord" / "resources"
-DISCORD_RESOURCE_NAMES = ("export_current_dm.js",)
+PROVIDER_PACKAGES = (
+    "export_provider_chatgpt",
+    "export_provider_discord",
+)
 CONSOLE_BUILD = os.environ.get("GPT_EXPORTER_CONSOLE", "").strip() == "1"
 VERSION_INFO_PATH = Path(SPECPATH) / ".gpt_exporter-version-info.txt"
 
@@ -68,14 +70,10 @@ datas = [
     (str(RESOURCE_DIRECTORY / name), "gpt_exporter/resources")
     for name in RESOURCE_NAMES
 ]
-datas.extend(
-    (str(GPT_RESOURCE_DIRECTORY / name), "gpt_exporter/providers/gpt/resources")
-    for name in GPT_RESOURCE_NAMES
-)
-datas.extend(
-    (str(DISCORD_RESOURCE_DIRECTORY / name), "gpt_exporter/providers/discord/resources")
-    for name in DISCORD_RESOURCE_NAMES
-)
+hiddenimports = []
+for provider_package in PROVIDER_PACKAGES:
+    hiddenimports.extend(collect_submodules(provider_package))
+    datas.extend(collect_data_files(provider_package))
 
 
 a = Analysis(
@@ -83,7 +81,7 @@ a = Analysis(
     pathex=[str(ROOT)],
     binaries=[],
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
