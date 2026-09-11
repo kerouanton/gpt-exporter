@@ -200,12 +200,16 @@ def _record_docx_path(database_path: Path, conversation_id: str, docx_path: Path
 
 
 def _human_named_paths(directory: Path, channel_id: str, suffix: str) -> tuple[Path, ...]:
-    return tuple(sorted(directory.glob(f"Discord DM * {channel_id}{suffix}")))
+    """Find current and historical human-named artifacts by stable channel ID."""
+    matches: set[Path] = set()
+    for prefix in ("Discord DM ", "Discord Group DM "):
+        matches.update(directory.glob(f"{prefix}* {channel_id}*{suffix}"))
+    return tuple(sorted(matches))
 
 
 def _human_named_docx_paths(directory: Path, channel_id: str) -> tuple[Path, ...]:
-    """Include both legacy single DOCX and time-suffixed multipart DOCX files."""
-    return tuple(sorted(directory.glob(f"Discord DM * {channel_id}*.docx")))
+    """Include 1:1/group, legacy single DOCX and time-suffixed multipart DOCX files."""
+    return _human_named_paths(directory, channel_id, ".docx")
 
 
 def _canonical_candidates(downloads_dir: Path, channel_id: str) -> tuple[Path, ...]:
@@ -319,9 +323,6 @@ def _participant_records(conversation) -> tuple[dict, ...]:
             target.update({key: value for key, value in current.items() if value is not None})
             target["is_self"] = True
 
-    # Discord can expose placeholder participant objects with no usable identity.
-    # They are collector/UI artifacts, not real third participants in a DM, and must
-    # not become a visible "Unknown participant" token in every generated DOCX.
     records = [record for record in records if _participant_has_identity(record)]
 
     title = str(conversation.title or "").strip()
