@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "export-provider-chatgpt"
+version = "0.1.0"
+description = "ChatGPT provider package for GPT Exporter / future MSNE"
+requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+authors = [{ name = "Bruno Kerouanton" }]
+dependencies = ["gpt-exporter>=2.9.0"]
+
+[project.entry-points."gpt_exporter.provider_plugins"]
+gpt = "export_provider_chatgpt.plugin:create_provider"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+export_provider_chatgpt = ["resources/*.js"]
