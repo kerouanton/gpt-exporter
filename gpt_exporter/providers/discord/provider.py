@@ -250,7 +250,7 @@ def _normalize_collector(path: Path, payload: dict[str, Any]) -> CanonicalConver
         messages=tuple(messages),
         created_at=(messages[0].created_at if messages else None),
         updated_at=(messages[-1].created_at if messages else None),
-        category_hints=(("Discord Group DM",) if group_dm else ()),
+        category_hints=(("Discord Group DM",) if group_dm else ("Discord Direct Message",)),
         metadata=conversation_metadata,
     )
 
