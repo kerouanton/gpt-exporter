@@ -198,7 +198,8 @@ class DiscordRemoteDeleteTests(unittest.TestCase):
             payload = actions.app.clipboard
             self.assertIn('root.querySelector(\'[role="group"][aria-label="Message Actions"]\')', payload)
             self.assertIn('normalize(element.getAttribute("aria-label")) === "more"', payload)
-            self.assertIn('normalize(element.textContent) === "delete message"', payload)
+            self.assertIn('const text = normalize(element.textContent);', payload)
+            self.assertIn('return text === "delete message" || aria === "delete message";', payload)
             self.assertIn('document.getElementById(`chat-messages-${id}`)', payload)
             self.assertNotIn('root.querySelector(\'[aria-label="Message Actions"] [aria-label="Delete"]', payload)
 
