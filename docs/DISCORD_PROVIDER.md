@@ -164,6 +164,31 @@ The operation is intentionally conservative:
 
 This mechanism does not extract Discord authentication tokens or cookies.
 
+### Known residual-message cases from real cleanup runs
+
+Full-DM cleanup validation exposed two independent classes of residual remote items. These observations are documented for a later hardening pass; they are not being worked on in the current milestone.
+
+**1. Non-deletable Discord events.** Voice-call events can satisfy Discord search filters such as `from:<self>` but do not expose a normal **Delete Message** action. They should remain archived but must not be treated as remote-deletion candidates. Search-result counters can therefore remain non-zero even after every ordinary own message has been removed.
+
+**2. Residual ordinary messages in contiguous clusters.** Across multiple real DMs, the automatic deletion sweep left small groups of otherwise normal own messages behind. The user was able to delete these messages manually afterward without difficulty. In some runs these IDs were present in the authorized candidate set and ended as `Delete Message menu item was not found`; in at least one run the deletion report said every authorized candidate had been deleted while roughly ten additional ordinary own messages still remained remotely and were removed manually afterward.
+
+The current working hypothesis is that two mechanisms can contribute:
+
+- transient Discord UI/backend state during bulk deletion can make the normal delete action temporarily unavailable for a contiguous region, so consuming several immediate retries against the same transient state is not sufficient;
+- dry-run discovery can miss some otherwise deletable own messages, so `deleted_count == authorized_count` proves only that every **authorized ID** was deleted, not that every deletable own message visible in the DM was discovered.
+
+Representative validation results retained for future regression work:
+
+```text
+tcccorp: 276 authorized, 269 deleted, 7 unresolved
+Julien.C: 407 authorized, 392 deleted, 15 unresolved
+Xylitol: 329 authorized, 329 reported deleted, but ~10 additional ordinary own messages were still visible and later deleted manually
+```
+
+The first two unresolved sets were dominated by `Delete Message menu item was not found` and appeared in temporal clusters. The Xylitol result demonstrates why a clean delete-result JSON must not currently be interpreted as proof that the remote DM has no remaining deletable own messages.
+
+A later hardening pass should therefore separate **candidate discovery completeness** from **execution success**, explicitly skip known non-deletable event types, and retry transient execution failures in a later pass after a substantial cooldown rather than exhausting all attempts immediately in one cluster.
+
 ## Native Discord data packages
 
 The earlier native data-package JSON/CSV adapter remains a compatibility ingestion path. Guided browser collection is the normal workflow because it captures the currently displayed DM directly.
