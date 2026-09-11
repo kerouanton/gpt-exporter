@@ -874,7 +874,7 @@ class ArchiveBrowser(tk.Tk):
         self.preview_text.configure(state="normal")
         self.preview_text.delete("1.0", "end")
         for item in excerpts:
-            role = item["author_role"].upper()
+            role = item.get("author_name") or item["author_role"]
             self.preview_text.insert("end", f"Message {item['message_order']} · {role}\n", "heading")
             self.preview_text.insert("end", item["body"] + "\n\n")
         self.preview_text.tag_configure("heading", font=("TkDefaultFont", 9, "bold"))

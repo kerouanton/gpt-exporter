@@ -76,7 +76,7 @@ class DiscordArchiveTests(unittest.TestCase):
                 result = archive_collector_export(source, archive_root=root)
 
             self.assertTrue(result.updated)
-            self.assertTrue(result.raw_path.name.endswith(".json.xz"))
+            self.assertTrue(result.raw_path.name.endswith(".raw.json.xz"))
             self.assertEqual(read_raw_bytes(result.raw_path), source.read_bytes())
             canonical = read_canonical_conversation(result.canonical_path)
             self.assertEqual(canonical.provider_id, "discord")
@@ -129,11 +129,12 @@ class DiscordArchiveTests(unittest.TestCase):
                 downloader.return_value.source_paths = {}
                 result = archive_collector_export(source, archive_root=root)
 
-            self.assertEqual(result.raw_path.name, "Discord DM gadgetmcs ↔ soundy 123456.json.xz")
-            self.assertEqual(result.canonical_path.name, "Discord DM gadgetmcs ↔ soundy 123456.json.xz")
-            self.assertEqual(result.docx_path.name, "Discord DM gadgetmcs ↔ soundy 123456.docx")
+            stem = "Discord DM Gadget MCS ↔ soundy 123456"
+            self.assertEqual(result.raw_path.name, f"{stem}.raw.json.xz")
+            self.assertEqual(result.canonical_path.name, f"{stem}.canonical.json.xz")
+            self.assertEqual(result.docx_path.name, f"{stem}.docx")
             canonical = read_canonical_conversation(result.canonical_path)
-            self.assertEqual(canonical.title, "@soundy")
+            self.assertEqual(canonical.title, "Gadget MCS ↔ soundy")
             avatar_assets = [
                 asset
                 for message in canonical.messages
@@ -171,28 +172,35 @@ class DiscordArchiveTests(unittest.TestCase):
             self.assertEqual(row[1], "Direct Messages")
             self.assertEqual(row[2], "123456")
 
-    def test_partial_collector_export_cannot_replace_complete_archive(self) -> None:
+    def test_verified_snapshot_outside_known_range_preserves_missing_history(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)
             root = temp / "archive"
+            complete_payload = payload(("100", "101", "102"))
+            complete_payload["diagnostics"] = {"history_complete": True}
             complete = temp / "complete.json"
-            complete.write_text(json.dumps(payload(("100", "101", "102"))), encoding="utf-8")
-            partial = temp / "partial.json"
-            partial.write_text(json.dumps(payload(("101", "102"))), encoding="utf-8")
+            complete.write_text(json.dumps(complete_payload), encoding="utf-8")
+
+            recapture_payload = payload(("101", "102"))
+            recapture_payload["diagnostics"] = {"history_complete": True}
+            recapture = temp / "recapture.json"
+            recapture.write_text(json.dumps(recapture_payload), encoding="utf-8")
 
             with (
                 mock.patch("gpt_exporter.providers.discord.archive.export_canonical_markdown"),
                 mock.patch("gpt_exporter.providers.discord.archive.export_docx"),
                 mock.patch("gpt_exporter.providers.discord.archive.update_index"),
             ):
-                first = archive_collector_export(complete, archive_root=root)
-                raw_before = read_raw_bytes(first.raw_path)
-                second = archive_collector_export(partial, archive_root=root)
+                archive_collector_export(complete, archive_root=root)
+                second = archive_collector_export(recapture, archive_root=root)
 
-            self.assertFalse(second.updated)
-            self.assertEqual(read_raw_bytes(second.raw_path), raw_before)
+            self.assertTrue(second.updated)
+            self.assertEqual(read_raw_bytes(second.raw_path), recapture.read_bytes())
             canonical = read_canonical_conversation(second.canonical_path)
             self.assertEqual([m.message_id for m in canonical.messages], ["100", "101", "102"])
+            self.assertNotIn("deleted", canonical.messages[0].metadata)
+            self.assertEqual(canonical.messages[0].content, "message 100")
+            self.assertEqual(canonical.metadata["snapshot_coverage"], "complete-outside-known-range")
 
 
 if __name__ == "__main__":

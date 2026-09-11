@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import lzma
-import shutil
+import os
 import sqlite3
 import tempfile
 from contextlib import closing
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Callable
 from urllib.parse import urlparse
 
 from gpt_exporter.core import CanonicalAsset
@@ -22,9 +23,15 @@ from gpt_exporter.export.markdown import export_canonical_markdown
 from gpt_exporter.index import update_index
 
 from .assets import conversation_with_local_assets, download_conversation_assets
-from .naming import dm_artifact_stem, dm_title, legacy_paths
+from .docx_parts import conversation_for_part, docx_paths_for_parts, plan_docx_parts
+from .history import merge_dm_history
+from .naming import discord_artifact_paths, dm_title, legacy_paths
 from .provider import DiscordProvider
 from .raw_archive import materialize_raw_json, read_raw_json, write_raw_archive
+
+
+ProgressCallback = Callable[[str], None]
+_PARTICIPANT_AVATAR_PREFIX = "Conversation participant avatar: "
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +47,12 @@ class DiscordArchiveResult:
     downloaded_assets: int = 0
     reused_assets: int = 0
     failed_assets: tuple[str, ...] = ()
+    docx_paths: tuple[Path, ...] = ()
+
+
+def _emit(progress: ProgressCallback | None, message: str) -> None:
+    if progress is not None:
+        progress(message)
 
 
 def default_archive_root() -> Path:
@@ -187,12 +200,29 @@ def _record_docx_path(database_path: Path, conversation_id: str, docx_path: Path
 
 
 def _human_named_paths(directory: Path, channel_id: str, suffix: str) -> tuple[Path, ...]:
-    return tuple(sorted(directory.glob(f"Discord DM * {channel_id}{suffix}")))
+    """Find current and historical human-named artifacts by stable channel ID."""
+    matches: set[Path] = set()
+    for prefix in ("Discord DM ", "Discord Group DM "):
+        matches.update(directory.glob(f"{prefix}* {channel_id}*{suffix}"))
+    return tuple(sorted(matches))
+
+
+def _human_named_docx_paths(directory: Path, channel_id: str) -> tuple[Path, ...]:
+    """Include 1:1/group, legacy single DOCX and time-suffixed multipart DOCX files."""
+    return _human_named_paths(directory, channel_id, ".docx")
+
+
+def _canonical_candidates(downloads_dir: Path, channel_id: str) -> tuple[Path, ...]:
+    return tuple(
+        path
+        for path in _human_named_paths(downloads_dir, channel_id, ".json.xz")
+        if not path.name.casefold().endswith(".raw.json.xz")
+    )
 
 
 def _find_existing_canonical(downloads_dir: Path, channel_id: str, preferred: Path, legacy: Path):
     candidates: list[Path] = []
-    for path in (preferred, legacy, *_human_named_paths(downloads_dir, channel_id, ".json.xz")):
+    for path in (preferred, legacy, *_canonical_candidates(downloads_dir, channel_id)):
         if path not in candidates and path.is_file() and path.stat().st_size > 0:
             candidates.append(path)
 
@@ -222,19 +252,10 @@ def _find_prior_artifact(directory: Path, channel_id: str, suffix: str, legacy: 
     return max(candidates, key=lambda path: path.stat().st_mtime_ns) if candidates else None
 
 
-def _find_prior_raw_artifact(raw_dir: Path, channel_id: str, legacy: Path) -> Path | None:
-    candidates: list[Path] = []
-    if legacy.is_file():
-        candidates.append(legacy)
-    candidates.extend(_human_named_paths(raw_dir, channel_id, ".json.xz"))
-    candidates.extend(_human_named_paths(raw_dir, channel_id, ".json"))
-    return max(candidates, key=lambda path: path.stat().st_mtime_ns) if candidates else None
-
-
 def _remove_stale_artifacts(root: Path, channel_id: str, *, keep: set[Path]) -> None:
     legacy_docx, legacy_raw, legacy_canonical = legacy_paths(root, channel_id)
     candidates = [legacy_docx, legacy_raw, legacy_canonical]
-    candidates.extend(_human_named_paths(root, channel_id, ".docx"))
+    candidates.extend(_human_named_docx_paths(root, channel_id))
     candidates.extend(_human_named_paths(root / "raw", channel_id, ".json"))
     candidates.extend(_human_named_paths(root / "raw", channel_id, ".json.xz"))
     candidates.extend(_human_named_paths(root / "downloads", channel_id, ".json.xz"))
@@ -245,113 +266,277 @@ def _remove_stale_artifacts(root: Path, channel_id: str, *, keep: set[Path]) -> 
                 path.unlink(missing_ok=True)
         except OSError:
             pass
+    raw_dir = root / "raw"
+    if raw_dir.is_dir():
+        try:
+            raw_dir.rmdir()
+        except OSError:
+            pass
+
+
+def _without_author_avatars(conversation):
+    """Keep author avatars in the archive, but omit them from message-body rendering."""
+    messages = []
+    for message in conversation.messages:
+        assets = tuple(
+            asset for asset in message.assets
+            if str(asset.metadata.get("kind") or "").casefold() != "author-avatar"
+        )
+        messages.append(replace(message, assets=assets))
+    return replace(conversation, messages=tuple(messages))
+
+
+def _participant_has_identity(record: dict) -> bool:
+    """Return whether a participant record has a usable human or stable identity."""
+    return any(
+        str(record.get(key) or "").strip()
+        for key in ("id", "username", "display_name", "name")
+    )
+
+
+def _participant_records(conversation) -> tuple[dict, ...]:
+    """Return identifiable DM participants with the current user's richer identity merged in."""
+    metadata = dict(conversation.metadata)
+    records: list[dict] = []
+    by_id: dict[str, dict] = {}
+
+    participants = metadata.get("participants")
+    if isinstance(participants, list):
+        for participant in participants:
+            if not isinstance(participant, dict):
+                continue
+            record = dict(participant)
+            participant_id = str(record.get("id") or "").strip()
+            if participant_id:
+                by_id[participant_id] = record
+            records.append(record)
+
+    current = metadata.get("current_user")
+    if isinstance(current, dict):
+        current_id = str(current.get("id") or "").strip()
+        if current_id:
+            target = by_id.get(current_id)
+            if target is None:
+                target = {"id": current_id, "is_self": True}
+                records.append(target)
+                by_id[current_id] = target
+            target.update({key: value for key, value in current.items() if value is not None})
+            target["is_self"] = True
+
+    records = [record for record in records if _participant_has_identity(record)]
+
+    title = str(conversation.title or "").strip()
+    fallback_peer_username = title[1:].strip() if title.startswith("@") else ""
+    if fallback_peer_username and " " not in fallback_peer_username:
+        for record in records:
+            if record.get("is_self") is True or str(record.get("username") or "").strip():
+                continue
+            record["username"] = fallback_peer_username
+            break
+
+    return tuple(sorted(records, key=lambda item: 0 if item.get("is_self") is True else 1))
+
+
+def _participant_label(record: dict) -> str:
+    """Prefer the human display name; fall back to username, then stable ID."""
+    display_name = str(record.get("display_name") or record.get("name") or "").strip()
+    username = str(record.get("username") or "").strip()
+    participant_id = str(record.get("id") or "").strip()
+
+    if display_name:
+        return display_name
+    if username:
+        return username if username.startswith("@") else f"@{username}"
+    return participant_id or "Unknown participant"
+
+
+def _markdown_alt(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def _prepend_dm_participant_header(
+    markdown_path: Path,
+    conversation,
+    source_paths: dict[str, Path],
+) -> None:
+    """Prepend one inline identity header; message groups then use names only."""
+    tokens: list[str] = []
+    for record in _participant_records(conversation):
+        label = _participant_label(record)
+        avatar_url = str(record.get("avatar_url") or "").strip()
+        local = source_paths.get(avatar_url) if avatar_url else None
+        if local is not None:
+            target = os.path.relpath(local, start=markdown_path.parent).replace(os.sep, "/")
+        else:
+            target = avatar_url or "missing-participant-avatar"
+        alt = _markdown_alt(f"{_PARTICIPANT_AVATAR_PREFIX}{label}")
+        tokens.append(f"![{alt}]({target})")
+
+    if not tokens or not markdown_path.is_file():
+        return
+    body = markdown_path.read_text(encoding="utf-8")
+    header = " ".join(tokens) + "\n\n---\n\n"
+    markdown_path.write_text(header + body, encoding="utf-8", newline="")
 
 
 def archive_collector_export(
     source_path: Path,
     *,
     archive_root: Path | None = None,
+    progress: ProgressCallback | None = None,
 ) -> DiscordArchiveResult:
-    """Normalize and archive one full-DM browser collector JSON."""
+    """Normalize and archive one Discord collector JSON."""
 
     source_path = Path(source_path).expanduser().resolve()
     root = Path(archive_root or default_archive_root()).expanduser().resolve()
-    raw_dir = root / "raw"
     downloads_dir = root / "downloads"
-    raw_dir.mkdir(parents=True, exist_ok=True)
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
+    _emit(progress, "Reading and normalizing Discord collector export…")
     provider = DiscordProvider()
     with materialize_raw_json(source_path) as provider_source:
-        conversation = _enrich_dm(
+        incoming = _enrich_dm(
             provider.normalize(provider_source),
             source_path=source_path,
         )
-    channel_id = _channel_id(conversation.conversation_id)
-    stem = dm_artifact_stem(conversation.metadata, channel_id)
-    raw_path = raw_dir / f"{stem}.json.xz"
-    canonical_path = downloads_dir / f"{stem}.json.xz"
-    docx_path = root / f"{stem}.docx"
+    channel_id = _channel_id(incoming.conversation_id)
+    raw_path, canonical_path, base_docx_path = discord_artifact_paths(
+        root,
+        incoming.metadata,
+        channel_id,
+    )
     database_path = root / "conversations-index.sqlite"
     asset_dir = root / "assets" / channel_id
 
-    legacy_docx, legacy_raw, legacy_canonical = legacy_paths(root, channel_id)
+    _emit(progress, "Locating existing cumulative archive…")
+    legacy_docx, _legacy_raw, legacy_canonical = legacy_paths(root, channel_id)
     existing_path, existing = _find_existing_canonical(
         downloads_dir,
         channel_id,
         canonical_path,
         legacy_canonical,
     )
+    _emit(progress, "Merging incoming messages with cumulative history…")
+    conversation, updated = merge_dm_history(existing, incoming)
+    _emit(progress, f"Cumulative conversation contains {len(conversation.messages)} message(s).")
 
-    updated = True
-    if existing is not None:
-        existing_ids = {message.message_id for message in existing.messages}
-        incoming_ids = {message.message_id for message in conversation.messages}
-        if not existing_ids.issubset(incoming_ids):
-            conversation = existing
-            updated = False
+    parts = plan_docx_parts(conversation)
+    docx_paths = docx_paths_for_parts(base_docx_path, parts)
+    docx_path = docx_paths[-1] if docx_paths else base_docx_path
+    if len(parts) > 1:
+        _emit(
+            progress,
+            "DOCX split plan: "
+            + ", ".join(f"{part.label} ({part.message_count})" for part in parts),
+        )
+
+    _emit(progress, "Writing latest raw collector snapshot…")
+    write_raw_archive(source_path, raw_path)
 
     available_assets = 0
     downloaded_assets = 0
     reused_assets = 0
     failed_assets: tuple[str, ...] = ()
 
-    if updated:
-        write_raw_archive(source_path, raw_path)
+    canonical_needs_write = updated or existing_path != canonical_path or not canonical_path.exists()
+    if canonical_needs_write:
+        _emit(progress, "Writing canonical conversation archive…")
         write_canonical_conversation(canonical_path, conversation)
+    else:
+        _emit(progress, "Canonical conversation is unchanged; keeping existing archive.")
 
+    missing_docx = any(not path.is_file() or path.stat().st_size == 0 for path in docx_paths)
+    if updated or missing_docx:
+        _emit(progress, "Downloading/reusing Discord assets…")
         asset_result = download_conversation_assets(conversation, asset_dir)
         available_assets = asset_result.available
         downloaded_assets = asset_result.downloaded
         reused_assets = asset_result.reused
         failed_assets = asset_result.failed
+        _emit(
+            progress,
+            "Assets ready: "
+            f"{available_assets} available, {downloaded_assets} downloaded, "
+            f"{reused_assets} reused, {len(failed_assets)} failed.",
+        )
 
         with tempfile.TemporaryDirectory(
             prefix=".discord-exporter-markdown-",
             dir=root,
         ) as temp_dir:
             markdown_dir = Path(temp_dir)
-            markdown_path = markdown_dir / f"{stem}.md"
-            export_conversation = conversation_with_local_assets(
-                conversation,
-                asset_result.source_paths,
-                relative_to=markdown_dir,
-            )
-            export_canonical_markdown(
-                export_conversation,
-                markdown_path,
-                include_timestamps=True,
-                include_title=False,
-                chat_style=True,
-            )
-            export_docx(
-                markdown_path,
-                docx_path,
-                document_title=conversation.title,
-                overwrite=True,
-            )
+            total_parts = len(parts)
+            for index, (part, target_docx_path) in enumerate(zip(parts, docx_paths), start=1):
+                prefix = f"[{index}/{total_parts}] " if total_parts > 1 else ""
+                markdown_path = markdown_dir / f"{target_docx_path.stem}.md"
+                _emit(
+                    progress,
+                    f"{prefix}Preparing {part.label} ({part.message_count} messages)…",
+                )
+                part_conversation = conversation_for_part(conversation, part)
+                export_conversation = conversation_with_local_assets(
+                    part_conversation,
+                    asset_result.source_paths,
+                    relative_to=markdown_dir,
+                )
+                export_conversation = _without_author_avatars(export_conversation)
+                _emit(progress, f"{prefix}Rendering intermediate Markdown without per-message avatars…")
+                export_canonical_markdown(
+                    export_conversation,
+                    markdown_path,
+                    include_timestamps=True,
+                    include_title=False,
+                    chat_style=True,
+                )
+                _emit(progress, f"{prefix}Adding one participant identity/avatar header…")
+                _prepend_dm_participant_header(
+                    markdown_path,
+                    part_conversation,
+                    asset_result.source_paths,
+                )
+                _emit(progress, f"{prefix}Generating DOCX and embedding images…")
+                export_docx(
+                    markdown_path,
+                    target_docx_path,
+                    document_title=None,
+                    overwrite=True,
+                    progress=progress,
+                )
+                try:
+                    docx_size = target_docx_path.stat().st_size
+                except OSError:
+                    docx_size = 0
+                _emit(
+                    progress,
+                    f"{prefix}DOCX generated: {target_docx_path.name} ({docx_size} bytes).",
+                )
     else:
-        if existing_path != canonical_path:
-            write_canonical_conversation(canonical_path, conversation)
-        prior_docx = _find_prior_artifact(root, channel_id, ".docx", legacy_docx)
-        if prior_docx and prior_docx != docx_path and not docx_path.exists():
-            prior_docx.replace(docx_path)
-        prior_raw = _find_prior_raw_artifact(raw_dir, channel_id, legacy_raw)
-        if prior_raw and (not raw_path.exists() or not prior_raw.samefile(raw_path)):
-            write_raw_archive(prior_raw, raw_path)
+        _emit(progress, "DOCX parts are already current; skipping regeneration.")
+        if len(docx_paths) == 1:
+            prior_docx = _find_prior_artifact(root, channel_id, ".docx", legacy_docx)
+            if prior_docx and prior_docx != docx_path and not docx_path.exists():
+                prior_docx.replace(docx_path)
 
+    _emit(progress, "Cleaning stale Discord artifacts…")
+    keep = {raw_path, canonical_path, *docx_paths}
     _remove_stale_artifacts(
         root,
         channel_id,
-        keep={raw_path, canonical_path, docx_path},
+        keep=keep,
     )
 
+    _emit(progress, "Updating search index…")
     update_index(
         root,
         downloads_dir=downloads_dir,
         database_path=database_path,
+        progress=progress,
     )
+    _emit(progress, "Search index update complete.")
+
+    _emit(progress, "Recording DOCX path in the index…")
     _record_docx_path(database_path, conversation.conversation_id, docx_path)
+    _emit(progress, "Discord archive pipeline complete.")
 
     return DiscordArchiveResult(
         archive_root=root,
@@ -365,4 +550,5 @@ def archive_collector_export(
         downloaded_assets=downloaded_assets,
         reused_assets=reused_assets,
         failed_assets=failed_assets,
+        docx_paths=docx_paths,
     )

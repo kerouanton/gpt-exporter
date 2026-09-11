@@ -23,7 +23,7 @@ FORBIDDEN_GPT_COLUMNS = {
 }
 
 
-class ProviderMetadataSchemaV5Tests(unittest.TestCase):
+class ProviderMetadataSchemaV6Tests(unittest.TestCase):
     def test_fresh_schema_contains_no_chatgpt_columns(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "fresh.sqlite"
@@ -33,6 +33,10 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
                     row["name"]
                     for row in connection.execute("PRAGMA table_info(conversations)")
                 }
+                message_columns = {
+                    row["name"]
+                    for row in connection.execute("PRAGMA table_info(messages)")
+                }
                 tables = {
                     row[0]
                     for row in connection.execute(
@@ -40,9 +44,10 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
                     )
                 }
 
-            self.assertEqual(version, 5)
-            self.assertEqual(SCHEMA_VERSION, 5)
+            self.assertEqual(version, 6)
+            self.assertEqual(SCHEMA_VERSION, 6)
             self.assertTrue(FORBIDDEN_GPT_COLUMNS.isdisjoint(columns))
+            self.assertIn("author_name", message_columns)
             self.assertIn("conversation_provider_metadata", tables)
 
     def test_v4_migration_preserves_provider_metadata_and_foreign_keys(self) -> None:
@@ -126,6 +131,10 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
                     row["name"]
                     for row in migrated.execute("PRAGMA table_info(conversations)")
                 }
+                message_columns = {
+                    row["name"]
+                    for row in migrated.execute("PRAGMA table_info(messages)")
+                }
                 metadata_row = migrated.execute(
                     """
                     SELECT provider_id, metadata_json
@@ -138,8 +147,9 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
                 ).fetchone()[0]
                 fk_errors = migrated.execute("PRAGMA foreign_key_check").fetchall()
 
-            self.assertEqual(version, 5)
+            self.assertEqual(version, 6)
             self.assertTrue(FORBIDDEN_GPT_COLUMNS.isdisjoint(columns))
+            self.assertIn("author_name", message_columns)
             self.assertEqual(message_count, 1)
             self.assertEqual(fk_errors, [])
             self.assertIsNotNone(metadata_row)
@@ -182,7 +192,7 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
                 {"channel_id": "channel-2", "guild_id": "guild-1"},
             )
 
-    def test_root_chatgpt_index_cli_creates_schema_v5(self) -> None:
+    def test_root_chatgpt_index_cli_creates_schema_v6(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             archive_root = Path(temporary) / "archive"
             downloads = archive_root / "downloads"
@@ -190,8 +200,8 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
             database = archive_root / "conversations-index.sqlite"
             source = downloads / "conversation.json.xz"
             conversation = {
-                "conversation_id": "cli-v5",
-                "title": "CLI v5",
+                "conversation_id": "cli-v6",
+                "title": "CLI v6",
                 "create_time": 1_700_000_000.0,
                 "update_time": 1_700_000_100.0,
                 "gizmo_id": "g-cli",
@@ -241,11 +251,11 @@ class ProviderMetadataSchemaV5Tests(unittest.TestCase):
                 metadata_row = connection.execute(
                     """
                     SELECT metadata_json FROM conversation_provider_metadata
-                    WHERE conversation_id = 'cli-v5' AND provider_id = 'gpt'
+                    WHERE conversation_id = 'cli-v6' AND provider_id = 'gpt'
                     """
                 ).fetchone()
 
-            self.assertEqual(version, 5)
+            self.assertEqual(version, 6)
             self.assertTrue(FORBIDDEN_GPT_COLUMNS.isdisjoint(columns))
             self.assertIsNotNone(metadata_row)
             metadata = json.loads(metadata_row["metadata_json"])

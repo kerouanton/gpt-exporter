@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
-import threading
+import time
 from contextlib import closing
 from importlib.resources import files
 from pathlib import Path
@@ -19,13 +19,18 @@ from gpt_exporter.providers.discord.collector import (
     open_discord,
     snapshot_exports,
     validate_collector_export,
-    wait_for_new_export,
 )
 from gpt_exporter.providers.discord.naming import dm_artifact_stem, dm_title, legacy_paths
 from gpt_exporter.providers.discord.raw_archive import (
     iter_raw_files,
     migrate_plain_raw_file,
     read_raw_json,
+)
+from gpt_exporter.ui.archive_workflow import (
+    ArchiveProcessingDialog,
+    ArchiveWorkflowDialog,
+    ArchiveWorkflowSpec,
+    latest_archive_log_path,
 )
 from gpt_exporter.ui.browser import archive_browser as browser
 from gpt_exporter.workspaces import ConversationWorkspace
@@ -36,12 +41,31 @@ class DiscordWorkspaceActions:
     process_label = "Process Downloaded Export…"
     regenerate_label = "Regenerate Missing DOCX…"
     can_regenerate = True
+    archive_workflow_spec = ArchiveWorkflowSpec(
+        service_label="Discord",
+        open_instructions=(
+            "Open Discord in your normal browser, make sure you are signed in, "
+            "and select the DM to archive."
+        ),
+        collector_instructions=(
+            "The collector JavaScript is copied to the clipboard automatically. "
+            "Open Developer Tools (F12), select Console, paste it and run it."
+        ),
+        download_instructions=(
+            "When the collector finishes, the browser downloads a Discord DM export. "
+            "As soon as a new valid export is detected, the archive workflow starts automatically."
+        ),
+        waiting_text="Waiting for a new Discord DM export in Downloads…",
+    )
 
     def __init__(self, app, workspace: ConversationWorkspace) -> None:
         self.app = app
         self.workspace = workspace
         self.download_directory = Path.home() / "Downloads"
-        self._watch_thread: threading.Thread | None = None
+
+    @property
+    def workflow_log_directory(self) -> Path:
+        return self.workspace.root_path / "reports"
 
     def _migrate_raw_archives(self) -> bool:
         raw_dir = self.workspace.root_path / "raw"
@@ -186,79 +210,44 @@ class DiscordWorkspaceActions:
         return self.workspace.root_path / f"{dm_artifact_stem(metadata, channel_id)}.docx"
 
     def archive_new(self) -> None:
-        if self._watch_thread is not None and self._watch_thread.is_alive():
-            self.copy_collector()
-            self.app.status_var.set("Discord archive watcher is already running; collector copied again.")
-            return
+        ArchiveWorkflowDialog(self.app, actions=self)
+
+    def snapshot_exports(self):
+        return snapshot_exports(self.download_directory)
+
+    def find_new_export(self, snapshot) -> Path | None:
+        known = {Path(path).resolve() for path in (snapshot or set())}
         try:
-            known = snapshot_exports(self.download_directory)
-            self.copy_collector()
-            open_discord()
-        except Exception as error:
-            messagebox.showerror("Archive New Conversations", str(error), parent=self.app)
-            return
-
-        self.app.status_var.set(
-            "Discord collector armed — select the DM, press F12, paste the collector in Console and run it."
-        )
-        messagebox.showinfo(
-            "Archive New Conversations",
-            "Discord opened in your browser and the collector JavaScript was copied to the clipboard.\n\n"
-            "1. Select the DM to archive.\n"
-            "2. Press F12 and open Console.\n"
-            "3. Paste with Ctrl+V and run.\n\n"
-            "GPT Exporter is watching Downloads and will archive the resulting export automatically.",
-            parent=self.app,
-        )
-        self._watch_thread = threading.Thread(
-            target=self._watch_for_export,
-            args=(known,),
-            name="discord-workspace-export-watch",
-            daemon=True,
-        )
-        self._watch_thread.start()
-
-    def _watch_for_export(self, known: set[Path]) -> None:
-        try:
-            summary = wait_for_new_export(self.download_directory, known_files=known)
-        except Exception as error:
-            self.app.after(0, lambda error=error: self._watch_failed(error))
-            return
-        self.app.after(0, lambda: self._archive_export(summary.path))
-
-    def _watch_failed(self, error: Exception) -> None:
-        self.app.status_var.set(f"Discord export failed: {error}")
-        messagebox.showerror("Discord Archive", str(error), parent=self.app)
-
-    def _archive_export(self, path: Path) -> bool:
-        self.app.status_var.set(f"Discord export detected: {path.name} — archiving…")
-        self.app.update_idletasks()
-        try:
-            result = archive_collector_export(path, archive_root=self.workspace.root_path)
-        except Exception as error:
-            self.app.status_var.set(f"Discord archive failed: {error}")
-            messagebox.showerror("Discord Archive", str(error), parent=self.app)
-            return False
-
-        asset_text = (
-            f" Assets: {result.available_assets} available, "
-            f"{result.downloaded_assets} downloaded, {result.reused_assets} reused, "
-            f"{len(result.failed_assets)} failed."
-        )
-        if result.updated:
-            self.app.provider_content_changed(
-                f"Discord archive updated — {result.message_count} messages.{asset_text}"
+            candidates = sorted(
+                (
+                    path
+                    for path in self.download_directory.glob(EXPORT_GLOB)
+                    if path.resolve() not in known
+                ),
+                key=lambda item: item.stat().st_mtime_ns,
+                reverse=True,
             )
-        else:
-            self.app.provider_content_changed(
-                "Incoming Discord export was incomplete; existing archive preserved."
-            )
-        return True
+        except OSError:
+            return None
 
-    def open_service(self) -> None:
+        for candidate in candidates:
+            try:
+                return validate_collector_export(candidate).path
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+                continue
+        return None
+
+    def open_service(self, row: dict[str, Any] | None = None) -> None:
+        channel_id = ""
+        if isinstance(row, dict):
+            conversation_id = str(row.get("conversation_id") or "")
+            if conversation_id.startswith("discord:"):
+                candidate = conversation_id.removeprefix("discord:")
+                if candidate.isdigit():
+                    channel_id = candidate
         try:
-            opened = open_discord()
-        except OSError as error:
+            opened = open_discord(channel_id or None)
+        except (OSError, ValueError) as error:
             messagebox.showerror("Open Discord", str(error), parent=self.app)
             return
         if not opened:
@@ -295,6 +284,59 @@ class DiscordWorkspaceActions:
         except OSError as error:
             messagebox.showerror("Show Collector JavaScript", str(error), parent=self.app)
 
+    def process_export(self, path: Path) -> bool:
+        export_path = Path(path)
+        try:
+            validate_collector_export(export_path)
+        except Exception:
+            return False
+        self.app.status_var.set(f"Discord export detected: {export_path.name} — archiving…")
+        ArchiveProcessingDialog(self.app, actions=self, export_path=export_path)
+        return True
+
+    def run_export(self, path: Path, progress):
+        started = time.monotonic()
+
+        def timed_progress(message: str) -> None:
+            elapsed = max(0, int(time.monotonic() - started))
+            hours, remainder = divmod(elapsed, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            progress(f"[+{hours:02d}:{minutes:02d}:{seconds:02d}] {message}")
+
+        timed_progress("Starting Discord archive workflow…")
+        result = archive_collector_export(
+            Path(path),
+            archive_root=self.workspace.root_path,
+            progress=timed_progress,
+        )
+        timed_progress(f"Conversation archived: {result.message_count} message(s).")
+        timed_progress(
+            "Assets: "
+            f"{result.available_assets} available, {result.downloaded_assets} downloaded, "
+            f"{result.reused_assets} reused, {len(result.failed_assets)} failed."
+        )
+        timed_progress(f"Raw archive: {result.raw_path}")
+        timed_progress(f"Canonical archive: {result.canonical_path}")
+        timed_progress(f"DOCX: {result.docx_path}")
+        timed_progress(f"Search index: {result.database_path}")
+        return result
+
+    def finish_export(self, result) -> bool:
+        asset_text = (
+            f" Assets: {result.available_assets} available, "
+            f"{result.downloaded_assets} downloaded, {result.reused_assets} reused, "
+            f"{len(result.failed_assets)} failed."
+        )
+        if result.updated:
+            self.app.provider_content_changed(
+                f"Discord archive updated — {result.message_count} messages.{asset_text}"
+            )
+        else:
+            self.app.provider_content_changed(
+                "Incoming Discord export was incomplete; existing archive preserved."
+            )
+        return True
+
     def process_downloaded(self) -> bool:
         try:
             candidates = sorted(
@@ -311,7 +353,7 @@ class DiscordWorkspaceActions:
                 validate_collector_export(candidate)
             except Exception:
                 continue
-            return self._archive_export(candidate)
+            return self.process_export(candidate)
 
         messagebox.showinfo(
             "Process Downloaded Export",
@@ -384,11 +426,18 @@ class DiscordWorkspaceActions:
         return not failures
 
     def show_last_log(self) -> None:
-        messagebox.showinfo(
-            "Show Last Archive Log",
-            "Discord archiving currently reports status in the shared application window; no persistent provider log has been created yet.",
-            parent=self.app,
-        )
+        log_path = latest_archive_log_path(self.workflow_log_directory)
+        if not log_path.is_file():
+            messagebox.showinfo(
+                "Show Last Archive Log",
+                "No persistent archive-workflow log is available yet.",
+                parent=self.app,
+            )
+            return
+        try:
+            browser.open_with_default_application(str(log_path))
+        except OSError as error:
+            messagebox.showerror("Show Last Archive Log", str(error), parent=self.app)
 
 
 __all__ = ["DiscordWorkspaceActions"]

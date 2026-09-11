@@ -76,13 +76,15 @@ class DiscordHumanNamingTests(unittest.TestCase):
                 partial = archive_collector_export(second, archive_root=root)
 
             self.assertTrue(original.updated)
-            self.assertFalse(partial.updated)
+            # Participant/display metadata changed even though the cumulative message
+            # set still preserves the older message missing from the partial snapshot.
+            self.assertTrue(partial.updated)
             self.assertEqual(partial.message_count, 3)
             self.assertEqual(
                 partial.canonical_path.name,
-                "Discord DM gadgetmcs2 ↔ soundy2 123456.json.xz",
+                "Discord DM Gadget MCS ↔ soundy2 123456.canonical.json.xz",
             )
-            candidates = list((root / "downloads").glob("*123456.json.xz"))
+            candidates = list((root / "downloads").glob("*123456.canonical.json.xz"))
             self.assertEqual(len(candidates), 1)
             self.assertEqual(candidates[0].name, partial.canonical_path.name)
 
@@ -110,6 +112,18 @@ class DiscordHumanNamingTests(unittest.TestCase):
                         conversation_id TEXT NOT NULL,
                         provider_id TEXT NOT NULL,
                         metadata_json TEXT NOT NULL
+                    );
+                    CREATE TABLE categories (
+                        category_id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                        description TEXT,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE conversation_categories (
+                        conversation_id TEXT NOT NULL,
+                        category_id INTEGER NOT NULL,
+                        assigned_at TEXT NOT NULL,
+                        PRIMARY KEY (conversation_id, category_id)
                     );
                     """
                 )

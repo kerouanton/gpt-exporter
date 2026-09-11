@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 from gpt_exporter.core import CanonicalAsset, CanonicalConversation, CanonicalMessage, ProviderDescriptor
 
+from .naming import is_group_dm
+
 _DESCRIPTOR = ProviderDescriptor(provider_id="discord", display_name="Discord", version="2")
 _COLLECTOR_EXPORTER = "9c discord-exporter"
 
@@ -224,6 +226,23 @@ def _normalize_collector(path: Path, payload: dict[str, Any]) -> CanonicalConver
         )
 
     title = _string(conversation.get("title")) or f"Discord DM {channel_id}"
+    conversation_metadata = {
+        "source_kind": "browser_collector",
+        "source_file": path.name,
+        "schema_version": payload.get("schema_version"),
+        "exported_at": payload.get("exported_at"),
+        "source_url": payload.get("source_url"),
+        "channel_id": channel_id,
+        "conversation_type": conversation.get("type"),
+        "participants": conversation.get("participants"),
+        "current_user": payload.get("current_user"),
+        "diagnostics": payload.get("diagnostics"),
+        "resource_counts": (payload.get("resources") or {}).get("counts") if isinstance(payload.get("resources"), dict) else None,
+    }
+    group_dm = is_group_dm(conversation_metadata)
+    if group_dm:
+        conversation_metadata["conversation_type"] = "group_dm"
+
     return CanonicalConversation(
         conversation_id=f"discord:{channel_id}",
         provider_id="discord",
@@ -231,19 +250,8 @@ def _normalize_collector(path: Path, payload: dict[str, Any]) -> CanonicalConver
         messages=tuple(messages),
         created_at=(messages[0].created_at if messages else None),
         updated_at=(messages[-1].created_at if messages else None),
-        metadata={
-            "source_kind": "browser_collector",
-            "source_file": path.name,
-            "schema_version": payload.get("schema_version"),
-            "exported_at": payload.get("exported_at"),
-            "source_url": payload.get("source_url"),
-            "channel_id": channel_id,
-            "conversation_type": conversation.get("type"),
-            "participants": conversation.get("participants"),
-            "current_user": payload.get("current_user"),
-            "diagnostics": payload.get("diagnostics"),
-            "resource_counts": (payload.get("resources") or {}).get("counts") if isinstance(payload.get("resources"), dict) else None,
-        },
+        category_hints=(("Discord Group DM",) if group_dm else ("Discord Direct Message",)),
+        metadata=conversation_metadata,
     )
 
 

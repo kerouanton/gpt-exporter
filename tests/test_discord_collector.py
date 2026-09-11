@@ -88,11 +88,24 @@ class DiscordCollectorTests(unittest.TestCase):
         self.assertIn('schema_version: 15', script)
         self.assertIn('exporter: "9c discord-exporter"', script)
         self.assertIn('discord-dm-export-v15_', script)
+        self.assertIn('history_complete:', script)
+        self.assertIn('reached_top_of_conversation:', script)
+        self.assertIn('top_of_history_marker_detected:', script)
+        self.assertIn('Beginning evidence', script)
+        self.assertIn('Paramètres utilisateur', script)
+        self.assertIn('bottom-left-account-avatar', script)
+        self.assertIn('rect.left < 64', script)
+        self.assertIn('ambiguous-bottom-left-account-avatars', script)
 
     def test_validate_and_normalize_full_dm_collector_export(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "discord-dm-export-v15_123456_test.json"
-            path.write_text(json.dumps(collector_payload()), encoding="utf-8")
+            payload = collector_payload()
+            payload["diagnostics"] = {
+                "history_complete": True,
+                "reached_top_of_conversation": True,
+            }
+            path.write_text(json.dumps(payload), encoding="utf-8")
             summary = validate_collector_export(path)
             conversation = DiscordProvider().normalize(path)
 
@@ -104,6 +117,8 @@ class DiscordCollectorTests(unittest.TestCase):
         self.assertEqual([message.author_name for message in conversation.messages], ["Bruno", "Alice"])
         self.assertEqual(conversation.messages[0].assets[0].name, "image.png")
         self.assertEqual(conversation.metadata["source_kind"], "browser_collector")
+        self.assertTrue(conversation.metadata["diagnostics"]["history_complete"])
+        self.assertTrue(conversation.metadata["diagnostics"]["reached_top_of_conversation"])
 
     def test_snapshot_and_wait_ignore_existing_export(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -115,8 +130,8 @@ class DiscordCollectorTests(unittest.TestCase):
 
             fresh = root / "discord-dm-export-v15_123456_new.json"
             fresh.write_text(json.dumps(collector_payload()), encoding="utf-8")
-            summary = wait_for_new_export(root, known_files=known, timeout_seconds=0.2, poll_seconds=0.01)
-            self.assertEqual(summary.path, fresh.resolve())
+            result = wait_for_new_export(root, known_files=known, timeout_seconds=0.2, poll_seconds=0.01)
+            self.assertEqual(result, fresh.resolve())
 
     def test_invalid_or_partial_schema_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

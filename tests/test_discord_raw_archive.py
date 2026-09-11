@@ -12,7 +12,7 @@ from gpt_exporter.providers.discord.raw_archive import (
     read_raw_json,
     write_raw_archive,
 )
-from gpt_exporter.providers.discord.ui.workspace_actions import DiscordWorkspaceActions
+from gpt_exporter.providers.discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
 from gpt_exporter.workspaces import ConversationWorkspace
 
 
@@ -85,15 +85,16 @@ class DiscordRawArchiveTests(unittest.TestCase):
                 provider_id="discord",
                 root_path=root,
             )
-            actions = DiscordWorkspaceActions(mock.Mock(), workspace)
+            actions = DiscordRemoteDeleteActions(mock.Mock(), workspace)
 
             changed = actions.prepare_index()
 
-            destination = raw_dir / "Discord DM gadgetmcs ↔ soundy 123456.json.xz"
+            destination = root / "downloads" / "Discord DM Gadget MCS ↔ soundy 123456.raw.json.xz"
             self.assertTrue(changed)
             self.assertFalse(source.exists())
             self.assertTrue(destination.is_file())
             self.assertEqual(read_raw_bytes(destination), original)
+            self.assertFalse(raw_dir.exists())
 
 
 if __name__ == "__main__":

@@ -144,9 +144,9 @@ def build_workspace_actions(app, workspace: ConversationWorkspace):
 
         return GPTWorkspaceActions(app, workspace)
     if workspace.provider_id == "discord":
-        from gpt_exporter.providers.discord.ui.workspace_actions import DiscordWorkspaceActions
+        from gpt_exporter.providers.discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
 
-        return DiscordWorkspaceActions(app, workspace)
+        return DiscordRemoteDeleteActions(app, workspace)
     raise ValueError(f"No shared-shell actions are registered for provider: {workspace.provider_id}")
 
 
@@ -246,11 +246,11 @@ def _launch_shared_shell(
     from tkinter import messagebox
 
     from gpt_exporter.ui.browser import archive_browser as browser
-    from gpt_exporter.ui.workspace_shell import ConversationWorkspaceApp
+    from gpt_exporter.ui.remote_delete_shell import RemoteDeletionWorkspaceApp
 
     browser.configure_logging(debug)
     try:
-        app = ConversationWorkspaceApp(
+        app = RemoteDeletionWorkspaceApp(
             catalog=catalog,
             registry=registry,
             workspace=workspace,

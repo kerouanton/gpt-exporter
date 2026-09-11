@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from tkinter import messagebox
 
 from gpt_exporter.providers.gpt.ui import archive_workflow as workflow
+from gpt_exporter.ui.archive_workflow import (
+    ArchiveProcessingDialog,
+    ArchiveWorkflowDialog,
+    ArchiveWorkflowSpec,
+)
 from gpt_exporter.ui.browser import archive_browser as browser
 from gpt_exporter.workspaces import ConversationWorkspace
 
@@ -15,18 +21,43 @@ class GPTWorkspaceActions:
     process_label = "Process Downloaded Bundle…"
     regenerate_label = "Regenerate Missing DOCX…"
     can_regenerate = True
+    archive_workflow_spec = ArchiveWorkflowSpec(
+        service_label="ChatGPT",
+        open_instructions="Open ChatGPT in your normal browser and make sure you are signed in.",
+        collector_instructions=(
+            "The collector JavaScript is copied to the clipboard automatically. "
+            "Open Developer Tools (F12), select Console, paste it and run it."
+        ),
+        download_instructions=(
+            "When the collector finishes, the browser downloads chatgpt-archive-source.json. "
+            "As soon as a new non-empty bundle is detected, the archive workflow starts automatically."
+        ),
+        waiting_text="Waiting for a new chatgpt-archive-source.json in Downloads…",
+    )
 
     def __init__(self, app, workspace: ConversationWorkspace) -> None:
         self.app = app
         self.workspace = workspace
+        self._completion_message = "ChatGPT archive updated."
+
+    @property
+    def workflow_log_directory(self) -> Path:
+        return self.workspace.root_path / "reports"
 
     def archive_new(self) -> None:
-        workflow.ArchiveWorkflowDialog(
-            self.app,
-            on_open_chatgpt=self.open_service,
-            on_copy_collector=self.copy_collector,
-            on_run_archive=self.process_downloaded,
-        )
+        ArchiveWorkflowDialog(self.app, actions=self)
+
+    def snapshot_exports(self):
+        return workflow.source_bundle_signature(workflow.find_latest_source_bundle())
+
+    def find_new_export(self, snapshot) -> Path | None:
+        bundle = workflow.find_latest_source_bundle()
+        if bundle is None:
+            return None
+        signature = workflow.source_bundle_signature(bundle)
+        if signature == snapshot:
+            return None
+        return bundle
 
     def open_service(self) -> None:
         try:
@@ -59,6 +90,30 @@ class GPTWorkspaceActions:
         except OSError as error:
             messagebox.showerror("Show Collector JavaScript", str(error), parent=self.app)
 
+    def process_export(self, path: Path) -> bool:
+        bundle = Path(path)
+        try:
+            if not bundle.is_file() or bundle.stat().st_size <= 0:
+                return False
+        except OSError:
+            return False
+
+        self.app.status_var.set(f"Archive bundle ready: {bundle.name}")
+        self._completion_message = "ChatGPT archive updated."
+        ArchiveProcessingDialog(self.app, actions=self, export_path=bundle)
+        return True
+
+    def run_export(self, path: Path, progress):
+        return workflow.archive_bundle(
+            archive_root=self.workspace.root_path,
+            source_bundle=Path(path),
+            legacy_root=workflow.ROOT,
+            progress=progress,
+        )
+
+    def finish_export(self, _result) -> bool:
+        return self._archive_succeeded(self._completion_message)
+
     def process_downloaded(self) -> bool:
         bundle = workflow.find_latest_source_bundle()
         if bundle is None:
@@ -69,16 +124,7 @@ class GPTWorkspaceActions:
                 parent=self.app,
             )
             return False
-
-        self.app.status_var.set(f"Archive bundle ready: {bundle.name}")
-        workflow.ArchiveRunDialog(
-            self.app,
-            archive_root=self.workspace.root_path,
-            source_bundle=bundle,
-            on_success=lambda: self._archive_succeeded("ChatGPT archive updated."),
-            log_directory=self.workspace.root_path / "reports",
-        )
-        return True
+        return self.process_export(bundle)
 
     def regenerate_missing(self) -> bool:
         try:

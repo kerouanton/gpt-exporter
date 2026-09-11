@@ -204,7 +204,12 @@ def conversation_with_local_assets(
     *,
     relative_to: Path | str,
 ) -> CanonicalConversation:
-    """Return an export-only conversation whose available assets point locally."""
+    """Return an export-only conversation whose available assets point locally.
+
+    Historical deletion state remains metadata in the canonical archive.  The
+    derived document receives only a quiet presentation annotation so archived
+    text itself is never mutated on disk.
+    """
 
     base = Path(relative_to).expanduser().resolve()
     messages = []
@@ -224,7 +229,11 @@ def conversation_with_local_assets(
             if archive_path:
                 metadata["archive_path"] = archive_path
             assets.append(replace(asset, source_ref=local_ref, metadata=metadata))
-        messages.append(replace(message, assets=tuple(assets)))
+
+        content = message.content
+        if message.metadata.get("deleted"):
+            content = f"*(deleted)*  {content}" if content else "*(deleted)*"
+        messages.append(replace(message, content=content, assets=tuple(assets)))
     return replace(conversation, messages=tuple(messages))
 
 

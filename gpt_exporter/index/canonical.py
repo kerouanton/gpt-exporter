@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import Callable
 
 from gpt_exporter.core import CanonicalConversation
 from gpt_exporter.index.storage import (
@@ -15,6 +16,12 @@ from gpt_exporter.index.storage import (
 )
 
 CANONICAL_SOURCE_SCHEMA = "gpt-exporter-canonical-index-source-v1"
+ProgressCallback = Callable[[str], None]
+
+
+def _emit(progress: ProgressCallback | None, message: str) -> None:
+    if progress is not None:
+        progress(message)
 
 
 def ensure_canonical_source_schema(connection: sqlite3.Connection) -> None:
@@ -50,6 +57,7 @@ def index_canonical_conversation(
     source_path: Path,
     archive_root: Path,
     force: bool = False,
+    progress: ProgressCallback | None = None,
 ) -> bool:
     del archive_root
     source_path = Path(source_path).resolve()
@@ -66,6 +74,7 @@ def index_canonical_conversation(
     indexed_at = now_iso()
     title = conversation.title.strip() or "Untitled conversation"
     origin_type, origin_id = _origin_from_metadata(conversation)
+    total_messages = len(conversation.messages)
 
     with connection:
         connection.execute(
@@ -106,7 +115,10 @@ def index_canonical_conversation(
             conversation.metadata,
         )
 
+        _emit(progress, f"Clearing previous message index rows for {conversation.conversation_id}…")
         delete_message_index_rows(connection, conversation.conversation_id)
+        _emit(progress, f"Indexing {total_messages} message(s) for {conversation.conversation_id}…")
+        indexed_messages = 0
         for position, message in enumerate(conversation.messages, start=1):
             body = message.content.strip()
             if not body:
@@ -116,14 +128,15 @@ def index_canonical_conversation(
                 """
                 INSERT INTO messages (
                     conversation_id, message_id, message_order,
-                    author_role, created_at, content_type, body
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    author_role, author_name, created_at, content_type, body
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     conversation.conversation_id,
                     message_id,
                     position,
                     message.role or "unknown",
+                    message.author_name,
                     message.created_at,
                     "canonical_text",
                     body,
@@ -144,6 +157,12 @@ def index_canonical_conversation(
                     message.role or "unknown",
                 ),
             )
+            indexed_messages += 1
+            if position % 1000 == 0 or position == total_messages:
+                _emit(
+                    progress,
+                    f"Indexed messages: {position}/{total_messages} scanned, {indexed_messages} with text.",
+                )
 
         for category_name in conversation.category_hints:
             category = get_or_create_category(connection, category_name)
@@ -178,4 +197,6 @@ def index_canonical_conversation(
                 CANONICAL_SOURCE_SCHEMA,
             ),
         )
+        _emit(progress, f"Committing message index for {conversation.conversation_id}…")
+    _emit(progress, f"Canonical message index committed for {conversation.conversation_id}.")
     return True

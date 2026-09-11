@@ -19,6 +19,7 @@ from typing import Callable
 
 ProgressCallback = Callable[[str], None]
 _AUTHOR_AVATAR_PREFIX = "Author avatar: "
+_PARTICIPANT_AVATAR_PREFIX = "Conversation participant avatar: "
 _CHAT_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _CHAT_TIME_RE = re.compile(r"^\d{2}:\d{2}(?: · edited)?$")
 
@@ -28,6 +29,11 @@ class DocxExportResult:
     output_path: Path
     size_bytes: int
     skipped: bool
+
+
+def _emit(progress: ProgressCallback | None, message: str) -> None:
+    if progress is not None:
+        progress(message)
 
 
 def _install_normalized_image_cache(implementation: ModuleType) -> None:
@@ -100,6 +106,74 @@ def _install_author_avatar_renderer(implementation: ModuleType) -> None:
     implementation._canonical_author_avatar_renderer = True
 
 
+def _install_participant_header_renderer(implementation: ModuleType) -> None:
+    """Render participant-avatar Markdown tokens inline as one compact DM header."""
+    if getattr(implementation, "_canonical_participant_header_renderer", False):
+        return
+    original_add_deferred_images = implementation.add_deferred_images
+
+    def add_deferred_images(document, images, markdown_path: Path) -> None:
+        participant_images = [
+            (target, alt_text)
+            for target, alt_text in images
+            if str(alt_text or "").startswith(_PARTICIPANT_AVATAR_PREFIX)
+        ]
+        if not participant_images or len(participant_images) != len(images):
+            original_add_deferred_images(document, images, markdown_path)
+            return
+
+        paragraph = document.paragraphs[-1] if document.paragraphs else document.add_paragraph()
+        paragraph.alignment = implementation.WD_PARAGRAPH_ALIGNMENT.CENTER
+
+        # The Markdown paragraph contains only image tokens, so it has no visible
+        # text. Rebuild it explicitly as: avatar identity ↔ avatar identity.
+        for run in list(paragraph.runs):
+            paragraph._p.remove(run._r)
+
+        for index, (target, alt_text) in enumerate(participant_images):
+            if index:
+                separator = paragraph.add_run(" ↔ ")
+                separator.bold = True
+                separator.font.size = implementation.Pt(16)
+
+            label = str(alt_text)[len(_PARTICIPANT_AVATAR_PREFIX):].strip()
+            local_path = implementation.normalize_local_target(target, markdown_path)
+            if (
+                local_path is not None
+                and local_path.is_file()
+                and local_path.suffix.lower() in implementation.IMAGE_SUFFIXES
+            ):
+                try:
+                    image_run = paragraph.add_run()
+                    inline_shape = implementation.add_picture_with_fallback(
+                        image_run,
+                        local_path,
+                        0.42,
+                    )
+                    try:
+                        inline_shape._inline.docPr.set(
+                            "descr",
+                            implementation.xml_safe_text(alt_text),
+                        )
+                    except Exception:
+                        pass
+                    paragraph.add_run(" ")
+                except Exception as error:
+                    implementation.logging.warning(
+                        "Unable to embed participant avatar %s: %s: %s",
+                        local_path,
+                        type(error).__name__,
+                        error,
+                    )
+
+            label_run = paragraph.add_run(implementation.xml_safe_text(label))
+            label_run.bold = True
+            label_run.font.size = implementation.Pt(16)
+
+    implementation.add_deferred_images = add_deferred_images
+    implementation._canonical_participant_header_renderer = True
+
+
 @lru_cache(maxsize=1)
 def _implementation() -> ModuleType:
     buffer = io.StringIO()
@@ -107,6 +181,7 @@ def _implementation() -> ModuleType:
         from . import _markdown_docx_v28
     _install_normalized_image_cache(_markdown_docx_v28)
     _install_author_avatar_renderer(_markdown_docx_v28)
+    _install_participant_header_renderer(_markdown_docx_v28)
     return _markdown_docx_v28
 
 
@@ -263,16 +338,31 @@ def export_docx(
     cache_clear = getattr(implementation, "_canonical_normalized_image_cache_clear", None)
     if cache_clear is not None:
         cache_clear()
+
+    markdown_text = markdown_path.read_text(encoding="utf-8", errors="strict")
+    has_legacy_author_avatars = _AUTHOR_AVATAR_PREFIX in markdown_text
     captured = io.StringIO()
     try:
+        _emit(progress, "DOCX renderer: parsing Markdown and building the initial document…")
         with contextlib.redirect_stdout(captured):
             implementation.convert_markdown_to_docx(
                 markdown_path=markdown_path,
                 output_path=output_path,
                 document_title=document_title,
             )
-        _merge_avatar_author_paragraphs(output_path)
+        initial_size = output_path.stat().st_size if output_path.is_file() else 0
+        _emit(progress, f"DOCX renderer: initial document saved ({initial_size} bytes).")
+
+        if has_legacy_author_avatars:
+            _emit(progress, "DOCX post-processing: merging legacy avatar/author paragraphs…")
+            _merge_avatar_author_paragraphs(output_path)
+            _emit(progress, "DOCX post-processing: legacy avatar/author merge complete.")
+        else:
+            _emit(progress, "DOCX post-processing: no legacy per-message avatars to merge.")
+
+        _emit(progress, "DOCX post-processing: applying chat date/author/time styles…")
         _apply_chat_metadata_styles(output_path)
+        _emit(progress, "DOCX post-processing: chat metadata styles complete.")
     finally:
         if cache_clear is not None:
             cache_clear()
@@ -282,8 +372,10 @@ def export_docx(
     if not output_path.is_file() or output_path.stat().st_size <= 0:
         raise RuntimeError(f"DOCX conversion did not create a valid file: {output_path}")
 
+    size_bytes = output_path.stat().st_size
+    _emit(progress, f"DOCX processing complete: {size_bytes} bytes.")
     return DocxExportResult(
         output_path=output_path,
-        size_bytes=output_path.stat().st_size,
+        size_bytes=size_bytes,
         skipped=False,
     )
