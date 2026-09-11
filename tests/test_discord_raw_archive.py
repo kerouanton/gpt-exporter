@@ -89,11 +89,12 @@ class DiscordRawArchiveTests(unittest.TestCase):
 
             changed = actions.prepare_index()
 
-            destination = raw_dir / "Discord DM gadgetmcs ↔ soundy 123456.json.xz"
+            destination = root / "downloads" / "Discord DM Gadget MCS ↔ soundy 123456.raw.json.xz"
             self.assertTrue(changed)
             self.assertFalse(source.exists())
             self.assertTrue(destination.is_file())
             self.assertEqual(read_raw_bytes(destination), original)
+            self.assertFalse(raw_dir.exists())
 
 
 if __name__ == "__main__":
