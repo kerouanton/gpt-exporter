@@ -9,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from gpt_exporter.core import CanonicalConversation
+from gpt_exporter.core.serialization import write_canonical_conversation
 from gpt_exporter.providers.discord.raw_archive import read_raw_bytes
 from gpt_exporter.providers.discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
 from gpt_exporter.ui import workspace_shell
@@ -27,7 +29,6 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
             old_raw.write_text("{}", encoding="utf-8")
             old_canonical = root / "downloads" / "discord_dm_123456.json.xz"
             old_canonical.parent.mkdir()
-            old_canonical.write_bytes(b"xz-placeholder")
 
             metadata = {
                 "conversation_type": "dm",
@@ -37,6 +38,17 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
                     {"id": "1", "name": "Gadget MCS", "is_self": True},
                 ],
             }
+            write_canonical_conversation(
+                old_canonical,
+                CanonicalConversation(
+                    conversation_id="discord:123456",
+                    provider_id="discord",
+                    title="(117) Discord | @soundy",
+                    messages=(),
+                    metadata=metadata,
+                ),
+            )
+
             with closing(sqlite3.connect(workspace.database_path)) as connection:
                 connection.executescript(
                     """
