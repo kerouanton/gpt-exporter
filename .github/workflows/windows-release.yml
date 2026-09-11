@@ -27,6 +27,8 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-build.txt
+            packages/export-provider-chatgpt/pyproject.toml
+            packages/export-provider-discord/pyproject.toml
 
       - name: Determine release version
         id: version
@@ -44,9 +46,16 @@ jobs:
           "tag=v$version" >> $env:GITHUB_OUTPUT
           Write-Host "Preparing GPT Exporter v$version"
 
-      - name: Install build dependencies
+      - name: Install build dependencies and provider distributions
         if: steps.version.outputs.release == 'true'
-        run: python -m pip install -r requirements-build.txt
+        run: |
+          python -m pip install -r requirements-build.txt
+          python -m pip install --no-deps -e packages/export-provider-chatgpt -e packages/export-provider-discord
+
+      - name: Verify provider entry points before freezing
+        if: steps.version.outputs.release == 'true'
+        run: |
+          python -c "from importlib.metadata import entry_points; eps={ep.name:ep.value for ep in entry_points(group='gpt_exporter.provider_plugins')}; assert eps['gpt']=='export_provider_chatgpt.plugin:create_provider'; assert eps['discord']=='export_provider_discord.plugin:create_provider'; print(eps)"
 
       - name: Run unit tests
         if: steps.version.outputs.release == 'true'
@@ -90,7 +99,8 @@ jobs:
 
           python -c "import pefile; p=pefile.PE(r'dist\GPT Exporter\GPT Exporter.exe', fast_load=True); assert p.OPTIONAL_HEADER.Subsystem == 2, f'Expected Windows GUI subsystem (2), got {p.OPTIONAL_HEADER.Subsystem}'; print('Windowed PE subsystem OK')"
 
-          $genericResourceRoot = ".\dist\GPT Exporter\_internal\gpt_exporter\resources"
+          $internalRoot = ".\dist\GPT Exporter\_internal"
+          $genericResourceRoot = Join-Path $internalRoot "gpt_exporter\resources"
           foreach ($name in @("HELP.md", "HISTORY.md")) {
               $path = Join-Path $genericResourceRoot $name
               if (-not (Test-Path $path -PathType Leaf)) {
@@ -101,12 +111,30 @@ jobs:
               }
           }
 
-          $collector = ".\dist\GPT Exporter\_internal\gpt_exporter\providers\gpt\resources\collect_chatgpt_archive.js"
-          if (-not (Test-Path $collector -PathType Leaf)) {
-              throw "Required GPT provider resource is missing: $collector"
+          $collectors = @(
+              (Join-Path $internalRoot "export_provider_chatgpt\resources\collect_chatgpt_archive.js"),
+              (Join-Path $internalRoot "export_provider_discord\resources\export_current_dm.js")
+          )
+          foreach ($collector in $collectors) {
+              if (-not (Test-Path $collector -PathType Leaf)) {
+                  throw "Required provider resource is missing: $collector"
+              }
+              if ((Get-Item $collector).Length -le 0) {
+                  throw "Required provider resource is empty: $collector"
+              }
           }
-          if ((Get-Item $collector).Length -le 0) {
-              throw "Required GPT provider resource is empty: $collector"
+
+          $metadataRoots = @()
+          $metadataRoots += Get-ChildItem $internalRoot -Directory -Filter "export_provider_chatgpt-*.dist-info"
+          $metadataRoots += Get-ChildItem $internalRoot -Directory -Filter "export_provider_discord-*.dist-info"
+          if ($metadataRoots.Count -ne 2) {
+              throw "Expected two provider distribution metadata directories, found $($metadataRoots.Count)"
+          }
+          foreach ($metadataRoot in $metadataRoots) {
+              $entryPoints = Join-Path $metadataRoot.FullName "entry_points.txt"
+              if (-not (Test-Path $entryPoints -PathType Leaf)) {
+                  throw "Provider entry-point metadata is missing: $entryPoints"
+              }
           }
 
           if (-not (Test-Path ".\LICENSE" -PathType Leaf)) {
