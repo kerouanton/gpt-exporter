@@ -81,7 +81,8 @@ jobs:
       - name: Verify packaged resources and provider metadata
         shell: pwsh
         run: |
-          $genericResourceRoot = ".\dist\GPT Exporter\_internal\gpt_exporter\resources"
+          $internalRoot = ".\dist\GPT Exporter\_internal"
+          $genericResourceRoot = Join-Path $internalRoot "gpt_exporter\resources"
           foreach ($name in @("HELP.md", "HISTORY.md")) {
               $path = Join-Path $genericResourceRoot $name
               if (-not (Test-Path $path -PathType Leaf)) {
@@ -93,8 +94,8 @@ jobs:
           }
 
           $collectors = @(
-              ".\dist\GPT Exporter\_internal\export_provider_chatgpt\resources\collect_chatgpt_archive.js",
-              ".\dist\GPT Exporter\_internal\export_provider_discord\resources\export_current_dm.js"
+              (Join-Path $internalRoot "export_provider_chatgpt\resources\collect_chatgpt_archive.js"),
+              (Join-Path $internalRoot "export_provider_discord\resources\export_current_dm.js")
           )
           foreach ($collector in $collectors) {
               if (-not (Test-Path $collector -PathType Leaf)) {
@@ -105,14 +106,13 @@ jobs:
               }
           }
 
-          $metadataRoots = @(
-              Get-ChildItem ".\dist\GPT Exporter\_internal" -Directory -Filter "export_provider_chatgpt-*.dist-info",
-              Get-ChildItem ".\dist\GPT Exporter\_internal" -Directory -Filter "export_provider_discord-*.dist-info"
-          )
+          $metadataRoots = @()
+          $metadataRoots += Get-ChildItem $internalRoot -Directory -Filter "export_provider_chatgpt-*.dist-info"
+          $metadataRoots += Get-ChildItem $internalRoot -Directory -Filter "export_provider_discord-*.dist-info"
+          if ($metadataRoots.Count -ne 2) {
+              throw "Expected two provider distribution metadata directories, found $($metadataRoots.Count)"
+          }
           foreach ($metadataRoot in $metadataRoots) {
-              if ($null -eq $metadataRoot) {
-                  throw "Required provider distribution metadata is missing"
-              }
               $entryPoints = Join-Path $metadataRoot.FullName "entry_points.txt"
               if (-not (Test-Path $entryPoints -PathType Leaf)) {
                   throw "Provider entry-point metadata is missing: $entryPoints"
