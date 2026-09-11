@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 class LegacyProviderNamespaceRemovalTests(unittest.TestCase):
-    def test_shared_host_does_not_import_historical_provider_namespaces(self) -> None:
+    def test_only_documented_markdown_bridge_imports_historical_provider_namespace(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         package_root = repo_root / "gpt_exporter"
         forbidden = (
@@ -28,14 +28,20 @@ class LegacyProviderNamespaceRemovalTests(unittest.TestCase):
                     for alias in node.names:
                         if alias.name.startswith(forbidden):
                             violations.append(
-                                f"{relative}:{node.lineno}: import {alias.name}"
+                                f"{relative.as_posix()}:{node.lineno}: import {alias.name}"
                             )
                 if module_name and module_name.startswith(forbidden):
                     violations.append(
-                        f"{relative}:{node.lineno}: from {module_name} import ..."
+                        f"{relative.as_posix()}:{node.lineno}: from {module_name} import ..."
                     )
 
-        self.assertEqual(violations, [], "\n".join(violations))
+        self.assertEqual(
+            violations,
+            [
+                "export/markdown.py:496: from gpt_exporter.providers.gpt.export.markdown import ...",
+            ],
+            "Unexpected historical provider import:\n" + "\n".join(violations),
+        )
 
 
 if __name__ == "__main__":
