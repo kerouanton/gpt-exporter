@@ -124,6 +124,37 @@ _CURRENT_USER_PATCH = '''    function currentUserFromAvatar(avatar, detection) {
         };
     }'''
 
+# Short DMs can fit entirely in Discord's message pane. In that case the pane
+# still has overflow-y: scroll/auto, but scrollHeight == clientHeight. The base
+# collector used scrollability as an existence test and rejected these valid DMs.
+_SCROLLER_SENTINEL = '''    function findScroller() {
+        const first = document.querySelector(MESSAGE_SELECTOR);
+        if (!first) return null;
+        let element = first;
+        while (element) {
+            const style = getComputedStyle(element);
+            if ((style.overflowY === "auto" || style.overflowY === "scroll") && element.scrollHeight > element.clientHeight) return element;
+            element = element.parentElement;
+        }
+        return null;
+    }'''
+
+_SCROLLER_PATCH = '''    function findScroller() {
+        const first = document.querySelector(MESSAGE_SELECTOR);
+        if (!first) return null;
+        let element = first;
+        let nonScrollableFallback = null;
+        while (element) {
+            const style = getComputedStyle(element);
+            if (style.overflowY === "auto" || style.overflowY === "scroll") {
+                if (!nonScrollableFallback) nonScrollableFallback = element;
+                if (element.scrollHeight > element.clientHeight) return element;
+            }
+            element = element.parentElement;
+        }
+        return nonScrollableFallback;
+    }'''
+
 # Discord's message list is virtualized. In a large DM, scrollTop can briefly be
 # zero while Discord has only loaded a recent window; the old collector treated
 # four stable iterations at scrollTop == 0 as proof that the beginning had been
@@ -226,6 +257,7 @@ def collector_javascript() -> str:
     replacements = (
         (_SEMANTIC_CONTENT_SENTINEL, _SEMANTIC_CONTENT_EMOJI_PATCH, "semanticContent"),
         (_CURRENT_USER_SENTINEL, _CURRENT_USER_PATCH, "current-user detection"),
+        (_SCROLLER_SENTINEL, _SCROLLER_PATCH, "short-DM scroller detection"),
         (_TOP_TRAVERSAL_SENTINEL, _TOP_TRAVERSAL_PATCH, "top traversal"),
         (_BEGINNING_CALL_SENTINEL, _BEGINNING_CALL_PATCH, "beginning call"),
         (_DIAGNOSTICS_SENTINEL, _DIAGNOSTICS_PATCH, "history diagnostics"),
