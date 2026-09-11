@@ -25,14 +25,40 @@ from gpt_exporter.core.provider_discovery import (
 )
 
 
-def _source_package_candidates() -> Iterable[tuple[str, str, object]]:
-    """Yield provider factories declared by distributions in the source checkout."""
+def prepare_source_provider_imports() -> tuple[Path, ...]:
+    """Expose provider distribution ``src`` roots when running from a source checkout.
+
+    Installed applications do not need this helper because provider distributions are
+    already importable through normal Python packaging. Historical compatibility
+    facades use it lazily so they can resolve the extracted provider packages when a
+    developer runs the repository directly without installing those distributions.
+    """
 
     repository_root = Path(__file__).resolve().parents[1]
     packages_root = repository_root / "packages"
     if not packages_root.is_dir():
         return ()
 
+    source_roots: list[Path] = []
+    for metadata_path in sorted(packages_root.glob("*/pyproject.toml")):
+        source_root = metadata_path.parent / "src"
+        if not source_root.is_dir():
+            continue
+        source_roots.append(source_root)
+        source_text = str(source_root)
+        if source_text not in sys.path:
+            sys.path.insert(0, source_text)
+    return tuple(source_roots)
+
+
+def _source_package_candidates() -> Iterable[tuple[str, str, object]]:
+    """Yield provider factories declared by distributions in the source checkout."""
+
+    source_roots = prepare_source_provider_imports()
+    if not source_roots:
+        return ()
+
+    packages_root = source_roots[0].parents[1]
     result: list[tuple[str, str, object]] = []
     for metadata_path in sorted(packages_root.glob("*/pyproject.toml")):
         try:
@@ -47,10 +73,6 @@ def _source_package_candidates() -> Iterable[tuple[str, str, object]]:
         )
         if not isinstance(entry_points, dict) or not entry_points:
             continue
-
-        source_root = metadata_path.parent / "src"
-        if source_root.is_dir() and str(source_root) not in sys.path:
-            sys.path.insert(0, str(source_root))
 
         for name, value in sorted(entry_points.items(), key=lambda item: str(item[0]).casefold()):
             module_name, separator, attribute = str(value).partition(":")
@@ -137,4 +159,4 @@ def discover_available_providers(
     return ProviderDiscoveryResult(registry=registry, failures=tuple(failures))
 
 
-__all__ = ["discover_available_providers"]
+__all__ = ["discover_available_providers", "prepare_source_provider_imports"]
