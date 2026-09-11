@@ -172,7 +172,7 @@ class DiscordArchiveTests(unittest.TestCase):
             self.assertEqual(row[1], "Direct Messages")
             self.assertEqual(row[2], "123456")
 
-    def test_recapture_retains_missing_messages_as_deleted_history(self) -> None:
+    def test_verified_snapshot_outside_known_range_preserves_missing_history(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temp = Path(temporary)
             root = temp / "archive"
@@ -198,8 +198,9 @@ class DiscordArchiveTests(unittest.TestCase):
             self.assertEqual(read_raw_bytes(second.raw_path), recapture.read_bytes())
             canonical = read_canonical_conversation(second.canonical_path)
             self.assertEqual([m.message_id for m in canonical.messages], ["100", "101", "102"])
-            self.assertTrue(canonical.messages[0].metadata["deleted"])
+            self.assertNotIn("deleted", canonical.messages[0].metadata)
             self.assertEqual(canonical.messages[0].content, "message 100")
+            self.assertEqual(canonical.metadata["snapshot_coverage"], "complete-outside-known-range")
 
 
 if __name__ == "__main__":
