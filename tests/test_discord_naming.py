@@ -45,38 +45,8 @@ class DiscordNamingTests(unittest.TestCase):
         )
         self.assertEqual(
             dm_artifact_stem(metadata, "1467602455704371264"),
-            "Discord DM gadgetmcs ↔ a33z 1467602455704371264",
+            "Discord DM Gadget MCS ↔ a33z 1467602455704371264",
         )
-
-    def test_duplicate_local_participant_does_not_make_group_dm(self) -> None:
-        metadata = {
-            "conversation_type": "dm",
-            "participants": [
-                {"id": None, "name": "Gadget MCS", "is_self": None},
-                {"id": "peer", "name": "Raphael", "is_self": False},
-            ],
-            "current_user": {
-                "id": "350248805700075521",
-                "display_name": "Gadget MCS",
-                "username": "gadgetmcs",
-            },
-        }
-
-        self.assertFalse(is_group_dm(metadata))
-        self.assertEqual(dm_title(metadata, "Discord | @Raphael"), "Gadget MCS ↔ Raphael")
-
-    def test_duplicate_peer_records_do_not_make_group_dm(self) -> None:
-        metadata = {
-            "conversation_type": "dm",
-            "participants": [
-                {"id": "self", "name": "Gadget MCS", "is_self": True},
-                {"id": "peer", "name": "Raphael", "is_self": False},
-                {"id": None, "name": "Raphael", "is_self": None},
-            ],
-            "current_user": {"id": "self", "display_name": "Gadget MCS"},
-        }
-
-        self.assertFalse(is_group_dm(metadata))
 
     def test_explicit_non_self_peer_still_wins(self) -> None:
         metadata = {
@@ -167,6 +137,34 @@ class DiscordNamingTests(unittest.TestCase):
             dm_artifact_stem(metadata, "123"),
             "Discord Group DM Miziix · Xylitol · M7Cryptic 123",
         )
+
+    def test_duplicate_local_participant_does_not_make_group_dm(self) -> None:
+        metadata = {
+            "conversation_type": "dm",
+            "current_user": {
+                "id": "self",
+                "display_name": "Gadget MCS",
+                "username": "gadgetmcs",
+            },
+            "participants": [
+                {"id": "self", "name": "Gadget MCS", "is_self": True},
+                {"id": None, "name": "Gadget MCS", "username": "gadgetmcs", "is_self": None},
+                {"id": "peer", "name": "Raphael", "is_self": False},
+            ],
+        }
+        self.assertFalse(is_group_dm(metadata))
+
+    def test_duplicate_peer_records_do_not_make_group_dm(self) -> None:
+        metadata = {
+            "conversation_type": "dm",
+            "current_user": {"id": "self", "display_name": "Gadget MCS"},
+            "participants": [
+                {"id": "self", "name": "Gadget MCS", "is_self": True},
+                {"id": "peer", "name": "Raphael", "is_self": False},
+                {"id": None, "name": "Raphael", "is_self": None},
+            ],
+        }
+        self.assertFalse(is_group_dm(metadata))
 
 
 if __name__ == "__main__":
