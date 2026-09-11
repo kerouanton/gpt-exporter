@@ -23,6 +23,7 @@ from gpt_exporter.providers.discord.naming import (
     discord_artifact_paths,
     dm_artifact_stem,
     dm_title,
+    is_group_dm,
 )
 from gpt_exporter.providers.discord.raw_archive import (
     iter_raw_files,
@@ -36,6 +37,9 @@ from gpt_exporter.ui.archive_workflow import (
 from gpt_exporter.ui.remote_delete import RemoteDeletionPlan
 
 from .workspace_actions import DiscordWorkspaceActions
+
+
+_GROUP_DM_CATEGORY = "Discord Group DM"
 
 
 class _DiscordRegenerationBacklogActions:
@@ -141,7 +145,7 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
         return tuple(result)
 
     def prepare_index(self) -> bool:
-        """Migrate Discord artifacts to downloads/*.raw|canonical.json.xz and symmetric names."""
+        """Migrate Discord artifacts, normalize titles, and classify Group DMs."""
         root = self.workspace.root_path
         downloads = root / "downloads"
         downloads.mkdir(parents=True, exist_ok=True)
@@ -155,10 +159,15 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
                 channel_id = str(conversation.get("channel_id") or "") if isinstance(conversation, dict) else ""
                 if not channel_id:
                     continue
+                raw_title = str(conversation.get("title") or "")
                 metadata = {
                     "participants": conversation.get("participants"),
                     "current_user": payload.get("current_user"),
+                    "conversation_type": conversation.get("type"),
                 }
+                # Normalize/mutate provider metadata now so Group DM artifact paths
+                # use the human group name rather than a participant-list fallback.
+                dm_title(metadata, raw_title)
                 metadata_by_channel[channel_id] = metadata
                 target_raw, _target_canonical, _target_docx = discord_artifact_paths(
                     root, metadata, channel_id
@@ -192,7 +201,10 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
                 source.replace(target_canonical)
                 changed = True
 
-            old_docx_candidates = sorted(root.glob(f"Discord DM * {channel_id}.docx"))
+            old_docx_candidates = sorted(
+                (*root.glob(f"Discord DM * {channel_id}.docx"),
+                 *root.glob(f"Discord Group DM * {channel_id}.docx"))
+            )
             if not target_docx.exists() and old_docx_candidates:
                 old_docx = max(old_docx_candidates, key=lambda path: path.stat().st_mtime_ns)
                 if old_docx.resolve() != target_docx.resolve():
@@ -207,6 +219,16 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
             try:
                 with sqlite3.connect(self.workspace.database_path) as connection:
                     connection.row_factory = sqlite3.Row
+                    connection.execute(
+                        "INSERT OR IGNORE INTO categories (name, description, created_at) VALUES (?, ?, datetime('now'))",
+                        (_GROUP_DM_CATEGORY, "Discord multi-participant direct-message conversations"),
+                    )
+                    category_row = connection.execute(
+                        "SELECT category_id FROM categories WHERE name = ? COLLATE NOCASE",
+                        (_GROUP_DM_CATEGORY,),
+                    ).fetchone()
+                    group_category_id = int(category_row["category_id"]) if category_row else None
+
                     rows = connection.execute(
                         """
                         SELECT c.conversation_id, c.title, c.source_json_path, c.docx_path,
@@ -245,6 +267,8 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
                             else (str(row["docx_path"] or "") or None)
                         )
                         title = dm_title(metadata, str(row["title"] or ""))
+                        if title != str(row["title"] or ""):
+                            changed = True
                         connection.execute(
                             """
                             UPDATE conversations
@@ -261,6 +285,25 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
                                 row["conversation_id"],
                             ),
                         )
+                        if group_category_id is not None:
+                            if is_group_dm(metadata):
+                                before = connection.total_changes
+                                connection.execute(
+                                    """
+                                    INSERT OR IGNORE INTO conversation_categories (
+                                        conversation_id, category_id, assigned_at
+                                    ) VALUES (?, ?, datetime('now'))
+                                    """,
+                                    (row["conversation_id"], group_category_id),
+                                )
+                                changed = changed or connection.total_changes > before
+                            else:
+                                before = connection.total_changes
+                                connection.execute(
+                                    "DELETE FROM conversation_categories WHERE conversation_id = ? AND category_id = ?",
+                                    (row["conversation_id"], group_category_id),
+                                )
+                                changed = changed or connection.total_changes > before
                         try:
                             connection.execute(
                                 "UPDATE canonical_conversation_sources SET source_path = ? WHERE conversation_id = ?",
@@ -303,7 +346,9 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
                 metadata = {
                     "participants": conversation.get("participants"),
                     "current_user": payload.get("current_user"),
+                    "conversation_type": conversation.get("type"),
                 }
+                dm_title(metadata, str(conversation.get("title") or ""))
                 _raw, _canonical, docx_path = discord_artifact_paths(
                     self.workspace.root_path,
                     metadata,
@@ -352,7 +397,16 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
 
     def remote_delete_supported(self, row: dict[str, Any]) -> bool:
         conversation_id = str(row.get("conversation_id") or "")
-        return conversation_id.startswith("discord:") and self._canonical_path_for_row(row) is not None
+        if not conversation_id.startswith("discord:"):
+            return False
+        canonical_path = self._canonical_path_for_row(row)
+        if canonical_path is None:
+            return False
+        try:
+            archived = read_canonical_conversation(canonical_path)
+        except (OSError, ValueError):
+            return False
+        return not is_group_dm(archived.metadata)
 
     def snapshot_remote_delete_dry_runs(self):
         return snapshot_exports(self.download_directory)
