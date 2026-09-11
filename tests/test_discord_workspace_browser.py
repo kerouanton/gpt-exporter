@@ -57,6 +57,18 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
                         conversation_id TEXT PRIMARY KEY,
                         source_path TEXT NOT NULL
                     );
+                    CREATE TABLE categories (
+                        category_id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                        description TEXT,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE conversation_categories (
+                        conversation_id TEXT NOT NULL,
+                        category_id INTEGER NOT NULL,
+                        assigned_at TEXT NOT NULL,
+                        PRIMARY KEY (conversation_id, category_id)
+                    );
                     """
                 )
                 connection.execute(
@@ -76,10 +88,10 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
             actions = DiscordWorkspaceActions(SimpleNamespace(), workspace)
             self.assertTrue(actions.prepare_index())
 
-            stem = "Discord DM gadgetmcs ↔ soundy 123456"
+            stem = "Discord DM Gadget MCS ↔ soundy 123456"
             new_docx = root / f"{stem}.docx"
-            new_raw = root / "raw" / f"{stem}.json.xz"
-            new_canonical = root / "downloads" / f"{stem}.json.xz"
+            new_raw = root / "downloads" / f"{stem}.raw.json.xz"
+            new_canonical = root / "downloads" / f"{stem}.canonical.json.xz"
             self.assertTrue(new_docx.is_file())
             self.assertTrue(new_raw.is_file())
             self.assertEqual(read_raw_bytes(new_raw), b"{}")
@@ -94,12 +106,21 @@ class DiscordWorkspaceBrowserTests(unittest.TestCase):
                 canonical_source = connection.execute(
                     "SELECT source_path FROM canonical_conversation_sources"
                 ).fetchone()[0]
-            self.assertEqual(row[0], "@soundy")
+                category = connection.execute(
+                    """
+                    SELECT cat.name
+                    FROM conversation_categories cc
+                    JOIN categories cat ON cat.category_id = cc.category_id
+                    WHERE cc.conversation_id = 'discord:123456'
+                    """
+                ).fetchone()[0]
+            self.assertEqual(row[0], "Gadget MCS ↔ soundy")
             self.assertEqual(row[1], str(new_canonical))
             self.assertEqual(row[2], str(new_docx))
             self.assertEqual(row[3], "Direct Messages")
             self.assertEqual(row[4], "123456")
             self.assertEqual(canonical_source, str(new_canonical))
+            self.assertEqual(category, "Discord Direct Message")
             self.assertEqual(
                 actions.resolve_docx_path({"conversation_id": "discord:123456"}),
                 new_docx,
