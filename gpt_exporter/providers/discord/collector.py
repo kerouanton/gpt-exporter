@@ -210,6 +210,25 @@ _TOP_TRAVERSAL_PATCH = '''    function topOfHistoryMarkerVisible(scroller) {
         return { reached_top: false, top_marker_detected: false, stable_iterations: stable, oldest_message_id: previousOldest };
     }'''
 
+# A genuinely empty DM has no newest message ID. The historical enrichment loop
+# waited for a stable newest ID, so `null` could never satisfy the stop condition
+# and the collector could spin for thousands of iterations. Once we are already
+# at the bottom and no messages have been collected, the empty state is stable by
+# definition and the enrichment sweep can finish immediately.
+_EMPTY_DM_END_SENTINEL = '''            const newestStable = newest && newest === previousNewest;
+            const noMovement = Math.abs(scroller.scrollTop - beforeTop) < 1;
+            console.log("[9c exporter v15] ENRICH", { iteration, newest, nearBottom, noNewMessages, ...status });
+            if (nearBottom && newestStable && noNewMessages) stableBottom++; else stableBottom = 0;'''
+
+_EMPTY_DM_END_PATCH = '''            const newestStable = newest && newest === previousNewest;
+            const noMovement = Math.abs(scroller.scrollTop - beforeTop) < 1;
+            console.log("[9c exporter v15] ENRICH", { iteration, newest, nearBottom, noNewMessages, ...status });
+            if (nearBottom && noNewMessages && collected.size === 0 && newest === null) {
+                collectMaterializedMessages(currentUser, channelId);
+                return;
+            }
+            if (nearBottom && newestStable && noNewMessages) stableBottom++; else stableBottom = 0;'''
+
 _BEGINNING_CALL_SENTINEL = '''    console.log("[9c exporter v15] Phase 1: finding beginning");
     await traverseToBeginning(scroller, currentUser, channelId);
     const launchNewestWasCollected = Boolean(launchNewestMessageId && collected.has(launchNewestMessageId));'''
@@ -259,6 +278,7 @@ def collector_javascript() -> str:
         (_CURRENT_USER_SENTINEL, _CURRENT_USER_PATCH, "current-user detection"),
         (_SCROLLER_SENTINEL, _SCROLLER_PATCH, "short-DM scroller detection"),
         (_TOP_TRAVERSAL_SENTINEL, _TOP_TRAVERSAL_PATCH, "top traversal"),
+        (_EMPTY_DM_END_SENTINEL, _EMPTY_DM_END_PATCH, "empty-DM enrichment termination"),
         (_BEGINNING_CALL_SENTINEL, _BEGINNING_CALL_PATCH, "beginning call"),
         (_DIAGNOSTICS_SENTINEL, _DIAGNOSTICS_PATCH, "history diagnostics"),
         (_COMPLETION_LOG_SENTINEL, _COMPLETION_LOG_PATCH, "completion logging"),
