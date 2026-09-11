@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+from collections.abc import Callable
 from typing import Iterable
 
 from gpt_exporter.core import ConversationProvider
@@ -60,17 +61,32 @@ def _instantiate(candidate: object) -> ConversationProvider:
     return candidate
 
 
-def discover_available_providers() -> ProviderDiscoveryResult:
-    """Discover external entry points plus temporary in-tree providers.
+def discover_available_providers(
+    *,
+    include_embedded: bool = True,
+    entry_points: Callable[[], object] | None = None,
+) -> ProviderDiscoveryResult:
+    """Discover external entry points plus optional temporary in-tree providers.
+
+    ``include_embedded=False`` exercises the installed-package architecture without
+    the source-tree compatibility bridge. This is also the intended steady-state
+    behavior once the historical provider namespaces are removed.
 
     Entry-point providers win when an in-tree provider exposes the same stable
     provider ID. Individual plugin failures remain non-fatal.
     """
 
-    external = discover_providers()
+    external = (
+        discover_providers()
+        if entry_points is None
+        else discover_providers(entry_points=entry_points)
+    )
     registry = external.registry
     failures = list(external.failures)
     registered = set(registry.provider_ids())
+
+    if not include_embedded:
+        return ProviderDiscoveryResult(registry=registry, failures=tuple(failures))
 
     try:
         embedded = _embedded_provider_candidates()
