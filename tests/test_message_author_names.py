@@ -1,3 +1,4 @@
+import gc
 import tempfile
 import unittest
 from pathlib import Path
@@ -70,6 +71,10 @@ class MessageAuthorNameTests(unittest.TestCase):
             )
             self.assertEqual(excerpts[0]["author_role"], "a33z")
             self.assertEqual(excerpts[1]["author_role"], "Gadget MCS")
+            # sqlite3.Connection context managers commit/rollback but do not
+            # explicitly close. Force finalization before TemporaryDirectory
+            # cleanup on Windows, where an open SQLite handle blocks unlink.
+            gc.collect()
 
 
 if __name__ == "__main__":
