@@ -20,7 +20,6 @@ Issues = "https://github.com/kerouanton/gpt-exporter/issues"
 
 [project.entry-points."gpt_exporter.provider_plugins"]
 gpt = "gpt_exporter.providers.gpt.plugin:create_provider"
-discord = "gpt_exporter.providers.discord.plugin:create_provider"
 
 [tool.gpt-exporter]
 archive-directory = "~/Documents/ChatGPT Archive"
