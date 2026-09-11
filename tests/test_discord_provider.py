@@ -8,6 +8,7 @@ from pathlib import Path
 
 from gpt_exporter.core import CanonicalConversation, ConversationProvider
 from gpt_exporter.providers.discord import DiscordProvider
+from gpt_exporter.providers.discord.naming import dm_artifact_stem, dm_title
 
 
 class DiscordProviderTests(unittest.TestCase):
@@ -104,6 +105,34 @@ class DiscordProviderTests(unittest.TestCase):
                 json.dumps({"123": "general"}), encoding="utf-8"
             )
             self.assertEqual(tuple(DiscordProvider().discover(root)), ())
+
+    def test_unresolved_dm_peer_falls_back_to_discord_page_title(self) -> None:
+        metadata = {
+            "conversation_type": "dm",
+            "current_user": {
+                "id": "350248805700075521",
+                "display_name": "Gadget MCS",
+                "is_self": True,
+            },
+            "participants": [
+                {"id": None, "name": None, "avatar_url": None, "is_self": None}
+            ],
+        }
+
+        title = dm_title(metadata, "(102) Discord | @Zekah")
+
+        self.assertEqual(title, "Gadget MCS ↔ Zekah")
+        self.assertEqual(
+            dm_artifact_stem(metadata, "1403414893561905163"),
+            "Discord DM Gadget MCS ↔ Zekah 1403414893561905163",
+        )
+        peer = next(
+            participant
+            for participant in metadata["participants"]
+            if participant.get("is_self") is False
+        )
+        self.assertEqual(peer["name"], "Zekah")
+        self.assertEqual(peer["identity_source"], "document-title-fallback")
 
 
 if __name__ == "__main__":
