@@ -104,13 +104,49 @@ def _participant_records(metadata: Mapping[str, Any]) -> list[Mapping[str, Any]]
     return result
 
 
+def _identity_aliases(record: Mapping[str, Any] | None) -> set[str]:
+    """Return stable aliases used to merge duplicate Discord participant records."""
+    if not record:
+        return set()
+    aliases: set[str] = set()
+    participant_id = _text(record.get("id"))
+    if participant_id:
+        aliases.add(f"id:{participant_id}")
+    for key in ("username", "display_name", "name"):
+        value = _text(record.get(key))
+        if value:
+            aliases.add(f"name:{value.casefold().lstrip('@')}")
+    return aliases
+
+
 def is_group_dm(metadata: Mapping[str, Any]) -> bool:
-    """Identify Discord Group DMs without relying on the legacy collector type field."""
+    """Identify Group DMs while tolerating duplicate/partial 1:1 participant rows."""
     if _text(metadata.get("conversation_type")) == "group_dm":
         return True
-    records = _participant_records(metadata)
-    non_self = [record for record in records if record.get("is_self") is not True]
-    return len(records) > 2 or len(non_self) > 1
+
+    local_aliases = _identity_aliases(dm_self(metadata))
+    remote_entities: list[set[str]] = []
+    for record in _participant_records(metadata):
+        if record.get("is_self") is True:
+            continue
+        aliases = _identity_aliases(record)
+        if not aliases or aliases & local_aliases:
+            continue
+
+        overlapping = [entity for entity in remote_entities if entity & aliases]
+        if overlapping:
+            merged = set(aliases)
+            for entity in overlapping:
+                merged.update(entity)
+                remote_entities.remove(entity)
+            remote_entities.append(merged)
+        else:
+            remote_entities.append(set(aliases))
+
+    # A 1:1 DM has exactly one distinct remote identity.  Legacy collector
+    # snapshots can contain duplicate local/peer participant records, so total
+    # participant count alone is not reliable evidence of a Group DM.
+    return len(remote_entities) > 1
 
 
 def _clean_discord_page_title(value: str) -> str:
