@@ -20,7 +20,7 @@ The current implementation exposes these runtime states:
 - `incompatible`: an installed/discovered provider advertises an unsupported provider API version;
 - `broken`: a provider candidate exists but could not be imported, constructed, or validated.
 
-`installed` and `discovered` remain explicit record attributes so later catalog/install transitions do not require redesigning the UI model.
+`installed` and `discovered` remain explicit record attributes. Provider records also expose managed-artifact provenance independently of runtime state: whether a locally managed copy exists, its distribution/version, artifact SHA-256, source wheel filename and installation timestamp.
 
 Durable activation state is stored per-user in `providers.json` beside the established workspace settings under the historical application-data directory. Disabling a provider does not delete its package or any archive data. Changes take full effect on the next MSNE start.
 
@@ -52,7 +52,7 @@ Implemented:
 
 ### Stage C — local lifecycle and artifact management
 
-Implemented so far:
+Implemented:
 
 - durable enable/disable state;
 - application startup honors disabled providers;
@@ -61,20 +61,24 @@ Implemented so far:
 - zero-provider startup enters a recovery/management shell rather than failing;
 - provider packages and archive data are untouched by activation changes;
 - isolated per-user provider directory under the established application-data root;
-- `Install from file...` for `.whl` provider artifacts;
+- `Install / Update from file...` for `.whl` provider artifacts;
 - pre-install validation of wheel structure, provider entry-point metadata and archive paths;
 - SHA-256 display and explicit confirmation before executable provider code is installed;
 - staged extraction and atomic replacement of a previously managed version;
-- managed provider roots are added to discovery without mutating global Python or PyInstaller `_internal` files.
+- managed provider roots are added to discovery without mutating global Python or PyInstaller `_internal` files;
+- per-install provenance manifest recording distribution/version, SHA-256, provider entry points, source wheel filename and installation timestamp;
+- provenance is visible in `ProviderManager` records and in the Providers dialog;
+- `Remove managed copy` removes only the isolated per-user distribution and never archive data, bundled providers, editable development installs or global Python packages;
+- managed installs created before provenance manifests were introduced remain detectable and removable, with unknown provenance fields shown explicitly.
 
-Managed wheels are stored one distribution per directory below the per-user provider root. Reinstalling the same distribution replaces the previously managed copy atomically. MSNE refreshes its inventory after installation, but a restart is required before relying on a newly installed/replaced provider for an active workspace because Python modules may already be loaded in the current process.
+Managed wheels are stored one distribution per directory below the per-user provider root. Installing another wheel with the same distribution name is an update: the confirmation dialog shows the currently managed version/hash and the incoming version/hash, then the managed directory is replaced atomically. MSNE refreshes its inventory after install/update/remove, but a restart is required before relying on the resulting provider set because Python modules and packaging metadata may already be loaded in the current process.
+
+Removing a managed copy can reveal another copy of the same provider after restart, for example a provider bundled with the current Windows build or an editable development install. This is intentional: artifact removal is scoped strictly to MSNE-managed per-user storage. Use `Disable` when the goal is to keep a provider unavailable regardless of which installed copy supplies it.
 
 Still planned for Stage C:
 
-- remove locally managed provider artifacts;
 - stronger runtime activation validation with rollback when a newly installed provider cannot load;
-- explicit managed/bundled provenance in the ProviderManager record/UI;
-- dependency policy for third-party wheels that require additional Python distributions.
+- explicit dependency policy for third-party wheels that require additional Python distributions.
 
 The GUI must not perform `git clone`. End-user installation targets the isolated per-user provider location rather than the global Python environment or PyInstaller's bundled `_internal` tree.
 
@@ -93,4 +97,4 @@ Only after the provider contract and install/update path are stable should the c
 
 ## Trust and safety boundary
 
-Installing a provider is equivalent to installing executable Python code. Therefore install/update operations display the provider distribution identity, version, declared provider entry points, destination and SHA-256 before confirmation. The installer rejects path traversal and symbolic-link members and does not invoke `pip`, Git, or a global package manager. Future catalog installs must additionally verify trusted catalog integrity metadata and reject incompatible provider APIs before activation.
+Installing a provider is equivalent to installing executable Python code. Therefore install/update operations display the provider distribution identity, version, declared provider entry points, destination and SHA-256 before confirmation. The installer rejects path traversal and symbolic-link members and does not invoke `pip`, Git, or a global package manager. Removal is constrained to an immediate child of the managed provider root and never deletes conversation archives or non-managed provider installations. Future catalog installs must additionally verify trusted catalog integrity metadata and reject incompatible provider APIs before activation.

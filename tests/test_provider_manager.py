@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +9,9 @@ from gpt_exporter.core import ProviderDescriptor, ProviderRegistry
 from gpt_exporter.core.provider_discovery import (
     ProviderDiscoveryFailure,
     ProviderDiscoveryResult,
+    ProviderDiscoverySuccess,
 )
+from gpt_exporter.provider_artifacts import ProviderArtifactStore
 from gpt_exporter.provider_manager import ProviderManager, ProviderState
 from gpt_exporter.provider_settings import ProviderSettings
 
@@ -34,7 +37,48 @@ class ProviderManagerTests(unittest.TestCase):
         discovery: ProviderDiscoveryResult,
         settings_path: Path,
     ) -> ProviderManager:
-        return ProviderManager(discovery, settings=ProviderSettings(settings_path))
+        return ProviderManager(
+            discovery,
+            settings=ProviderSettings(settings_path),
+            artifact_store=ProviderArtifactStore(settings_path.parent / "managed-artifacts"),
+        )
+
+    @staticmethod
+    def _write_managed_provider(
+        root: Path,
+        *,
+        provider_id: str = "synthetic",
+        distribution: str = "export-provider-synthetic",
+        version: str = "1.2.3",
+    ) -> None:
+        destination = root / distribution
+        dist_info = destination / f"{distribution.replace('-', '_')}-{version}.dist-info"
+        dist_info.mkdir(parents=True)
+        (dist_info / "METADATA").write_text(
+            f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\n",
+            encoding="utf-8",
+        )
+        (dist_info / "entry_points.txt").write_text(
+            "[gpt_exporter.provider_plugins]\n"
+            f"{provider_id} = synthetic_provider.plugin:create_provider\n",
+            encoding="utf-8",
+        )
+        (destination / ".msne-provider.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "distribution_name": distribution,
+                    "version": version,
+                    "sha256": "a" * 64,
+                    "entry_points": [
+                        [provider_id, "synthetic_provider.plugin:create_provider"]
+                    ],
+                    "source_filename": "synthetic.whl",
+                    "installed_at": "2026-09-12T18:00:00+00:00",
+                }
+            ),
+            encoding="utf-8",
+        )
 
     def test_discovered_provider_is_exposed_as_enabled(self) -> None:
         registry = ProviderRegistry(
@@ -67,7 +111,65 @@ class ProviderManagerTests(unittest.TestCase):
         self.assertEqual(record.state, ProviderState.ENABLED)
         self.assertTrue(record.installed)
         self.assertTrue(record.discovered)
+        self.assertFalse(record.managed)
+        self.assertEqual(record.provenance_label, "Bundled / environment")
         self.assertEqual(record.capabilities, ("archive", "workspace-actions"))
+
+    def test_managed_provenance_is_exposed_on_provider_record(self) -> None:
+        registry = ProviderRegistry(
+            [_Provider(ProviderDescriptor("synthetic", "Synthetic", "3.4"))]
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            settings_path = base / "providers.json"
+            self._write_managed_provider(base / "managed-artifacts")
+            manager = self._manager(
+                ProviderDiscoveryResult(registry=registry),
+                settings_path,
+            )
+            record = manager.records()[0]
+
+            self.assertTrue(record.managed)
+            self.assertEqual(record.provenance_label, "Managed")
+            self.assertEqual(record.managed_distribution, "export-provider-synthetic")
+            self.assertEqual(record.managed_version, "1.2.3")
+            self.assertEqual(record.managed_sha256, "a" * 64)
+            self.assertEqual(record.managed_source_filename, "synthetic.whl")
+            self.assertEqual(
+                manager.managed_info("synthetic").distribution_name,
+                "export-provider-synthetic",
+            )
+
+    def test_managed_provenance_uses_descriptor_id_not_entry_point_alias(self) -> None:
+        registry = ProviderRegistry(
+            [_Provider(ProviderDescriptor("stable-id", "Synthetic", "3.4"))]
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            settings_path = base / "providers.json"
+            self._write_managed_provider(
+                base / "managed-artifacts",
+                provider_id="entry-point-alias",
+            )
+            discovery = ProviderDiscoveryResult(
+                registry=registry,
+                successes=(
+                    ProviderDiscoverySuccess(
+                        name="entry-point-alias",
+                        value="synthetic_provider.plugin:create_provider",
+                        provider_id="stable-id",
+                    ),
+                ),
+            )
+            manager = self._manager(discovery, settings_path)
+            record = manager.records()[0]
+
+            self.assertTrue(record.managed)
+            self.assertEqual(record.provider_id, "stable-id")
+            self.assertEqual(
+                manager.managed_info("stable-id").distribution_name,
+                "export-provider-synthetic",
+            )
 
     def test_disable_is_durable_and_filters_active_registry(self) -> None:
         discovery = ProviderDiscoveryResult(

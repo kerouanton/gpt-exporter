@@ -20,15 +20,18 @@ from gpt_exporter.core.provider_discovery import (
     PROVIDER_API_VERSION,
     ProviderDiscoveryFailure,
     ProviderDiscoveryResult,
+    ProviderDiscoverySuccess,
     PROVIDER_ENTRY_POINT_GROUP,
     discover_providers,
 )
 from gpt_exporter.provider_artifacts import ProviderArtifactStore
 
 
-def prepare_managed_provider_imports() -> tuple[Path, ...]:
+def prepare_managed_provider_imports(
+    artifact_root: Path | str | None = None,
+) -> tuple[Path, ...]:
     """Expose isolated per-user provider distribution roots to Python packaging."""
-    roots = ProviderArtifactStore().installed_roots()
+    roots = ProviderArtifactStore(artifact_root).installed_roots()
     # Insert in reverse so the stable sorted order is preserved at the front of sys.path.
     for root in reversed(roots):
         root_text = str(root)
@@ -113,6 +116,7 @@ def discover_available_providers(
     *,
     include_embedded: bool = True,
     entry_points: Callable[[], object] | None = None,
+    artifact_root: Path | str | None = None,
 ) -> ProviderDiscoveryResult:
     """Discover entry-point providers plus optional source-checkout packages.
 
@@ -125,7 +129,7 @@ def discover_available_providers(
     stable provider ID. Individual provider failures remain non-fatal.
     """
 
-    prepare_managed_provider_imports()
+    prepare_managed_provider_imports(artifact_root)
     external = (
         discover_providers()
         if entry_points is None
@@ -133,10 +137,15 @@ def discover_available_providers(
     )
     registry = external.registry
     failures = list(external.failures)
+    successes = list(external.successes)
     registered = set(registry.provider_ids())
 
     if not include_embedded:
-        return ProviderDiscoveryResult(registry=registry, failures=tuple(failures))
+        return ProviderDiscoveryResult(
+            registry=registry,
+            failures=tuple(failures),
+            successes=tuple(successes),
+        )
 
     try:
         source_packages = _source_package_candidates()
@@ -162,6 +171,13 @@ def discover_available_providers(
                 continue
             registry.register(provider)
             registered.add(descriptor.provider_id)
+            successes.append(
+                ProviderDiscoverySuccess(
+                    name=name,
+                    value=value,
+                    provider_id=str(descriptor.provider_id),
+                )
+            )
         except Exception as error:
             failures.append(
                 ProviderDiscoveryFailure(
@@ -171,7 +187,11 @@ def discover_available_providers(
                 )
             )
 
-    return ProviderDiscoveryResult(registry=registry, failures=tuple(failures))
+    return ProviderDiscoveryResult(
+        registry=registry,
+        failures=tuple(failures),
+        successes=tuple(successes),
+    )
 
 
 __all__ = [

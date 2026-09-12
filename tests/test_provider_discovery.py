@@ -57,10 +57,11 @@ class ProviderDiscoveryTests(unittest.TestCase):
         result = discover_providers(entry_points=lambda: FakeEntryPoints())
         self.assertEqual(result.registry.provider_ids(), ())
         self.assertEqual(result.failures, ())
+        self.assertEqual(result.successes, ())
 
     def test_unknown_synthetic_provider_is_discovered_without_core_changes(self) -> None:
         entry = FakeEntryPoint(
-            name="synthetic",
+            name="entry-point-alias",
             value="external.synthetic:provider",
             group=PROVIDER_ENTRY_POINT_GROUP,
             target=SyntheticProvider,
@@ -69,6 +70,10 @@ class ProviderDiscoveryTests(unittest.TestCase):
         self.assertEqual(result.registry.provider_ids(), ("synthetic",))
         self.assertEqual(result.failures, ())
         self.assertEqual(result.registry.get("synthetic").descriptor.display_name, "Synthetic")
+        self.assertEqual(len(result.successes), 1)
+        self.assertEqual(result.successes[0].name, "entry-point-alias")
+        self.assertEqual(result.successes[0].value, "external.synthetic:provider")
+        self.assertEqual(result.successes[0].provider_id, "synthetic")
 
     def test_broken_provider_does_not_prevent_other_providers_loading(self) -> None:
         class BrokenEntryPoint(FakeEntryPoint):
@@ -92,6 +97,7 @@ class ProviderDiscoveryTests(unittest.TestCase):
         self.assertEqual(len(result.failures), 1)
         self.assertEqual(result.failures[0].name, "broken")
         self.assertIn("RuntimeError: boom", result.failures[0].error)
+        self.assertEqual(len(result.successes), 1)
 
     def test_incompatible_api_version_is_rejected_nonfatally(self) -> None:
         class FutureProvider(SyntheticProvider):
@@ -113,6 +119,7 @@ class ProviderDiscoveryTests(unittest.TestCase):
         result = discover_providers(entry_points=lambda: FakeEntryPoints((entry,)))
         self.assertEqual(result.registry.provider_ids(), ())
         self.assertEqual(len(result.failures), 1)
+        self.assertEqual(result.successes, ())
         self.assertIn("incompatible", result.failures[0].error)
 
 

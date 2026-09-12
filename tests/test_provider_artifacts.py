@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 import unittest
@@ -74,6 +75,28 @@ class ProviderArtifactTests(unittest.TestCase):
             self.assertEqual(len(installed_roots), 1)
             self.assertTrue(os.path.samefile(installed_roots[0], destination))
 
+    def test_install_records_managed_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            wheel = self._write_wheel(base / "synthetic.whl")
+            expected_sha = hashlib.sha256(wheel.read_bytes()).hexdigest()
+            store = ProviderArtifactStore(base / "providers")
+
+            artifact = store.install(wheel)
+            destination = store.destination_for(artifact)
+            managed = store.managed_for_provider("synthetic")
+
+            self.assertIsNotNone(managed)
+            assert managed is not None
+            self.assertTrue(os.path.samefile(managed.root, destination))
+            self.assertEqual(managed.distribution_name, "export-provider-synthetic")
+            self.assertEqual(managed.version, "1.2.3")
+            self.assertEqual(managed.sha256, expected_sha)
+            self.assertEqual(managed.source_filename, "synthetic.whl")
+            self.assertTrue(managed.installed_at)
+            self.assertTrue(managed.provenance_complete)
+            self.assertTrue((destination / ".msne-provider.json").is_file())
+
     def test_reinstall_replaces_previous_distribution_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -94,6 +117,88 @@ class ProviderArtifactTests(unittest.TestCase):
             self.assertEqual(len(metadata_files), 1)
             self.assertIn("Version: 2.0", metadata_files[0].read_text(encoding="utf-8"))
             self.assertFalse(destination.with_name(destination.name + ".previous").exists())
+            managed = store.managed_for_provider("synthetic")
+            self.assertIsNotNone(managed)
+            assert managed is not None
+            self.assertEqual(managed.version, "2.0")
+            self.assertEqual(managed.source_filename, "second.whl")
+
+    def test_normalized_distribution_name_finds_same_managed_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            store = ProviderArtifactStore(base / "providers")
+            store.install(
+                self._write_wheel(
+                    base / "synthetic.whl",
+                    distribution="example_provider",
+                )
+            )
+
+            managed = store.managed_for_distribution("example-provider")
+
+            self.assertIsNotNone(managed)
+            assert managed is not None
+            self.assertEqual(managed.distribution_name, "example_provider")
+
+    def test_remove_provider_deletes_only_managed_distribution_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            store = ProviderArtifactStore(base / "providers")
+            wheel = self._write_wheel(base / "synthetic.whl")
+            artifact = store.install(wheel)
+            destination = store.destination_for(artifact)
+            unrelated = store.root / "keep-me"
+            unrelated.mkdir()
+            (unrelated / "sentinel.txt").write_text("keep", encoding="utf-8")
+
+            removed = store.remove_provider("synthetic")
+
+            self.assertEqual(removed.distribution_name, "export-provider-synthetic")
+            self.assertFalse(destination.exists())
+            self.assertTrue((unrelated / "sentinel.txt").is_file())
+            self.assertIsNone(store.managed_for_provider("synthetic"))
+
+    def test_pre_manifest_install_is_detected_and_removable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            store = ProviderArtifactStore(base / "providers")
+            artifact = store.install(self._write_wheel(base / "synthetic.whl"))
+            destination = store.destination_for(artifact)
+            (destination / ".msne-provider.json").unlink()
+
+            managed = store.managed_for_provider("synthetic")
+            self.assertIsNotNone(managed)
+            assert managed is not None
+            self.assertEqual(managed.version, "1.2.3")
+            self.assertFalse(managed.provenance_complete)
+            self.assertEqual(managed.sha256, "")
+
+            store.remove_provider("synthetic")
+            self.assertFalse(destination.exists())
+
+    def test_malformed_manifest_entry_point_falls_back_to_legacy_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            store = ProviderArtifactStore(base / "providers")
+            artifact = store.install(self._write_wheel(base / "synthetic.whl"))
+            destination = store.destination_for(artifact)
+            manifest = destination / ".msne-provider.json"
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["entry_points"] = [[]]
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+            managed = store.managed_for_provider("synthetic")
+
+            self.assertIsNotNone(managed)
+            assert managed is not None
+            self.assertFalse(managed.provenance_complete)
+            self.assertEqual(managed.version, "1.2.3")
+
+    def test_remove_rejects_provider_without_managed_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = ProviderArtifactStore(Path(temporary) / "providers")
+            with self.assertRaisesRegex(ValueError, "no locally managed copy"):
+                store.remove_provider("missing")
 
     def test_non_provider_wheel_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

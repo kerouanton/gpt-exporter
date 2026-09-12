@@ -14,6 +14,15 @@ PROVIDER_ENTRY_POINT_GROUP = "gpt_exporter.provider_plugins"
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderDiscoverySuccess:
+    """One successfully loaded provider and the entry point that produced it."""
+
+    name: str
+    value: str
+    provider_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderDiscoveryFailure:
     """One provider entry point that could not be loaded or validated."""
 
@@ -29,10 +38,11 @@ class ProviderDiscoveryFailure:
 
 @dataclass(frozen=True, slots=True)
 class ProviderDiscoveryResult:
-    """Discovered providers plus non-fatal plugin loading failures."""
+    """Discovered providers plus successful entry-point provenance and failures."""
 
     registry: ProviderRegistry
     failures: tuple[ProviderDiscoveryFailure, ...] = ()
+    successes: tuple[ProviderDiscoverySuccess, ...] = ()
 
 
 def _instantiate_provider(candidate):
@@ -68,13 +78,14 @@ def discover_providers(
 
     Broken or incompatible providers are reported as failures instead of preventing
     the application from starting. Duplicate provider IDs are rejected by the
-    provider-neutral registry and reported the same way. If a provider was loaded
-    far enough to expose its descriptor, that metadata is retained on the failure
-    record so diagnostics can report the provider's own identity and API version.
+    provider-neutral registry and reported the same way. Successful loads retain the
+    entry-point name/value alongside the provider's stable descriptor ID so host-side
+    lifecycle code never has to assume that an entry-point alias equals provider_id.
     """
 
     registry = ProviderRegistry()
     failures: list[ProviderDiscoveryFailure] = []
+    successes: list[ProviderDiscoverySuccess] = []
 
     entries = sorted(
         _entry_points_for_group(entry_points),
@@ -101,6 +112,13 @@ def discover_providers(
                     f"provider API version {api_version} is incompatible with core API version {PROVIDER_API_VERSION}"
                 )
             registry.register(provider)
+            successes.append(
+                ProviderDiscoverySuccess(
+                    name=name,
+                    value=value,
+                    provider_id=provider_id,
+                )
+            )
         except Exception as error:  # plugin failures must not prevent core startup
             failures.append(
                 ProviderDiscoveryFailure(
@@ -115,7 +133,11 @@ def discover_providers(
                 )
             )
 
-    return ProviderDiscoveryResult(registry=registry, failures=tuple(failures))
+    return ProviderDiscoveryResult(
+        registry=registry,
+        failures=tuple(failures),
+        successes=tuple(successes),
+    )
 
 
 __all__ = [
@@ -123,5 +145,6 @@ __all__ = [
     "PROVIDER_ENTRY_POINT_GROUP",
     "ProviderDiscoveryFailure",
     "ProviderDiscoveryResult",
+    "ProviderDiscoverySuccess",
     "discover_providers",
 ]
