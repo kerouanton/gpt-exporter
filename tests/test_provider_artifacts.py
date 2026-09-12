@@ -110,6 +110,36 @@ class ProviderArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unsafe path"):
                 inspect_provider_wheel(wheel)
 
+    def test_windows_separator_path_traversal_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            wheel = self._write_wheel(
+                Path(temporary) / "unsafe-windows.whl",
+                extra_members={"..\\escape.py": b"bad\n"},
+            )
+            with self.assertRaisesRegex(ValueError, "Unsafe path"):
+                inspect_provider_wheel(wheel)
+
+    def test_invalid_distribution_name_cannot_escape_provider_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            wheel = self._write_wheel(
+                Path(temporary) / "unsafe-name.whl",
+                distribution="..",
+            )
+            with self.assertRaisesRegex(ValueError, "Invalid provider distribution name"):
+                inspect_provider_wheel(wheel)
+
+    def test_install_rejects_artifact_changed_after_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            wheel = self._write_wheel(base / "synthetic.whl", version="1.0")
+            approved = inspect_provider_wheel(wheel)
+            self._write_wheel(wheel, version="2.0")
+            store = ProviderArtifactStore(base / "providers")
+
+            with self.assertRaisesRegex(ValueError, "changed after confirmation"):
+                store.install(approved)
+            self.assertEqual(store.installed_roots(), ())
+
 
 if __name__ == "__main__":
     unittest.main()
