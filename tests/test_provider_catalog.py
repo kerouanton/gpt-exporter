@@ -36,6 +36,9 @@ class ProviderCatalogTests(unittest.TestCase):
         self.assertEqual(len(catalog.entries), 1)
         entry = catalog.entries[0]
         self.assertTrue(entry.compatible_provider_api)
+        self.assertTrue(entry.supports_msne("2.10.0"))
+        self.assertTrue(entry.supports_msne("2.11.0"))
+        self.assertFalse(entry.supports_msne("2.9.9"))
         self.assertTrue(entry.is_update_for("0.1.0"))
         self.assertFalse(entry.is_update_for("0.2.0"))
 
@@ -49,6 +52,12 @@ class ProviderCatalogTests(unittest.TestCase):
         payload = self._payload()
         payload["providers"][0]["sha256"] = "not-a-digest"
         with self.assertRaisesRegex(ValueError, "invalid SHA-256"):
+            ProviderCatalog.from_json_text(json.dumps(payload))
+
+    def test_rejects_invalid_schema_type(self) -> None:
+        payload = self._payload()
+        payload["schema_version"] = []
+        with self.assertRaisesRegex(ValueError, "Invalid provider catalog schema version"):
             ProviderCatalog.from_json_text(json.dumps(payload))
 
     def test_rejects_duplicate_provider_id(self) -> None:
