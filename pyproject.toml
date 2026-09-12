@@ -15,8 +15,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/kerouanton/gpt-exporter"
-Issues = "https://github.com/kerouanton/gpt-exporter/issues"
+Repository = "https://github.com/kerouanton/Multi_Social_Network_Explorer"
+Issues = "https://github.com/kerouanton/Multi_Social_Network_Explorer/issues"
 
 [tool.gpt-exporter]
 archive-directory = "~/Documents/ChatGPT Archive"
