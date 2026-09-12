@@ -8,6 +8,13 @@ from pathlib import Path
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+CHATGPT_PROVIDER_ROOT = (
+    REPOSITORY_ROOT
+    / "packages"
+    / "export-provider-chatgpt"
+    / "src"
+    / "export_provider_chatgpt"
+)
 
 
 class IndexProviderBoundaryTests(unittest.TestCase):
@@ -16,14 +23,7 @@ class IndexProviderBoundaryTests(unittest.TestCase):
             (REPOSITORY_ROOT / "gpt_exporter" / "index" / "_legacy_indexer.py").exists()
         )
         self.assertTrue(
-            (
-                REPOSITORY_ROOT
-                / "gpt_exporter"
-                / "providers"
-                / "gpt"
-                / "indexing"
-                / "_native_indexer.py"
-            ).is_file()
+            (CHATGPT_PROVIDER_ROOT / "indexing" / "_native_indexer.py").is_file()
         )
 
     def test_canonical_engine_indexes_without_loading_gpt_provider(self) -> None:
