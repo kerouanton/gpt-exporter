@@ -58,6 +58,10 @@ class ProviderCatalogEntry:
     def compatible_provider_api(self) -> bool:
         return self.provider_api_version == PROVIDER_API_VERSION
 
+    def supports_msne(self, version: str) -> bool:
+        """Return whether this release supports the supplied MSNE host version."""
+        return _parse_version(version) >= self.min_msne_version_key
+
     def is_update_for(self, installed_version: str | None) -> bool:
         if not installed_version:
             return False
@@ -80,7 +84,11 @@ class ProviderCatalog:
             raise ValueError("Provider catalog is not valid JSON") from error
         if not isinstance(payload, dict):
             raise ValueError("Provider catalog root must be an object")
-        if int(payload.get("schema_version", 0)) != _CATALOG_SCHEMA_VERSION:
+        try:
+            schema_version = int(payload.get("schema_version", 0))
+        except (TypeError, ValueError) as error:
+            raise ValueError("Invalid provider catalog schema version") from error
+        if schema_version != _CATALOG_SCHEMA_VERSION:
             raise ValueError("Unsupported provider catalog schema version")
         catalog_id = str(payload.get("catalog_id", "")).strip()
         generated_at = str(payload.get("generated_at", "")).strip()
