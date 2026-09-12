@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 import unittest
 import zipfile
@@ -69,7 +70,9 @@ class ProviderArtifactTests(unittest.TestCase):
             destination = store.destination_for(artifact)
 
             self.assertTrue((destination / "synthetic_provider" / "plugin.py").is_file())
-            self.assertEqual(store.installed_roots(), (destination,))
+            installed_roots = store.installed_roots()
+            self.assertEqual(len(installed_roots), 1)
+            self.assertTrue(os.path.samefile(installed_roots[0], destination))
 
     def test_reinstall_replaces_previous_distribution_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
