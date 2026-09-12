@@ -214,7 +214,7 @@ jobs:
               --repo $repo `
               --target $env:GITHUB_SHA `
               --title "$productName v$version" `
-              --notes-file "docs/RELEASE_NOTES_V2.9.md"
+              --notes-file "docs/RELEASE_NOTES_V2.10.md"
           if ($LASTEXITCODE -ne 0) {
               throw "Unable to create GitHub release $tag"
           }
