@@ -18,6 +18,9 @@ from pathlib import Path, PurePosixPath
 from gpt_exporter.core.provider_discovery import PROVIDER_ENTRY_POINT_GROUP
 
 
+_DISTRIBUTION_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderArtifactInfo:
     """Validated metadata for one provider wheel artifact."""
@@ -45,9 +48,19 @@ def default_provider_directory() -> Path:
     return base / "GPT Exporter" / "providers"
 
 
+def _validate_distribution_name(name: str) -> str:
+    if not _DISTRIBUTION_NAME_RE.fullmatch(name):
+        raise ValueError(f"Invalid provider distribution name: {name!r}")
+    return name
+
+
 def _safe_member_path(name: str) -> PurePosixPath:
+    # Wheel member names are POSIX paths. Reject native Windows separators outright so
+    # a crafted member cannot be reinterpreted by Path.joinpath during extraction.
+    if not name or "\\" in name or "\x00" in name:
+        raise ValueError(f"Unsafe path in provider wheel: {name!r}")
     member = PurePosixPath(name)
-    if not name or member.is_absolute() or ".." in member.parts:
+    if member.is_absolute() or ".." in member.parts:
         raise ValueError(f"Unsafe path in provider wheel: {name!r}")
     if member.parts and re.match(r"^[A-Za-z]:$", member.parts[0]):
         raise ValueError(f"Unsafe drive path in provider wheel: {name!r}")
@@ -59,6 +72,14 @@ def _is_symlink(info: zipfile.ZipInfo) -> bool:
     return stat.S_ISLNK(mode)
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def inspect_provider_wheel(path: Path | str) -> ProviderArtifactInfo:
     """Validate a wheel and return the provider metadata needed before installation."""
     wheel_path = Path(path).expanduser().resolve()
@@ -67,10 +88,7 @@ def inspect_provider_wheel(path: Path | str) -> ProviderArtifactInfo:
     if not wheel_path.is_file():
         raise FileNotFoundError(wheel_path)
 
-    digest = hashlib.sha256()
-    with wheel_path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
+    digest = _sha256(wheel_path)
 
     try:
         archive = zipfile.ZipFile(wheel_path)
@@ -104,6 +122,7 @@ def inspect_provider_wheel(path: Path | str) -> ProviderArtifactInfo:
         version = (metadata.get("Version") or "").strip()
         if not distribution_name or not version:
             raise ValueError("Provider wheel METADATA must define Name and Version")
+        _validate_distribution_name(distribution_name)
 
         entry_points_name = str(dist_info_dir / "entry_points.txt")
         try:
@@ -141,7 +160,7 @@ def inspect_provider_wheel(path: Path | str) -> ProviderArtifactInfo:
         path=wheel_path,
         distribution_name=distribution_name,
         version=version,
-        sha256=digest.hexdigest(),
+        sha256=digest,
         entry_points=entry_points,
     )
 
@@ -165,20 +184,62 @@ class ProviderArtifactStore:
         return tuple(result)
 
     def destination_for(self, artifact: ProviderArtifactInfo) -> Path:
-        return self.root / artifact.directory_name
+        _validate_distribution_name(artifact.distribution_name)
+        root = self.root.expanduser().resolve()
+        destination = (root / artifact.directory_name).resolve()
+        if destination.parent != root:
+            raise ValueError(
+                f"Unsafe provider installation destination: {destination}"
+            )
+        return destination
 
-    def install(self, path: Path | str) -> ProviderArtifactInfo:
-        """Install one validated wheel using a staging directory and atomic directory swap."""
-        artifact = inspect_provider_wheel(path)
+    @staticmethod
+    def _same_approved_artifact(
+        approved: ProviderArtifactInfo,
+        current: ProviderArtifactInfo,
+    ) -> bool:
+        return (
+            approved.distribution_name == current.distribution_name
+            and approved.version == current.version
+            and approved.sha256 == current.sha256
+            and approved.entry_points == current.entry_points
+        )
+
+    def install(
+        self,
+        artifact_or_path: ProviderArtifactInfo | Path | str,
+    ) -> ProviderArtifactInfo:
+        """Install one wheel using verified bytes, staging, and an atomic directory swap.
+
+        When the caller supplies ``ProviderArtifactInfo`` (the GUI confirmation path),
+        installation refuses to continue if the source bytes or confirmed metadata have
+        changed since inspection.
+        """
+        approved = (
+            artifact_or_path
+            if isinstance(artifact_or_path, ProviderArtifactInfo)
+            else inspect_provider_wheel(artifact_or_path)
+        )
+
         self.root.mkdir(parents=True, exist_ok=True)
-        destination = self.destination_for(artifact)
+        destination = self.destination_for(approved)
         staging_parent = Path(tempfile.mkdtemp(prefix=".install-", dir=self.root))
         staging = staging_parent / "payload"
         staging.mkdir()
+        snapshot = staging_parent / "approved.whl"
         backup = destination.with_name(destination.name + ".previous")
 
         try:
-            with zipfile.ZipFile(artifact.path) as archive:
+            # Snapshot the selected bytes first. Re-inspect that immutable copy and compare
+            # it with what the user approved before extracting any executable code.
+            shutil.copyfile(approved.path, snapshot)
+            current = inspect_provider_wheel(snapshot)
+            if not self._same_approved_artifact(approved, current):
+                raise ValueError(
+                    "Provider artifact changed after confirmation; installation was cancelled"
+                )
+
+            with zipfile.ZipFile(snapshot) as archive:
                 for info in archive.infolist():
                     member = _safe_member_path(info.filename)
                     if _is_symlink(info):
@@ -186,6 +247,9 @@ class ProviderArtifactStore:
                             f"Provider wheel contains a symbolic link: {info.filename}"
                         )
                     target = staging.joinpath(*member.parts)
+                    resolved_target = target.resolve()
+                    if staging.resolve() not in resolved_target.parents and resolved_target != staging.resolve():
+                        raise ValueError(f"Unsafe path in provider wheel: {info.filename!r}")
                     if info.is_dir():
                         target.mkdir(parents=True, exist_ok=True)
                         continue
@@ -210,7 +274,13 @@ class ProviderArtifactStore:
                 shutil.rmtree(staging_parent, ignore_errors=True)
 
         importlib.invalidate_caches()
-        return artifact
+        return ProviderArtifactInfo(
+            path=approved.path,
+            distribution_name=approved.distribution_name,
+            version=approved.version,
+            sha256=approved.sha256,
+            entry_points=approved.entry_points,
+        )
 
 
 __all__ = [
