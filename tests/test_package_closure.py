@@ -30,14 +30,19 @@ class PackageClosureTests(unittest.TestCase):
 
             script = "\n".join(
                 [
+                    "import importlib.abc",
                     "import importlib.util",
                     "import sys",
+                    "class BlockExtractedProviders(importlib.abc.MetaPathFinder):",
+                    "    def find_spec(self, fullname, path=None, target=None):",
+                    "        if fullname == 'export_provider_chatgpt' or fullname.startswith('export_provider_chatgpt.') or fullname == 'export_provider_discord' or fullname.startswith('export_provider_discord.'):",
+                    "            raise ModuleNotFoundError(fullname)",
+                    "        return None",
+                    "sys.meta_path.insert(0, BlockExtractedProviders())",
                     "assert importlib.util.find_spec('import_browser_bundle') is None",
                     "assert importlib.util.find_spec('export_markdown') is None",
                     "assert importlib.util.find_spec('export_docx') is None",
                     "assert importlib.util.find_spec('index_chatgpt_archive') is None",
-                    "assert importlib.util.find_spec('export_provider_chatgpt') is None",
-                    "assert importlib.util.find_spec('export_provider_discord') is None",
                     "import gpt_exporter.application",
                     "import gpt_exporter.pipeline",
                     "from gpt_exporter.archive import importer",
@@ -52,6 +57,8 @@ class PackageClosureTests(unittest.TestCase):
                     "assert result.registry.provider_ids() == ()",
                     "assert result.failures == ()",
                     "assert not any(name.startswith('gpt_exporter.providers.') for name in sys.modules)",
+                    "assert not any(name.startswith('export_provider_chatgpt') for name in sys.modules)",
+                    "assert not any(name.startswith('export_provider_discord') for name in sys.modules)",
                 ]
             )
 
