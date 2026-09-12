@@ -120,27 +120,27 @@ jobs:
 
               $info = (Get-Item $exe).VersionInfo
               if ($info.ProductName -ne $productName) {
-                  throw "Unexpected ProductName for $exe: '$($info.ProductName)'"
+                  throw "Unexpected ProductName for $($exe): '$($info.ProductName)'"
               }
               if ($info.FileDescription -ne $productName) {
-                  throw "Unexpected FileDescription for $exe: '$($info.FileDescription)'"
+                  throw "Unexpected FileDescription for $($exe): '$($info.FileDescription)'"
               }
               if ($info.InternalName -ne $canonicalBase) {
-                  throw "Unexpected InternalName for $exe: '$($info.InternalName)'"
+                  throw "Unexpected InternalName for $($exe): '$($info.InternalName)'"
               }
               if ($info.OriginalFilename -ne $entry.Original) {
-                  throw "Unexpected OriginalFilename for $exe: '$($info.OriginalFilename)'"
+                  throw "Unexpected OriginalFilename for $($exe): '$($info.OriginalFilename)'"
               }
               if ($info.ProductVersion -ne $expectedVersion) {
-                  throw "Unexpected ProductVersion for $exe: '$($info.ProductVersion)'"
+                  throw "Unexpected ProductVersion for $($exe): '$($info.ProductVersion)'"
               }
               if ($info.FileVersion -ne $expectedVersion) {
-                  throw "Unexpected FileVersion string for $exe: '$($info.FileVersion)'"
+                  throw "Unexpected FileVersion string for $($exe): '$($info.FileVersion)'"
               }
 
               $actualNumeric = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
               if ($actualNumeric -ne $expectedNumeric) {
-                  throw "Unexpected fixed file version for $exe: '$actualNumeric' (expected '$expectedNumeric')"
+                  throw "Unexpected fixed file version for $($exe): '$actualNumeric' (expected '$expectedNumeric')"
               }
           }
 
@@ -204,7 +204,8 @@ jobs:
           $checksum = "$zip.sha256"
 
           Remove-Item $zip, $checksum -Force -ErrorAction SilentlyContinue
-          Compress-Archive -Path (Join-Path ".\dist" $onedirName), ".\LICENSE" -DestinationPath $zip -CompressionLevel Optimal
+          $onedir = Join-Path ".\dist" $onedirName
+          Compress-Archive -Path $onedir, ".\LICENSE" -DestinationPath $zip -CompressionLevel Optimal
 
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $zip" | Set-Content -Path $checksum -Encoding ascii
