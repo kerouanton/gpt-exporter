@@ -20,6 +20,11 @@ class ProviderDiscoveryFailure:
     name: str
     value: str
     error: str
+    provider_id: str = ""
+    display_name: str = ""
+    version: str = ""
+    api_version: int | None = None
+    capabilities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +68,9 @@ def discover_providers(
 
     Broken or incompatible providers are reported as failures instead of preventing
     the application from starting. Duplicate provider IDs are rejected by the
-    provider-neutral registry and reported the same way.
+    provider-neutral registry and reported the same way. If a provider was loaded
+    far enough to expose its descriptor, that metadata is retained on the failure
+    record so diagnostics can report the provider's own identity and API version.
     """
 
     registry = ProviderRegistry()
@@ -76,9 +83,19 @@ def discover_providers(
     for entry in entries:
         name = str(getattr(entry, "name", "") or "<unnamed>")
         value = str(getattr(entry, "value", "") or "<unknown>")
+        provider_id = ""
+        display_name = ""
+        provider_version = ""
+        api_version: int | None = None
+        capabilities: tuple[str, ...] = ()
         try:
             provider = _instantiate_provider(entry.load())
-            api_version = int(getattr(provider.descriptor, "api_version", PROVIDER_API_VERSION))
+            descriptor = provider.descriptor
+            provider_id = str(descriptor.provider_id)
+            display_name = str(descriptor.display_name)
+            provider_version = str(descriptor.version)
+            api_version = int(getattr(descriptor, "api_version", PROVIDER_API_VERSION))
+            capabilities = tuple(descriptor.capabilities)
             if api_version != PROVIDER_API_VERSION:
                 raise ValueError(
                     f"provider API version {api_version} is incompatible with core API version {PROVIDER_API_VERSION}"
@@ -90,6 +107,11 @@ def discover_providers(
                     name=name,
                     value=value,
                     error=f"{type(error).__name__}: {error}",
+                    provider_id=provider_id,
+                    display_name=display_name,
+                    version=provider_version,
+                    api_version=api_version,
+                    capabilities=capabilities,
                 )
             )
 
