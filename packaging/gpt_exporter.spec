@@ -13,8 +13,10 @@ if str(ROOT) not in sys.path:
 
 from gpt_exporter.version import (
     APP_NAME,
-    LEGACY_APP_NAME,
     LICENSE_ID,
+    WINDOWS_CANONICAL_BASENAME,
+    WINDOWS_LEGACY_BASENAME,
+    WINDOWS_ONEDIR_NAME,
     display_version,
     windows_version_tuple,
 )
@@ -30,10 +32,11 @@ PROVIDER_PACKAGES = (
     ("export_provider_discord", "export-provider-discord"),
 )
 CONSOLE_BUILD = os.environ.get("GPT_EXPORTER_CONSOLE", "").strip() == "1"
-VERSION_INFO_PATH = Path(SPECPATH) / ".gpt_exporter-version-info.txt"
+CANONICAL_VERSION_INFO_PATH = Path(SPECPATH) / ".msne-version-info.txt"
+LEGACY_VERSION_INFO_PATH = Path(SPECPATH) / ".gpt_exporter-legacy-version-info.txt"
 
 
-def _write_windows_version_info() -> None:
+def _write_windows_version_info(path: Path, executable_basename: str) -> None:
     numeric_version = windows_version_tuple()
     human_version = display_version()
     version_text = f"""VSVersionInfo(
@@ -54,8 +57,8 @@ def _write_windows_version_info() -> None:
         [
           StringStruct(u'FileDescription', u'{APP_NAME}'),
           StringStruct(u'FileVersion', u'{human_version}'),
-          StringStruct(u'InternalName', u'{APP_NAME}'),
-          StringStruct(u'OriginalFilename', u'{LEGACY_APP_NAME}.exe'),
+          StringStruct(u'InternalName', u'{WINDOWS_CANONICAL_BASENAME}'),
+          StringStruct(u'OriginalFilename', u'{executable_basename}.exe'),
           StringStruct(u'ProductName', u'{APP_NAME}'),
           StringStruct(u'ProductVersion', u'{human_version}'),
           StringStruct(u'Comments', u'Licensed under {LICENSE_ID}')
@@ -66,10 +69,11 @@ def _write_windows_version_info() -> None:
   ]
 )
 """
-    VERSION_INFO_PATH.write_text(version_text, encoding="utf-8")
+    path.write_text(version_text, encoding="utf-8")
 
 
-_write_windows_version_info()
+_write_windows_version_info(CANONICAL_VERSION_INFO_PATH, WINDOWS_CANONICAL_BASENAME)
+_write_windows_version_info(LEGACY_VERSION_INFO_PATH, WINDOWS_LEGACY_BASENAME)
 
 
 datas = [
@@ -98,12 +102,12 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-exe = EXE(
+canonical_exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
-    name=LEGACY_APP_NAME,
+    name=WINDOWS_CANONICAL_BASENAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -114,15 +118,35 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version=str(VERSION_INFO_PATH),
+    version=str(CANONICAL_VERSION_INFO_PATH),
+)
+
+legacy_exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name=WINDOWS_LEGACY_BASENAME,
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=CONSOLE_BUILD,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    version=str(LEGACY_VERSION_INFO_PATH),
 )
 
 coll = COLLECT(
-    exe,
+    canonical_exe,
+    legacy_exe,
     a.binaries,
     a.datas,
     strip=False,
     upx=False,
     upx_exclude=[],
-    name=LEGACY_APP_NAME,
+    name=WINDOWS_ONEDIR_NAME,
 )
