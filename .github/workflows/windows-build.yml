@@ -68,31 +68,31 @@ jobs:
 
               $info = (Get-Item $exe).VersionInfo
               if ($info.ProductName -ne $productName) {
-                  throw "Unexpected ProductName for $exe: '$($info.ProductName)'"
+                  throw "Unexpected ProductName for $($exe): '$($info.ProductName)'"
               }
               if ($info.FileDescription -ne $productName) {
-                  throw "Unexpected FileDescription for $exe: '$($info.FileDescription)'"
+                  throw "Unexpected FileDescription for $($exe): '$($info.FileDescription)'"
               }
               if ($info.InternalName -ne $canonicalBase) {
-                  throw "Unexpected InternalName for $exe: '$($info.InternalName)'"
+                  throw "Unexpected InternalName for $($exe): '$($info.InternalName)'"
               }
               if ($info.OriginalFilename -ne $entry.Original) {
-                  throw "Unexpected OriginalFilename for $exe: '$($info.OriginalFilename)'"
+                  throw "Unexpected OriginalFilename for $($exe): '$($info.OriginalFilename)'"
               }
               if ($info.ProductVersion -ne $expectedVersion) {
-                  throw "Unexpected ProductVersion for $exe: '$($info.ProductVersion)'"
+                  throw "Unexpected ProductVersion for $($exe): '$($info.ProductVersion)'"
               }
               if ($info.FileVersion -ne $expectedVersion) {
-                  throw "Unexpected FileVersion string for $exe: '$($info.FileVersion)'"
+                  throw "Unexpected FileVersion string for $($exe): '$($info.FileVersion)'"
               }
 
               $actualNumeric = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
               if ($actualNumeric -ne $expectedNumeric) {
-                  throw "Unexpected fixed file version for $exe: '$actualNumeric' (expected '$expectedNumeric')"
+                  throw "Unexpected fixed file version for $($exe): '$actualNumeric' (expected '$expectedNumeric')"
               }
           }
 
-          python -c "import pefile; from pathlib import Path; from gpt_exporter.version import WINDOWS_CANONICAL_BASENAME, WINDOWS_LEGACY_BASENAME, WINDOWS_ONEDIR_NAME; root=Path('dist')/WINDOWS_ONEDIR_NAME; paths=[root/f'{WINDOWS_CANONICAL_BASENAME}.exe', root/f'{WINDOWS_LEGACY_BASENAME}.exe']; [(lambda p: (_ for _ in ()).throw(AssertionError(f'Expected Windows GUI subsystem (2) for {p}, got {pefile.PE(str(p), fast_load=True).OPTIONAL_HEADER.Subsystem}')) if pefile.PE(str(p), fast_load=True).OPTIONAL_HEADER.Subsystem != 2 else None)(p) for p in paths]; print('Canonical and legacy windowed PE subsystems OK')"
+          python -c "import pefile; from pathlib import Path; from gpt_exporter.version import WINDOWS_CANONICAL_BASENAME, WINDOWS_LEGACY_BASENAME, WINDOWS_ONEDIR_NAME; root=Path('dist')/WINDOWS_ONEDIR_NAME; paths=[root/f'{WINDOWS_CANONICAL_BASENAME}.exe', root/f'{WINDOWS_LEGACY_BASENAME}.exe']; assert all(pefile.PE(str(p), fast_load=True).OPTIONAL_HEADER.Subsystem == 2 for p in paths), 'Expected Windows GUI subsystem (2) for both executables'; print('Canonical and legacy windowed PE subsystems OK')"
           Write-Host "Windows executable migration OK: $canonicalBase.exe canonical, $legacyBase.exe compatibility, folder '$onedirName'"
 
       - name: Verify packaged resources and provider metadata
