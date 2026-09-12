@@ -1,22 +1,22 @@
-"""Read-only Providers dialog for the first ProviderManager UI stage."""
+"""Providers dialog for ProviderManager lifecycle state."""
 
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
-from gpt_exporter.provider_manager import ProviderManager, ProviderRecord
+from gpt_exporter.provider_manager import ProviderManager, ProviderRecord, ProviderState
 from gpt_exporter.version import APP_NAME
 
 
 class ProviderManagerDialog(tk.Toplevel):
-    """Show discovered, incompatible and broken provider candidates."""
+    """Show discovered providers and allow durable enable/disable changes."""
 
     def __init__(self, parent: tk.Misc) -> None:
         super().__init__(parent)
         self.title(f"{APP_NAME} — Providers")
         self.transient(parent)
-        self.minsize(760, 360)
+        self.minsize(800, 390)
         self.manager: ProviderManager | None = None
         self._records_by_iid: dict[str, ProviderRecord] = {}
 
@@ -31,8 +31,8 @@ class ProviderManagerDialog(tk.Toplevel):
         ttk.Label(
             outer,
             text=(
-                "Read-only inventory. Install, update, enable/disable and remove "
-                "operations will be added in the next ProviderManager stage."
+                "Enable/disable changes are persistent and take effect after restart. "
+                "MSNE can start with zero active providers in recovery mode."
             ),
         ).pack(anchor="w", pady=(2, 8))
 
@@ -62,7 +62,11 @@ class ProviderManagerDialog(tk.Toplevel):
 
         buttons = ttk.Frame(outer)
         buttons.pack(fill="x", pady=(8, 0))
-        ttk.Button(buttons, text="Refresh", command=self.refresh).pack(side="left")
+        self.enable_button = ttk.Button(buttons, text="Enable", command=self._enable_selected)
+        self.enable_button.pack(side="left")
+        self.disable_button = ttk.Button(buttons, text="Disable", command=self._disable_selected)
+        self.disable_button.pack(side="left", padx=(6, 0))
+        ttk.Button(buttons, text="Refresh", command=self.refresh).pack(side="left", padx=(12, 0))
         ttk.Button(buttons, text="Close", command=self.destroy).pack(side="right")
 
         self.refresh()
@@ -95,13 +99,18 @@ class ProviderManagerDialog(tk.Toplevel):
             self._selection_changed()
         else:
             self._set_details("No provider was discovered.")
+            self._update_buttons(None)
 
-    def _selection_changed(self, _event: tk.Event | None = None) -> None:
+    def _selected_record(self) -> ProviderRecord | None:
         selected = self.tree.selection()
         if not selected:
-            return
-        record = self._records_by_iid.get(selected[0])
+            return None
+        return self._records_by_iid.get(selected[0])
+
+    def _selection_changed(self, _event: tk.Event | None = None) -> None:
+        record = self._selected_record()
         if record is None:
+            self._update_buttons(None)
             return
 
         lines = [
@@ -115,6 +124,30 @@ class ProviderManagerDialog(tk.Toplevel):
         if record.error:
             lines.append(f"Error: {record.error}")
         self._set_details("\n".join(lines))
+        self._update_buttons(record)
+
+    def _update_buttons(self, record: ProviderRecord | None) -> None:
+        can_enable = record is not None and record.state == ProviderState.DISABLED
+        can_disable = record is not None and record.state == ProviderState.ENABLED
+        self.enable_button.configure(state="normal" if can_enable else "disabled")
+        self.disable_button.configure(state="normal" if can_disable else "disabled")
+
+    def _set_provider_enabled(self, enabled: bool) -> None:
+        record = self._selected_record()
+        if record is None or self.manager is None:
+            return
+        try:
+            self.manager.set_enabled(record.provider_id, enabled)
+        except (KeyError, OSError, ValueError) as error:
+            messagebox.showerror(APP_NAME, str(error), parent=self)
+            return
+        self.refresh()
+
+    def _enable_selected(self) -> None:
+        self._set_provider_enabled(True)
+
+    def _disable_selected(self) -> None:
+        self._set_provider_enabled(False)
 
     def _set_details(self, text: str) -> None:
         self.details.configure(state="normal")

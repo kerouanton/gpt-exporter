@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from gpt_exporter.core import ProviderRegistry
-from gpt_exporter.provider_loader import discover_available_providers
+from gpt_exporter.provider_manager import ProviderManager
 from gpt_exporter.version import APP_NAME, display_version
 from gpt_exporter.workspaces import ConversationWorkspace, WorkspaceCatalog
 
@@ -16,9 +16,9 @@ ProviderLauncher = Callable[[list[str]], int]
 
 
 def build_provider_registry() -> ProviderRegistry:
-    """Discover installed/in-tree providers without naming concrete implementations."""
+    """Discover installed/in-tree providers and honor durable enable/disable state."""
 
-    return discover_available_providers().registry
+    return ProviderManager.discover().registry
 
 
 def build_default_workspaces(registry: ProviderRegistry) -> tuple[ConversationWorkspace, ...]:
@@ -198,6 +198,52 @@ def _resolve_workspace(
     return workspace
 
 
+def _launch_provider_recovery_shell() -> int:
+    """Keep MSNE usable when every discovered provider is disabled.
+
+    There is no conversation workspace to open in this state, so present a small
+    provider-neutral recovery window. Provider changes are persisted normally and
+    take effect on the next MSNE launch.
+    """
+    import tkinter as tk
+    from tkinter import ttk
+
+    from gpt_exporter.ui.provider_manager_dialog import show_provider_manager
+
+    root = tk.Tk()
+    root.title(APP_NAME)
+    root.minsize(480, 180)
+
+    body = ttk.Frame(root, padding=18)
+    body.pack(fill="both", expand=True)
+    ttk.Label(
+        body,
+        text="No providers are enabled",
+        font=("TkDefaultFont", 12, "bold"),
+    ).pack(anchor="w")
+    ttk.Label(
+        body,
+        text=(
+            "MSNE can run without an active provider, but there is no conversation "
+            "workspace to open. Enable a provider, then restart MSNE."
+        ),
+        wraplength=440,
+        justify="left",
+    ).pack(anchor="w", pady=(8, 16))
+
+    buttons = ttk.Frame(body)
+    buttons.pack(fill="x")
+    ttk.Button(
+        buttons,
+        text="Manage Providers...",
+        command=lambda: show_provider_manager(root),
+    ).pack(side="left")
+    ttk.Button(buttons, text="Close", command=root.destroy).pack(side="right")
+
+    root.mainloop()
+    return 0
+
+
 def _launch_shared_shell(
     *,
     catalog: WorkspaceCatalog,
@@ -248,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         launchers = build_provider_launchers(registry)
         provider_id = arguments.provider
         if provider_id not in launchers:
-            raise ValueError(f"Unknown or unavailable provider: {provider_id}")
+            raise ValueError(f"Unknown, disabled or unavailable provider: {provider_id}")
         workspace = _workspace_for_provider(catalog, provider_id)
         launch_arguments = list(provider_arguments)
         if workspace is not None:
@@ -258,6 +304,9 @@ def main(argv: list[str] | None = None) -> int:
                 *launch_arguments,
             ]
         return int(launchers[provider_id](launch_arguments))
+
+    if not registry.provider_ids():
+        return _launch_provider_recovery_shell()
 
     workspace = _resolve_workspace(catalog, registry, arguments.workspace)
     return _launch_shared_shell(
