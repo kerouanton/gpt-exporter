@@ -8,11 +8,18 @@ from pathlib import Path
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+CHATGPT_PROVIDER_ROOT = (
+    REPOSITORY_ROOT
+    / "packages"
+    / "export-provider-chatgpt"
+    / "src"
+    / "export_provider_chatgpt"
+)
 
 
 class ArchiveProviderBoundaryTests(unittest.TestCase):
     def test_chatgpt_archive_analysis_implementations_live_under_provider(self) -> None:
-        provider = REPOSITORY_ROOT / "gpt_exporter" / "providers" / "gpt" / "archive"
+        provider = CHATGPT_PROVIDER_ROOT / "archive"
         for name in ("audit.py", "inventory.py", "manifest.py"):
             self.assertTrue((provider / name).is_file())
 
