@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import gpt_exporter_gui as gui
+from export_provider_chatgpt.ui import app as gui
 
 
 class IndexSyncWorkflowTests(unittest.TestCase):
