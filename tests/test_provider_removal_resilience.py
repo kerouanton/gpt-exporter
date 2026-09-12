@@ -19,7 +19,7 @@ class ProviderRemovalResilienceTests(unittest.TestCase):
             source_package = REPOSITORY_ROOT / "gpt_exporter"
             target_package = temporary_root / "gpt_exporter"
             shutil.copytree(source_package, target_package)
-            shutil.rmtree(target_package / "providers" / "gpt")
+            shutil.rmtree(target_package / "providers" / "gpt", ignore_errors=True)
 
             script = "\n".join(
                 [
