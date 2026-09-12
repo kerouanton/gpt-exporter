@@ -50,7 +50,8 @@ class ProviderManager:
 
     Artifact installation/removal remains a later Stage C step. Disabling a provider
     removes it from the active registry on the next application discovery while
-    preserving the installed provider package and its archive data.
+    preserving the installed provider package and its archive data. Zero active
+    providers is a valid recoverable state handled by the application shell.
     """
 
     def __init__(
@@ -97,8 +98,9 @@ class ProviderManager:
     def set_enabled(self, provider_id: str, enabled: bool) -> None:
         """Persist provider activation preference.
 
-        Prevent disabling the final healthy enabled provider because that would make
-        the normal GUI unable to open the Providers dialog on the next launch.
+        All healthy providers may be disabled. The shared application treats the
+        resulting empty active registry as a recovery/management state rather than
+        as a fatal startup error.
         """
         provider_id = provider_id.strip()
         record = next(
@@ -109,12 +111,6 @@ class ProviderManager:
             raise KeyError(f"unknown provider: {provider_id}")
         if record.state in {ProviderState.BROKEN, ProviderState.INCOMPATIBLE}:
             raise ValueError(f"Provider '{provider_id}' cannot be enabled or disabled in its current state")
-        if not enabled and record.state == ProviderState.ENABLED:
-            enabled_count = sum(
-                item.state == ProviderState.ENABLED for item in self._records
-            )
-            if enabled_count <= 1:
-                raise ValueError("At least one healthy provider must remain enabled")
         self.settings.set_enabled(provider_id, enabled)
 
     @staticmethod
