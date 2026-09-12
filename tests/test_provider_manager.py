@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from gpt_exporter.core import ProviderDescriptor, ProviderRegistry
 from gpt_exporter.core.provider_discovery import (
@@ -8,6 +10,7 @@ from gpt_exporter.core.provider_discovery import (
     ProviderDiscoveryResult,
 )
 from gpt_exporter.provider_manager import ProviderManager, ProviderState
+from gpt_exporter.provider_settings import ProviderSettings
 
 
 class _Provider:
@@ -26,6 +29,13 @@ class _Provider:
 
 
 class ProviderManagerTests(unittest.TestCase):
+    def _manager(
+        self,
+        discovery: ProviderDiscoveryResult,
+        settings_path: Path,
+    ) -> ProviderManager:
+        return ProviderManager(discovery, settings=ProviderSettings(settings_path))
+
     def test_discovered_provider_is_exposed_as_enabled(self) -> None:
         registry = ProviderRegistry(
             [
@@ -40,9 +50,14 @@ class ProviderManagerTests(unittest.TestCase):
                 )
             ]
         )
-        manager = ProviderManager(ProviderDiscoveryResult(registry=registry))
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = self._manager(
+                ProviderDiscoveryResult(registry=registry),
+                Path(temporary) / "providers.json",
+            )
 
-        self.assertIs(manager.registry, registry)
+        self.assertIs(manager.discovered_registry, registry)
+        self.assertEqual(manager.registry.provider_ids(), ("synthetic",))
         self.assertEqual(len(manager.records()), 1)
         record = manager.records()[0]
         self.assertEqual(record.provider_id, "synthetic")
@@ -53,6 +68,51 @@ class ProviderManagerTests(unittest.TestCase):
         self.assertTrue(record.installed)
         self.assertTrue(record.discovered)
         self.assertEqual(record.capabilities, ("archive", "workspace-actions"))
+
+    def test_disable_is_durable_and_filters_active_registry(self) -> None:
+        discovery = ProviderDiscoveryResult(
+            registry=ProviderRegistry(
+                [
+                    _Provider(ProviderDescriptor("alpha", "Alpha", "1")),
+                    _Provider(ProviderDescriptor("beta", "Beta", "1")),
+                ]
+            )
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            settings_path = Path(temporary) / "providers.json"
+            manager = self._manager(discovery, settings_path)
+            manager.set_enabled("beta", False)
+            reloaded = self._manager(discovery, settings_path)
+
+            records = {record.provider_id: record for record in reloaded.records()}
+            self.assertEqual(records["beta"].state, ProviderState.DISABLED)
+            self.assertEqual(records["alpha"].state, ProviderState.ENABLED)
+            self.assertEqual(reloaded.registry.provider_ids(), ("alpha",))
+            self.assertEqual(
+                ProviderSettings(settings_path).disabled_ids(),
+                frozenset({"beta"}),
+            )
+
+            reloaded.set_enabled("beta", True)
+            enabled_again = self._manager(discovery, settings_path)
+            self.assertEqual(
+                enabled_again.registry.provider_ids(),
+                ("alpha", "beta"),
+            )
+
+    def test_last_healthy_provider_cannot_be_disabled(self) -> None:
+        discovery = ProviderDiscoveryResult(
+            registry=ProviderRegistry(
+                [_Provider(ProviderDescriptor("only", "Only", "1"))]
+            )
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = self._manager(
+                discovery,
+                Path(temporary) / "providers.json",
+            )
+            with self.assertRaisesRegex(ValueError, "At least one healthy provider"):
+                manager.set_enabled("only", False)
 
     def test_incompatible_failure_retains_provider_descriptor_metadata(self) -> None:
         failures = (
@@ -72,9 +132,11 @@ class ProviderManagerTests(unittest.TestCase):
                 error="ImportError: synthetic failure",
             ),
         )
-        manager = ProviderManager(
-            ProviderDiscoveryResult(registry=ProviderRegistry(), failures=failures)
-        )
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = self._manager(
+                ProviderDiscoveryResult(registry=ProviderRegistry(), failures=failures),
+                Path(temporary) / "providers.json",
+            )
         records = {record.provider_id: record for record in manager.records()}
 
         future = records["future-provider"]
@@ -98,7 +160,11 @@ class ProviderManagerTests(unittest.TestCase):
                 _Provider(ProviderDescriptor("alpha", "Alpha", "1")),
             ]
         )
-        manager = ProviderManager(ProviderDiscoveryResult(registry=registry))
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = self._manager(
+                ProviderDiscoveryResult(registry=registry),
+                Path(temporary) / "providers.json",
+            )
         self.assertEqual(
             tuple(record.provider_id for record in manager.records()),
             ("alpha", "zeta"),
