@@ -66,29 +66,29 @@ For a source checkout that needs both current providers:
 py -m pip install --no-deps -e packages/export-provider-chatgpt -e packages/export-provider-discord
 ```
 
-Optional environment check:
+For the ChatGPT provider's environment diagnostics:
 
 ```text
-py check_environment.py
+py -m export_provider_chatgpt.cli.check_environment
 ```
 
 A self-contained Windows `onedir` build is supported by the release/build automation.
 
 ## Starting the application
 
-From source, the historical launcher remains supported during the rename migration:
+From source, use the canonical MSNE launcher:
 
 ```text
-py gpt_exporter_gui.py
+py msne.py
 ```
 
 The shared application opens the active named conversation workspace and discovers installed providers dynamically.
 
-Historical explicit provider launch paths remain available as compatibility paths:
+Explicit provider selection remains available through the shared launcher:
 
 ```text
-py gpt_exporter_gui.py --provider gpt
-py gpt_exporter_gui.py --provider discord
+py msne.py --provider gpt
+py msne.py --provider discord
 ```
 
 ## Shared archive workflow
