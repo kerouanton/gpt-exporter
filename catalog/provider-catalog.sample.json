@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "catalog_id": "msne-development-sample",
+  "generated_at": "2026-09-12T20:00:00Z",
+  "providers": [
+    {
+      "provider_id": "gpt",
+      "display_name": "ChatGPT",
+      "distribution_name": "export-provider-chatgpt",
+      "version": "0.2.0",
+      "provider_api_version": 1,
+      "min_msne_version": "2.10.0",
+      "artifact_url": "https://example.invalid/export_provider_chatgpt-0.2.0-py3-none-any.whl",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "capabilities": ["archive", "collect", "browse", "remote-delete"],
+      "description": "Development catalog entry for the ChatGPT provider."
+    },
+    {
+      "provider_id": "discord",
+      "display_name": "Discord",
+      "distribution_name": "export-provider-discord",
+      "version": "0.1.0",
+      "provider_api_version": 1,
+      "min_msne_version": "2.10.0",
+      "artifact_url": "https://example.invalid/export_provider_discord-0.1.0-py3-none-any.whl",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "capabilities": ["archive", "collect", "browse"],
+      "description": "Development catalog entry for the Discord provider."
+    }
+  ]
+}
