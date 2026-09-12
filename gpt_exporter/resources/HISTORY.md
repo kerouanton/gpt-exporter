@@ -1,5 +1,23 @@
 # GPT Exporter Release History
 
+## v2.10 — MSNE provider-package milestone — 2026-09-12
+
+v2.10 freezes the completed transition to the visible **Multi Social Network Explorer (MSNE)** identity and the independently packaged ChatGPT/Discord provider architecture.
+
+Highlights:
+
+- Renamed the visible product identity to **Multi Social Network Explorer (MSNE)** while preserving compatibility-sensitive technical names.
+- Extracted ChatGPT and Discord into separate `export-provider-chatgpt` and `export-provider-discord` Python distributions.
+- Switched provider registration to dynamic entry-point discovery through `gpt_exporter.provider_plugins`.
+- Removed the historical in-host provider trees and the final `gpt_exporter.providers` compatibility namespace.
+- Retargeted provider internals, compatibility launchers, resources, and tests directly to the extracted packages.
+- Bundled both provider distributions, resources, and entry-point metadata in the Windows onedir build.
+- Kept the historical `GPT Exporter.exe` basename for Windows compatibility while exposing MSNE as the visible product name.
+- Validated the final provider split in CI on Python 3.12/3.13, in the Windows onedir build, and with a real local Windows smoke test covering both ChatGPT and Discord.
+- Deferred the known very-large-ChatGPT-conversation collector timeout to tracked issue #91 so provider packaging can be frozen independently.
+
+The next milestone is provider lifecycle management: install, update, enable/disable, remove, compatibility checks, and a user-facing **Providers...** interface.
+
 ## v2.9 — Windows executable distribution — 2026-08-24
 
 GPT Exporter v2.9 turns the proven v2.8 Python application into a package-oriented Windows application that can be distributed as a self-contained executable without requiring the user to install Python.

@@ -22,8 +22,8 @@ class HelpUiTests(unittest.TestCase):
     def test_version_metadata_is_consistent(self) -> None:
         metadata = tomllib.loads((REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(metadata["project"]["version"], __version__)
-        self.assertEqual(display_version(), "2.9.0")
-        self.assertEqual(windows_version_tuple(), (2, 9, 0, 0))
+        self.assertEqual(display_version(), "2.10.0")
+        self.assertEqual(windows_version_tuple(), (2, 10, 0, 0))
 
     def test_packaged_help_and_history_are_readable(self) -> None:
         guide = read_user_guide()
