@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import index_chatgpt_archive as indexer
+from export_provider_chatgpt import indexing as indexer
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "characterization"
@@ -83,9 +83,6 @@ class V28IndexMetadataCharacterizationTests(unittest.TestCase):
             finally:
                 connection.close()
 
-            # Replace the source with a larger version of the same conversation and
-            # force a deterministic later mtime so the normal incremental path sees
-            # the source as changed on every supported test filesystem.
             write_xz_conversation(source, "conversation_extended.json")
             current_stat = source.stat()
             os.utime(
@@ -145,9 +142,6 @@ class V28IndexMetadataCharacterizationTests(unittest.TestCase):
             self.assertIsNotNone(conversation)
             self.assertEqual(conversation["title"], "Characterization Fixture")
 
-            # Current v2.8 index helpers use sqlite3.Connection as a context manager,
-            # which commits/rolls back but does not itself close the handle. Collect
-            # unreachable connections before TemporaryDirectory cleanup on Windows.
             gc.collect()
 
 
