@@ -8,6 +8,13 @@ from pathlib import Path
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+CHATGPT_PROVIDER_ROOT = (
+    REPOSITORY_ROOT
+    / "packages"
+    / "export-provider-chatgpt"
+    / "src"
+    / "export_provider_chatgpt"
+)
 
 
 class ExportProviderBoundaryTests(unittest.TestCase):
@@ -16,14 +23,7 @@ class ExportProviderBoundaryTests(unittest.TestCase):
             (REPOSITORY_ROOT / "gpt_exporter" / "export" / "_legacy_markdown.py").exists()
         )
         self.assertTrue(
-            (
-                REPOSITORY_ROOT
-                / "gpt_exporter"
-                / "providers"
-                / "gpt"
-                / "export"
-                / "_native_markdown.py"
-            ).is_file()
+            (CHATGPT_PROVIDER_ROOT / "export" / "_native_markdown.py").is_file()
         )
 
     def test_canonical_markdown_export_does_not_load_gpt_provider(self) -> None:

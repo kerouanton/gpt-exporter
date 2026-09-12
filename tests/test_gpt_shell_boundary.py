@@ -5,11 +5,18 @@ from pathlib import Path
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+CHATGPT_PROVIDER_ROOT = (
+    REPOSITORY_ROOT
+    / "packages"
+    / "export-provider-chatgpt"
+    / "src"
+    / "export_provider_chatgpt"
+)
 
 
 class GPTShellBoundaryTests(unittest.TestCase):
     def test_concrete_gpt_gui_lives_under_provider(self) -> None:
-        provider_app = REPOSITORY_ROOT / "gpt_exporter" / "providers" / "gpt" / "ui" / "app.py"
+        provider_app = CHATGPT_PROVIDER_ROOT / "ui" / "app.py"
         root_launcher = REPOSITORY_ROOT / "gpt_exporter_gui.py"
         self.assertTrue(provider_app.is_file())
         provider_text = provider_app.read_text(encoding="utf-8")
@@ -49,7 +56,7 @@ class GPTShellBoundaryTests(unittest.TestCase):
                 self.assertNotIn(marker, text, f"{name} still contains GPT implementation marker {marker!r}")
 
     def test_provider_cli_owns_active_gpt_commands(self) -> None:
-        cli = REPOSITORY_ROOT / "gpt_exporter" / "providers" / "gpt" / "cli"
+        cli = CHATGPT_PROVIDER_ROOT / "cli"
         expected = (
             "archive_chats.py",
             "export_all.py",
@@ -64,7 +71,7 @@ class GPTShellBoundaryTests(unittest.TestCase):
 
     def test_historical_browser_implementation_is_shared(self) -> None:
         shared = REPOSITORY_ROOT / "gpt_exporter" / "ui" / "browser"
-        provider = REPOSITORY_ROOT / "gpt_exporter" / "providers" / "gpt" / "ui" / "browser"
+        provider = CHATGPT_PROVIDER_ROOT / "ui" / "browser"
         shared_browser = shared / "archive_browser.py"
         shared_core = shared / "archive_core.py"
         provider_browser = provider / "archive_browser.py"

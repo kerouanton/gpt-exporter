@@ -100,9 +100,10 @@ class MissingDocxLocalRepairTests(unittest.TestCase):
     def test_gui_exposes_local_repair_command(self) -> None:
         source = (
             Path(__file__).resolve().parents[1]
-            / "gpt_exporter"
-            / "providers"
-            / "gpt"
+            / "packages"
+            / "export-provider-chatgpt"
+            / "src"
+            / "export_provider_chatgpt"
             / "ui"
             / "app.py"
         ).read_text(encoding="utf-8")

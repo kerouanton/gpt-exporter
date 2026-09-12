@@ -7,11 +7,18 @@ from pathlib import Path
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+CHATGPT_PROVIDER_ROOT = (
+    REPOSITORY_ROOT
+    / "packages"
+    / "export-provider-chatgpt"
+    / "src"
+    / "export_provider_chatgpt"
+)
 
 
 class GPTProviderBoundaryTests(unittest.TestCase):
     def test_provider_owns_chatgpt_archive_implementations(self) -> None:
-        provider = REPOSITORY_ROOT / "gpt_exporter" / "providers" / "gpt"
+        provider = CHATGPT_PROVIDER_ROOT
         expected = (
             provider / "pipeline.py",
             provider / "importer" / "_bundle_importer.py",
@@ -64,12 +71,7 @@ class GPTProviderBoundaryTests(unittest.TestCase):
         self.assertEqual(archive_workflow._implementation.ROOT, REPOSITORY_ROOT)
         self.assertEqual(
             archive_workflow.COLLECTOR_PATH,
-            REPOSITORY_ROOT
-            / "gpt_exporter"
-            / "providers"
-            / "gpt"
-            / "resources"
-            / "collect_chatgpt_archive.js",
+            CHATGPT_PROVIDER_ROOT / "resources" / "collect_chatgpt_archive.js",
         )
 
 

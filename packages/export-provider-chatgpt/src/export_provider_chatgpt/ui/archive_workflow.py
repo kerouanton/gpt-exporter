@@ -35,7 +35,7 @@ def _application_root() -> Path:
     """Return the same application/repository root used before relocation."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[4]
+    return Path(__file__).resolve().parents[5]
 
 
 ROOT = _application_root()
