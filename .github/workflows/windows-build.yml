@@ -41,48 +41,65 @@ jobs:
       - name: Build Windows onedir application
         run: python -m PyInstaller --noconfirm --clean packaging/gpt_exporter.spec
 
-      - name: Verify windowed executable metadata
+      - name: Verify canonical and legacy windowed executables
         shell: pwsh
         run: |
-          $exe = ".\dist\GPT Exporter\GPT Exporter.exe"
-          if (-not (Test-Path $exe -PathType Leaf)) {
-              throw "Executable was not produced: $exe"
-          }
-
-          $expectedName = python -c "from gpt_exporter.version import APP_NAME; print(APP_NAME)"
-          $expectedLegacyName = python -c "from gpt_exporter.version import LEGACY_APP_NAME; print(LEGACY_APP_NAME)"
+          $productName = python -c "from gpt_exporter.version import APP_NAME; print(APP_NAME)"
+          $canonicalBase = python -c "from gpt_exporter.version import WINDOWS_CANONICAL_BASENAME; print(WINDOWS_CANONICAL_BASENAME)"
+          $legacyBase = python -c "from gpt_exporter.version import WINDOWS_LEGACY_BASENAME; print(WINDOWS_LEGACY_BASENAME)"
+          $onedirName = python -c "from gpt_exporter.version import WINDOWS_ONEDIR_NAME; print(WINDOWS_ONEDIR_NAME)"
           $expectedVersion = python -c "from gpt_exporter.version import display_version; print(display_version())"
           $expectedNumeric = python -c "from gpt_exporter.version import windows_version_tuple; print('.'.join(map(str, windows_version_tuple())))"
-          $info = (Get-Item $exe).VersionInfo
 
-          if ($info.ProductName -ne $expectedName) {
-              throw "Unexpected ProductName: '$($info.ProductName)'"
-          }
-          if ($info.FileDescription -ne $expectedName) {
-              throw "Unexpected FileDescription: '$($info.FileDescription)'"
-          }
-          if ($info.ProductVersion -ne $expectedVersion) {
-              throw "Unexpected ProductVersion: '$($info.ProductVersion)'"
-          }
-          if ($info.FileVersion -ne $expectedVersion) {
-              throw "Unexpected FileVersion string: '$($info.FileVersion)'"
-          }
-          if ($info.OriginalFilename -ne "$expectedLegacyName.exe") {
-              throw "Unexpected OriginalFilename: '$($info.OriginalFilename)'"
+          $onedir = Join-Path ".\dist" $onedirName
+          $executables = @(
+              @{ Path = (Join-Path $onedir "$canonicalBase.exe"); Original = "$canonicalBase.exe"; Kind = "canonical" },
+              @{ Path = (Join-Path $onedir "$legacyBase.exe"); Original = "$legacyBase.exe"; Kind = "legacy compatibility" }
+          )
+
+          foreach ($entry in $executables) {
+              $exe = $entry.Path
+              if (-not (Test-Path $exe -PathType Leaf)) {
+                  throw "$($entry.Kind) executable was not produced: $exe"
+              }
+              if ((Get-Item $exe).Length -le 0) {
+                  throw "$($entry.Kind) executable is empty: $exe"
+              }
+
+              $info = (Get-Item $exe).VersionInfo
+              if ($info.ProductName -ne $productName) {
+                  throw "Unexpected ProductName for $($exe): '$($info.ProductName)'"
+              }
+              if ($info.FileDescription -ne $productName) {
+                  throw "Unexpected FileDescription for $($exe): '$($info.FileDescription)'"
+              }
+              if ($info.InternalName -ne $canonicalBase) {
+                  throw "Unexpected InternalName for $($exe): '$($info.InternalName)'"
+              }
+              if ($info.OriginalFilename -ne $entry.Original) {
+                  throw "Unexpected OriginalFilename for $($exe): '$($info.OriginalFilename)'"
+              }
+              if ($info.ProductVersion -ne $expectedVersion) {
+                  throw "Unexpected ProductVersion for $($exe): '$($info.ProductVersion)'"
+              }
+              if ($info.FileVersion -ne $expectedVersion) {
+                  throw "Unexpected FileVersion string for $($exe): '$($info.FileVersion)'"
+              }
+
+              $actualNumeric = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
+              if ($actualNumeric -ne $expectedNumeric) {
+                  throw "Unexpected fixed file version for $($exe): '$actualNumeric' (expected '$expectedNumeric')"
+              }
           }
 
-          $actualNumeric = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
-          if ($actualNumeric -ne $expectedNumeric) {
-              throw "Unexpected fixed file version: '$actualNumeric' (expected '$expectedNumeric')"
-          }
-
-          python -c "import pefile; p=pefile.PE(r'dist\GPT Exporter\GPT Exporter.exe', fast_load=True); assert p.OPTIONAL_HEADER.Subsystem == 2, f'Expected Windows GUI subsystem (2), got {p.OPTIONAL_HEADER.Subsystem}'; print('Windowed PE subsystem OK')"
-          Write-Host "Windows version metadata OK: $expectedName $expectedVersion (legacy executable basename: $expectedLegacyName)"
+          python -c "import pefile; from pathlib import Path; from gpt_exporter.version import WINDOWS_CANONICAL_BASENAME, WINDOWS_LEGACY_BASENAME, WINDOWS_ONEDIR_NAME; root=Path('dist')/WINDOWS_ONEDIR_NAME; paths=[root/f'{WINDOWS_CANONICAL_BASENAME}.exe', root/f'{WINDOWS_LEGACY_BASENAME}.exe']; assert all(pefile.PE(str(p), fast_load=True).OPTIONAL_HEADER.Subsystem == 2 for p in paths), 'Expected Windows GUI subsystem (2) for both executables'; print('Canonical and legacy windowed PE subsystems OK')"
+          Write-Host "Windows executable migration OK: $canonicalBase.exe canonical, $legacyBase.exe compatibility, folder '$onedirName'"
 
       - name: Verify packaged resources and provider metadata
         shell: pwsh
         run: |
-          $internalRoot = ".\dist\GPT Exporter\_internal"
+          $onedirName = python -c "from gpt_exporter.version import WINDOWS_ONEDIR_NAME; print(WINDOWS_ONEDIR_NAME)"
+          $internalRoot = Join-Path (Join-Path ".\dist" $onedirName) "_internal"
           $genericResourceRoot = Join-Path $internalRoot "gpt_exporter\resources"
           foreach ($name in @("HELP.md", "HISTORY.md")) {
               $path = Join-Path $genericResourceRoot $name
@@ -125,7 +142,7 @@ jobs:
       - name: Upload Windows onedir artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GPT-Exporter-Windows-onedir
+          name: MSNE-Windows-onedir
           path: dist/GPT Exporter/
           if-no-files-found: error
           retention-days: 14

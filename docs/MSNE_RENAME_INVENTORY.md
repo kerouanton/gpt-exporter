@@ -1,39 +1,42 @@
 # MSNE rename inventory
 
-This document is the phase-1 inventory for issue #86: the controlled rename from **GPT Exporter** to **Multi Social Network Explorer (MSNE)**.
+This document tracks issue #86: the controlled rename from **GPT Exporter** to **Multi Social Network Explorer (MSNE)**.
 
 The rename is intentionally split by compatibility surface. A product rename must not implicitly rename the Python import namespace, provider SDK, distribution metadata, repository, persistent data paths, Windows executable, or provider entry-point group.
 
 ## Identity surfaces
 
-| Surface | Current value | Phase-1 decision |
+| Surface | Current value | Migration state |
 | --- | --- | --- |
-| Visible product name | `GPT Exporter` | Keep unchanged in the identity-foundation PR; later switch to `Multi Social Network Explorer`. |
-| Short product name | none | Introduce canonical short name `MSNE`. |
-| Python distribution | `gpt-exporter` | Treat as legacy compatibility identity until a deliberate distribution migration is designed. |
-| Python import package | `gpt_exporter` | Keep stable during the visible rename. Existing providers import `gpt_exporter.provider_sdk`. |
-| Provider entry-point group | `gpt_exporter.provider_plugins` | Keep stable during the visible rename; this is an external provider contract. |
+| Visible product name | `Multi Social Network Explorer` | Migrated in phase 2. |
+| Short product name | `MSNE` | Canonical short name. |
+| Python distribution | `gpt-exporter` | Legacy compatibility identity; unchanged pending an explicit distribution decision. |
+| Python import package | `gpt_exporter` | Stable compatibility surface. Existing providers import `gpt_exporter.provider_sdk`. |
+| Provider entry-point group | `gpt_exporter.provider_plugins` | Stable external provider contract. |
 | GitHub repository | `kerouanton/gpt-exporter` | Rename last, after code/release/documentation compatibility is complete. |
-| Windows onedir directory/executable | `GPT Exporter/GPT Exporter.exe` | Migrate in a dedicated packaging PR with explicit legacy-launcher policy. |
-| Windows CI artifact | `GPT-Exporter-Windows-onedir` | Migrate with packaging, not with the first visible-name change. |
+| Canonical Windows executable | `MSNE.exe` | Phase 3 canonical executable. |
+| Legacy Windows executable | `GPT Exporter.exe` | Retained in the same onedir as a compatibility launcher during migration. |
+| Windows onedir directory | `GPT Exporter` | Deliberately retained for this phase to preserve existing filesystem paths/shortcuts. |
+| Windows CI artifact | `MSNE-Windows-onedir` | Migrated in phase 3. |
+| Future Windows release ZIP | `MSNE-<version>-Windows-x64.zip` | Migrated in phase 3. |
 | Default ChatGPT archive directory | `~/Documents/ChatGPT Archive` | Provider data identity, not host product identity; do not rename as part of MSNE. |
 
-## Current central identity source
+## Central identity source
 
-`gpt_exporter/version.py` already owns the visible application name, version, license and repository URL. Phase 1 extends it with explicit legacy/current/target identity constants without changing behavior.
-
-The important distinction is:
+`gpt_exporter/version.py` owns the product and migration identities. The important distinction is now:
 
 ```text
-legacy product name        GPT Exporter
-future visible product     Multi Social Network Explorer
-short product name         MSNE
-legacy distribution        gpt-exporter
-legacy import namespace    gpt_exporter
-legacy repository name     gpt-exporter
+visible product             Multi Social Network Explorer
+short product name          MSNE
+canonical Windows basename  MSNE
+legacy Windows basename     GPT Exporter
+current onedir folder       GPT Exporter
+legacy distribution         gpt-exporter
+legacy import namespace     gpt_exporter
+legacy repository name      gpt-exporter
 ```
 
-The legacy technical names remain valid compatibility surfaces even after `APP_NAME` changes in a later PR.
+The legacy technical names remain valid compatibility surfaces even though the visible product identity is now MSNE.
 
 ## Provider compatibility
 
@@ -45,35 +48,56 @@ gpt_exporter.provider_plugins
 gpt-exporter>=2.9.0
 ```
 
-Those names must not be changed as a side effect of the visible product rename. Any future SDK/distribution rename requires its own versioned compatibility plan.
+Those names are not changed by the visible product or Windows executable rename. Any future SDK/distribution rename requires its own versioned compatibility plan.
 
 ## Windows packaging compatibility
 
-The current Windows build derives version-resource `ProductName`, `FileDescription`, and `OriginalFilename` from `APP_NAME`, while workflow paths still explicitly reference `GPT Exporter` and the artifact name `GPT-Exporter-Windows-onedir`.
+Phase 2 moved PE product metadata to `Multi Social Network Explorer` while retaining the historical physical executable name.
 
-Therefore changing `APP_NAME` alone would create a mixed package: new PE metadata with old filesystem/artifact names. The visible rename and Windows executable migration must be coordinated deliberately in a later phase.
+Phase 3 introduces **two executables in one onedir**:
+
+```text
+GPT Exporter\MSNE.exe
+GPT Exporter\GPT Exporter.exe
+```
+
+`MSNE.exe` is canonical. `GPT Exporter.exe` remains a compatibility launcher that runs the same application code and carries the same MSNE product metadata, but its PE `OriginalFilename` remains `GPT Exporter.exe`.
+
+The outer `GPT Exporter` directory deliberately remains unchanged in this phase. This avoids breaking existing extracted-directory paths, shortcuts, scripts or upgrade overlays merely to establish the new executable identity. Folder migration can be evaluated separately once the canonical executable has shipped successfully.
+
+The CI artifact name becomes `MSNE-Windows-onedir`. Future new-version release archives use `MSNE-<version>-Windows-x64.zip`, even though the archive still contains the compatibility-preserving `GPT Exporter` outer directory for now.
+
+## Release safety
+
+A change to `gpt_exporter/version.py` triggers the Windows release workflow. The workflow first checks whether the final release tag already exists:
+
+- HTTP 200: the release exists, so the workflow succeeds as a no-op;
+- HTTP 404: a new final release may proceed;
+- any other response: fail immediately rather than treating an API/auth/network error as a missing release.
+
+This allows identity metadata to evolve without attempting to republish an existing final version such as `v2.9.0`.
 
 ## Persistent data policy
 
-Provider-owned archive locations such as `ChatGPT Archive` describe the source/archive domain rather than the host application and should not be renamed automatically.
+Provider-owned archive locations such as `ChatGPT Archive` and `Discord Archive` describe the source/archive domain rather than the host application and are not renamed automatically.
 
 Before changing any host-owned persistent path, locate and classify workspace catalogs, settings, caches, databases and release/install state. Existing installations must remain discoverable without manual moves.
 
 ## Phase sequence
 
-1. Identity foundation: explicit constants and this inventory; no visible behavior change.
-2. Visible UI/help/documentation product rename to Multi Social Network Explorer / MSNE.
-3. Windows executable, directory and artifact migration with compatibility tests.
+1. **Completed:** identity foundation and explicit compatibility constants.
+2. **Completed:** visible UI/help/documentation product rename to Multi Social Network Explorer / MSNE.
+3. **Current:** canonical `MSNE.exe`, legacy `GPT Exporter.exe`, MSNE artifact/release archive naming, historical onedir folder retained.
 4. Deliberate decision on distribution/import namespace migration; preserve `gpt_exporter.provider_sdk` compatibility.
 5. Persistent host-data migration only where a host-owned old-name path actually exists.
 6. GitHub repository rename last.
 
-## Non-goals of phase 1
+## Deliberately unchanged in phase 3
 
-- no Python package rename;
-- no distribution rename;
-- no repository rename;
-- no provider entry-point group rename;
-- no archive/workspace relocation;
-- no Windows executable rename;
-- no visible product-name change yet.
+- Python package namespace `gpt_exporter`;
+- distribution name `gpt-exporter`;
+- provider entry-point group `gpt_exporter.provider_plugins`;
+- provider SDK import path `gpt_exporter.provider_sdk`;
+- GitHub repository name;
+- provider archive/workspace directories;
+- outer Windows onedir directory `GPT Exporter`.

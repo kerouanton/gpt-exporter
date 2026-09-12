@@ -10,6 +10,9 @@ from gpt_exporter.version import (
     LEGACY_PYTHON_PACKAGE,
     LEGACY_REPOSITORY_NAME,
     TARGET_APP_NAME,
+    WINDOWS_CANONICAL_BASENAME,
+    WINDOWS_LEGACY_BASENAME,
+    WINDOWS_ONEDIR_NAME,
 )
 
 
@@ -28,6 +31,12 @@ class IdentityMetadataTests(unittest.TestCase):
         self.assertEqual(LEGACY_DISTRIBUTION_NAME, "gpt-exporter")
         self.assertEqual(LEGACY_PYTHON_PACKAGE, "gpt_exporter")
         self.assertEqual(LEGACY_REPOSITORY_NAME, "gpt-exporter")
+
+    def test_windows_executable_migration_is_staged(self) -> None:
+        self.assertEqual(WINDOWS_CANONICAL_BASENAME, "MSNE")
+        self.assertEqual(WINDOWS_LEGACY_BASENAME, "GPT Exporter")
+        self.assertEqual(WINDOWS_ONEDIR_NAME, "GPT Exporter")
+        self.assertNotEqual(WINDOWS_CANONICAL_BASENAME, WINDOWS_LEGACY_BASENAME)
 
 
 if __name__ == "__main__":
