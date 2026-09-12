@@ -15,12 +15,12 @@ import tkinter as tk
 from tkinter import ttk
 
 import gpt_exporter.resources as _generic_resources
-from gpt_exporter.providers.gpt.export.repair import (
+from export_provider_chatgpt.export.repair import (
     find_missing_docx_sources,
     regenerate_missing_docx as _provider_regenerate_missing_docx,
 )
-from gpt_exporter.providers.gpt.pipeline import archive_bundle as _provider_archive_bundle
-from gpt_exporter.providers.gpt.resources import collector_path as _provider_collector_path
+from export_provider_chatgpt.pipeline import archive_bundle as _provider_archive_bundle
+from export_provider_chatgpt.resources import collector_path as _provider_collector_path
 
 # The historical implementation still imports ``collector_path`` from the old
 # generic resources namespace. Bind that name from inside the provider before

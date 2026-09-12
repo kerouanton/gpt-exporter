@@ -269,7 +269,7 @@ class CollectorExport:
 
 
 def collector_javascript() -> str:
-    resource = files("gpt_exporter.providers.discord.resources").joinpath(
+    resource = files("export_provider_discord.resources").joinpath(
         "export_current_dm.js"
     )
     source = resource.read_text(encoding="utf-8")

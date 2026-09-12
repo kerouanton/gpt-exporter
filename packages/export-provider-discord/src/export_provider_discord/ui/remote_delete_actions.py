@@ -12,20 +12,20 @@ from tkinter import messagebox
 from typing import Any
 
 from gpt_exporter.core.serialization import read_canonical_conversation
-from gpt_exporter.providers.discord.archive import archive_collector_export
-from gpt_exporter.providers.discord.collector import (
+from export_provider_discord.archive import archive_collector_export
+from export_provider_discord.collector import (
     EXPORT_GLOB,
     collector_javascript,
     snapshot_exports,
     validate_collector_export,
 )
-from gpt_exporter.providers.discord.naming import (
+from export_provider_discord.naming import (
     discord_artifact_paths,
     dm_artifact_stem,
     dm_title,
     is_group_dm,
 )
-from gpt_exporter.providers.discord.raw_archive import (
+from export_provider_discord.raw_archive import (
     iter_raw_files,
     migrate_plain_raw_file,
     read_raw_json,
@@ -527,7 +527,7 @@ class DiscordRemoteDeleteActions(DiscordWorkspaceActions):
         if plan.conversation_id != f"discord:{channel_id}":
             raise ValueError("Deletion plan conversation/channel mismatch.")
 
-        resource = files("gpt_exporter.providers.discord.resources").joinpath(
+        resource = files("export_provider_discord.resources").joinpath(
             "delete_own_messages.js"
         )
         source = resource.read_text(encoding="utf-8")

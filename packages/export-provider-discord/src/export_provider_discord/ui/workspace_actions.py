@@ -12,16 +12,16 @@ from pathlib import Path
 from tkinter import messagebox
 from typing import Any
 
-from gpt_exporter.providers.discord.archive import archive_collector_export
-from gpt_exporter.providers.discord.collector import (
+from export_provider_discord.archive import archive_collector_export
+from export_provider_discord.collector import (
     EXPORT_GLOB,
     collector_javascript,
     open_discord,
     snapshot_exports,
     validate_collector_export,
 )
-from gpt_exporter.providers.discord.naming import dm_artifact_stem, dm_title, legacy_paths
-from gpt_exporter.providers.discord.raw_archive import (
+from export_provider_discord.naming import dm_artifact_stem, dm_title, legacy_paths
+from export_provider_discord.raw_archive import (
     iter_raw_files,
     migrate_plain_raw_file,
     read_raw_json,
@@ -270,7 +270,7 @@ class DiscordWorkspaceActions:
         return True
 
     def show_collector(self) -> None:
-        resource = files("gpt_exporter.providers.discord.resources").joinpath("export_current_dm.js")
+        resource = files("export_provider_discord.resources").joinpath("export_current_dm.js")
         path = Path(str(resource))
         if not path.is_file():
             messagebox.showinfo(

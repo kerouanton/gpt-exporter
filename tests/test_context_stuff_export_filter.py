@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from gpt_exporter.providers.gpt.export.markdown import export_markdown
+from export_provider_chatgpt.export.markdown import export_markdown
 
 
 class ContextStuffExportFilterTests(unittest.TestCase):

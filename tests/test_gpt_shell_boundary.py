@@ -22,7 +22,7 @@ class GPTShellBoundaryTests(unittest.TestCase):
         provider_text = provider_app.read_text(encoding="utf-8")
         launcher_text = root_launcher.read_text(encoding="utf-8")
         self.assertIn("Open ChatGPT", provider_text)
-        self.assertIn("providers.gpt.ui", launcher_text)
+        self.assertIn("export_provider_chatgpt.ui", launcher_text)
         self.assertNotIn("Open ChatGPT", launcher_text)
         self.assertNotIn("chatgpt-archive-source.json", launcher_text)
 

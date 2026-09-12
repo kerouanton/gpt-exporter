@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 
 from gpt_exporter.assets import asset_bucket
-from gpt_exporter.providers.gpt.assets import migrate_gpt_asset_layout
-from gpt_exporter.providers.gpt.importer import _augment_current_batch_with_missing_docx
+from export_provider_chatgpt.assets import migrate_gpt_asset_layout
+from export_provider_chatgpt.importer import _augment_current_batch_with_missing_docx
 
 
 class SharedAssetBucketTests(unittest.TestCase):

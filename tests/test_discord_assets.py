@@ -9,7 +9,7 @@ from pathlib import Path
 from gpt_exporter.core import CanonicalAsset, CanonicalConversation, CanonicalMessage
 from gpt_exporter.export.docx import export_docx
 from gpt_exporter.export.markdown import export_canonical_markdown
-from gpt_exporter.providers.discord.assets import (
+from export_provider_discord.assets import (
     conversation_with_local_assets,
     download_conversation_assets,
 )

@@ -65,8 +65,8 @@ class ExportProviderBoundaryTests(unittest.TestCase):
                 assert "## Assistant" in text
                 assert "Provider-neutral answer" in text
                 assert not any(
-                    name == "gpt_exporter.providers.gpt"
-                    or name.startswith("gpt_exporter.providers.gpt.")
+                    name == "export_provider_chatgpt"
+                    or name.startswith("export_provider_chatgpt.")
                     for name in sys.modules
                 )
             """

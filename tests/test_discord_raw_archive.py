@@ -6,13 +6,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from gpt_exporter.providers.discord.raw_archive import (
+from export_provider_discord.raw_archive import (
     migrate_plain_raw_file,
     read_raw_bytes,
     read_raw_json,
     write_raw_archive,
 )
-from gpt_exporter.providers.discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
+from export_provider_discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
 from gpt_exporter.workspaces import ConversationWorkspace
 
 

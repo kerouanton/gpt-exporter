@@ -15,11 +15,11 @@ class CompatibilityWrapperTests(unittest.TestCase):
     def test_root_compatibility_scripts_delegate_to_package_implementations(self) -> None:
         expectations = {
             "import_browser_bundle": (
-                "gpt_exporter.providers.gpt.importer._bundle_importer",
+                "export_provider_chatgpt.importer._bundle_importer",
                 "import_bundle",
             ),
             "export_markdown": (
-                "gpt_exporter.providers.gpt.export._native_markdown",
+                "export_provider_chatgpt.export._native_markdown",
                 "reconstruct_active_path",
             ),
             "export_docx": (
@@ -27,7 +27,7 @@ class CompatibilityWrapperTests(unittest.TestCase):
                 "convert_markdown_to_docx",
             ),
             "index_chatgpt_archive": (
-                "gpt_exporter.providers.gpt.indexing._native_indexer",
+                "export_provider_chatgpt.indexing._native_indexer",
                 "normalize_text",
             ),
         }

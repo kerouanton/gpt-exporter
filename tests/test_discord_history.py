@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from gpt_exporter.core import CanonicalConversation, CanonicalMessage
-from gpt_exporter.providers.discord.history import (
+from export_provider_discord.history import (
     merge_dm_history,
     snapshot_covers_existing_history,
 )

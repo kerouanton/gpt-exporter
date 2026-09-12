@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from gpt_exporter.providers.gpt.export import repair
+from export_provider_chatgpt.export import repair
 
 
 class MissingDocxLocalRepairTests(unittest.TestCase):

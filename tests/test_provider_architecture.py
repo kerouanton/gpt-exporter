@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from gpt_exporter.core import CanonicalConversation, ConversationProvider
-from gpt_exporter.providers.gpt import ChatGPTProvider
+from export_provider_chatgpt import ChatGPTProvider
 
 
 class ProviderArchitectureTests(unittest.TestCase):
@@ -79,7 +79,7 @@ class ProviderArchitectureTests(unittest.TestCase):
     def test_core_import_in_fresh_process_does_not_load_gpt_provider(self) -> None:
         script = (
             "import sys; import gpt_exporter.core; "
-            "raise SystemExit(int(any(name.startswith('gpt_exporter.providers.gpt') "
+            "raise SystemExit(int(any(name.startswith('export_provider_chatgpt') "
             "for name in sys.modules)))"
         )
         result = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1], check=False)

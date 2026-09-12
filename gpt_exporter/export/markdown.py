@@ -493,7 +493,7 @@ def export_canonical_markdown(
 
 
 def export_markdown(*args, **kwargs) -> MarkdownExportResult:
-    from gpt_exporter.providers.gpt.export.markdown import export_markdown as provider_export
+    from export_provider_chatgpt.export.markdown import export_markdown as provider_export
     return provider_export(*args, **kwargs)
 
 

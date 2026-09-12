@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from gpt_exporter.providers.gpt.export.markdown import (
+from export_provider_chatgpt.export.markdown import (
     _normalize_asset_metadata_from_canonical_paths,
 )
 

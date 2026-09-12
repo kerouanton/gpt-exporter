@@ -27,7 +27,7 @@ class SharedBrowserProviderBoundaryTests(unittest.TestCase):
                     "from pathlib import Path",
                     "from gpt_exporter.ui.browser import archive_core, archive_browser",
                     "assert archive_browser.core is archive_core",
-                    "assert 'gpt_exporter.providers.gpt' not in sys.modules",
+                    "assert 'export_provider_chatgpt' not in sys.modules",
                     "package = Path(__import__('gpt_exporter').__file__).resolve().parent",
                     "assert not (package / 'providers' / 'gpt').exists()",
                     "assert package / 'ui' / 'browser' in Path(archive_browser.__file__).resolve().parents",

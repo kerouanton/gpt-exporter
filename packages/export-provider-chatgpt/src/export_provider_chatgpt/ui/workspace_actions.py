@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from tkinter import messagebox
 
-from gpt_exporter.providers.gpt.ui import archive_workflow as workflow
+from export_provider_chatgpt.ui import archive_workflow as workflow
 from gpt_exporter.ui.archive_workflow import (
     ArchiveProcessingDialog,
     ArchiveWorkflowDialog,

@@ -177,7 +177,7 @@ class BatchExportLibraryTests(unittest.TestCase):
         self.assertNotIn("importlib.util", launcher)
         self.assertNotIn("spec_from_file_location", launcher)
         self.assertNotIn("sys.argv =", launcher)
-        self.assertIn("providers.gpt.cli", launcher)
+        self.assertIn("export_provider_chatgpt.cli", launcher)
         self.assertIn("export_batch", provider_cli)
 
     def test_library_import_has_no_console_archive_or_provider_side_effects(self) -> None:
@@ -186,8 +186,8 @@ class BatchExportLibraryTests(unittest.TestCase):
             environment["USERPROFILE"] = temporary
             script = (
                 "import sys; import gpt_exporter.export.batch; "
-                "assert not any(name == 'gpt_exporter.providers.gpt' or "
-                "name.startswith('gpt_exporter.providers.gpt.') for name in sys.modules)"
+                "assert not any(name == 'export_provider_chatgpt' or "
+                "name.startswith('export_provider_chatgpt.') for name in sys.modules)"
             )
 
             completed = subprocess.run(

@@ -9,15 +9,15 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-from gpt_exporter.providers.discord.archive import archive_collector_export, default_archive_root
-from gpt_exporter.providers.discord.collector import (
+from export_provider_discord.archive import archive_collector_export, default_archive_root
+from export_provider_discord.collector import (
     CollectorExport,
     collector_javascript,
     open_discord,
     snapshot_exports,
     wait_for_new_export,
 )
-from gpt_exporter.providers.discord.provider import DiscordProvider
+from export_provider_discord.provider import DiscordProvider
 
 
 class DiscordProviderApp:

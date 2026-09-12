@@ -9,7 +9,7 @@ import io
 
 
 with contextlib.redirect_stdout(io.StringIO()):
-    from gpt_exporter.providers.gpt.indexing import cli as _provider_cli
+    from export_provider_chatgpt.indexing import cli as _provider_cli
 
 _implementation = _provider_cli.implementation
 

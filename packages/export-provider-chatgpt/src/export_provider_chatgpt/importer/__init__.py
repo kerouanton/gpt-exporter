@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from gpt_exporter.providers.gpt.assets import migrate_gpt_asset_layout
+from export_provider_chatgpt.assets import migrate_gpt_asset_layout
 
 
 _import_capture = io.StringIO()

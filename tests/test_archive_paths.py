@@ -11,7 +11,7 @@ from pathlib import Path
 import archive_chats
 import index_chatgpt_archive as indexer
 from gpt_exporter.paths import ArchivePaths, default_archive_paths, default_user_profile
-from gpt_exporter.providers.gpt.paths import default_archive_paths as gpt_default_archive_paths
+from export_provider_chatgpt.paths import default_archive_paths as gpt_default_archive_paths
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -60,8 +60,8 @@ class ArchivePathsTests(unittest.TestCase):
             [
                 "import sys",
                 "import gpt_exporter.paths",
-                "assert 'gpt_exporter.providers.gpt' not in sys.modules",
-                "assert 'gpt_exporter.providers.gpt.paths' not in sys.modules",
+                "assert 'export_provider_chatgpt' not in sys.modules",
+                "assert 'export_provider_chatgpt.paths' not in sys.modules",
             ]
         )
         completed = subprocess.run(
