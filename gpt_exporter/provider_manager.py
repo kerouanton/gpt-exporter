@@ -12,6 +12,7 @@ from gpt_exporter.core.provider_discovery import (
     ProviderDiscoveryFailure,
     ProviderDiscoveryResult,
 )
+from gpt_exporter.provider_artifacts import ManagedProviderInfo, ProviderArtifactStore
 from gpt_exporter.provider_loader import discover_available_providers
 from gpt_exporter.provider_settings import ProviderSettings
 
@@ -39,29 +40,35 @@ class ProviderRecord:
     discovered: bool = True
     entry_point: str = ""
     error: str = ""
+    managed: bool = False
+    managed_distribution: str = ""
+    managed_version: str = ""
+    managed_sha256: str = ""
+    managed_source_filename: str = ""
+    managed_installed_at: str = ""
 
     @property
     def status_label(self) -> str:
         return self.state.value.capitalize()
 
+    @property
+    def provenance_label(self) -> str:
+        return "Managed" if self.managed else "Bundled / environment"
+
 
 class ProviderManager:
-    """Central view of provider discovery plus durable enable/disable state.
-
-    Artifact installation/removal remains a later Stage C step. Disabling a provider
-    removes it from the active registry on the next application discovery while
-    preserving the installed provider package and its archive data. Zero active
-    providers is a valid recoverable state handled by the application shell.
-    """
+    """Central view of discovery, activation state and managed-artifact provenance."""
 
     def __init__(
         self,
         discovery: ProviderDiscoveryResult,
         *,
         settings: ProviderSettings | None = None,
+        artifact_store: ProviderArtifactStore | None = None,
     ) -> None:
         self._discovery = discovery
         self.settings = settings or ProviderSettings()
+        self.artifact_store = artifact_store or ProviderArtifactStore()
         self._refresh_state()
 
     @classmethod
@@ -70,10 +77,12 @@ class ProviderManager:
         *,
         include_source_packages: bool = True,
         settings_path: Path | str | None = None,
+        artifact_root: Path | str | None = None,
     ) -> "ProviderManager":
         return cls(
             discover_available_providers(include_embedded=include_source_packages),
             settings=ProviderSettings(settings_path),
+            artifact_store=ProviderArtifactStore(artifact_root),
         )
 
     @property
@@ -93,13 +102,12 @@ class ProviderManager:
     def records(self) -> tuple[ProviderRecord, ...]:
         return self._records
 
-    def set_enabled(self, provider_id: str, enabled: bool) -> None:
-        """Persist provider activation preference and refresh this manager snapshot.
+    def managed_info(self, provider_id: str) -> ManagedProviderInfo | None:
+        """Return managed artifact provenance for one provider id, if present."""
+        return self._managed_by_provider.get(provider_id)
 
-        All healthy providers may be disabled. The shared application treats the
-        resulting empty active registry as a recovery/management state rather than
-        as a fatal startup error.
-        """
+    def set_enabled(self, provider_id: str, enabled: bool) -> None:
+        """Persist provider activation preference and refresh this manager snapshot."""
         provider_id = provider_id.strip()
         record = next(
             (
@@ -122,10 +130,29 @@ class ProviderManager:
         self._refresh_state()
 
     def _refresh_state(self) -> None:
-        """Reload durable activation settings and rebuild derived lifecycle state."""
+        """Reload durable settings/provenance and rebuild derived lifecycle state."""
         self._disabled_ids = self.settings.disabled_ids()
-        self._records = self._build_records(self._discovery, self._disabled_ids)
+        self._managed_by_provider = self._build_managed_map(
+            self.artifact_store.managed_distributions()
+        )
+        self._records = self._build_records(
+            self._discovery,
+            self._disabled_ids,
+            self._managed_by_provider,
+        )
         self._registry = self._build_active_registry(self._discovery, self._disabled_ids)
+
+    @staticmethod
+    def _build_managed_map(
+        distributions: tuple[ManagedProviderInfo, ...],
+    ) -> dict[str, ManagedProviderInfo]:
+        result: dict[str, ManagedProviderInfo] = {}
+        for info in distributions:
+            for provider_id in info.provider_ids:
+                # Duplicate managed provider IDs are diagnosed by artifact operations;
+                # inventory remains deterministic and non-fatal.
+                result.setdefault(provider_id, info)
+        return result
 
     @staticmethod
     def _failure_state(failure: ProviderDiscoveryFailure) -> ProviderState:
@@ -145,11 +172,25 @@ class ProviderManager:
             if provider.descriptor.provider_id not in disabled_ids
         )
 
+    @staticmethod
+    def _managed_fields(info: ManagedProviderInfo | None) -> dict[str, object]:
+        if info is None:
+            return {}
+        return {
+            "managed": True,
+            "managed_distribution": info.distribution_name,
+            "managed_version": info.version,
+            "managed_sha256": info.sha256,
+            "managed_source_filename": info.source_filename,
+            "managed_installed_at": info.installed_at,
+        }
+
     @classmethod
     def _build_records(
         cls,
         discovery: ProviderDiscoveryResult,
         disabled_ids: frozenset[str],
+        managed_by_provider: dict[str, ManagedProviderInfo],
     ) -> tuple[ProviderRecord, ...]:
         records: list[ProviderRecord] = []
         for provider in discovery.registry.providers():
@@ -167,6 +208,7 @@ class ProviderManager:
                     api_version=int(getattr(descriptor, "api_version", PROVIDER_API_VERSION)),
                     capabilities=tuple(descriptor.capabilities),
                     state=state,
+                    **cls._managed_fields(managed_by_provider.get(descriptor.provider_id)),
                 )
             )
 
@@ -184,6 +226,7 @@ class ProviderManager:
                     discovered=False,
                     entry_point=failure.value,
                     error=failure.error,
+                    **cls._managed_fields(managed_by_provider.get(provider_id)),
                 )
             )
 
