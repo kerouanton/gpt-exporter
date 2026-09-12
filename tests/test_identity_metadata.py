@@ -14,15 +14,17 @@ from gpt_exporter.version import (
 
 
 class IdentityMetadataTests(unittest.TestCase):
-    def test_phase_one_keeps_visible_legacy_name(self) -> None:
-        self.assertEqual(APP_NAME, "GPT Exporter")
-        self.assertEqual(APP_NAME, LEGACY_APP_NAME)
+    def test_visible_product_name_is_msne(self) -> None:
+        self.assertEqual(APP_NAME, "Multi Social Network Explorer")
+        self.assertEqual(APP_NAME, TARGET_APP_NAME)
+        self.assertNotEqual(APP_NAME, LEGACY_APP_NAME)
 
     def test_msne_target_identity_is_explicit(self) -> None:
         self.assertEqual(TARGET_APP_NAME, "Multi Social Network Explorer")
         self.assertEqual(APP_SHORT_NAME, "MSNE")
 
     def test_legacy_technical_identities_remain_explicit(self) -> None:
+        self.assertEqual(LEGACY_APP_NAME, "GPT Exporter")
         self.assertEqual(LEGACY_DISTRIBUTION_NAME, "gpt-exporter")
         self.assertEqual(LEGACY_PYTHON_PACKAGE, "gpt_exporter")
         self.assertEqual(LEGACY_REPOSITORY_NAME, "gpt-exporter")
