@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import archive_chats
+from export_provider_chatgpt.cli import archive_chats
 
 
 class V28PipelineCharacterizationTests(unittest.TestCase):
