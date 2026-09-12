@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from gpt_exporter.core import ProviderRegistry
-from gpt_exporter.provider_loader import discover_available_providers
+from gpt_exporter.provider_manager import ProviderManager
 from gpt_exporter.version import APP_NAME, display_version
 from gpt_exporter.workspaces import ConversationWorkspace, WorkspaceCatalog
 
@@ -16,9 +16,9 @@ ProviderLauncher = Callable[[list[str]], int]
 
 
 def build_provider_registry() -> ProviderRegistry:
-    """Discover installed/in-tree providers without naming concrete implementations."""
+    """Discover installed/in-tree providers and honor durable enable/disable state."""
 
-    return discover_available_providers().registry
+    return ProviderManager.discover().registry
 
 
 def build_default_workspaces(registry: ProviderRegistry) -> tuple[ConversationWorkspace, ...]:
@@ -248,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         launchers = build_provider_launchers(registry)
         provider_id = arguments.provider
         if provider_id not in launchers:
-            raise ValueError(f"Unknown or unavailable provider: {provider_id}")
+            raise ValueError(f"Unknown, disabled or unavailable provider: {provider_id}")
         workspace = _workspace_for_provider(catalog, provider_id)
         launch_arguments = list(provider_arguments)
         if workspace is not None:
