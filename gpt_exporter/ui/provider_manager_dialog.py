@@ -191,18 +191,13 @@ class ProviderManagerDialog(tk.Toplevel):
         try:
             artifact = inspect_provider_wheel(filename)
             destination = self.artifact_store.destination_for(artifact)
+            existing = self.artifact_store.managed_for_distribution(
+                artifact.distribution_name
+            )
         except (FileNotFoundError, OSError, ValueError) as error:
             messagebox.showerror(APP_NAME, str(error), parent=self)
             return
 
-        existing = next(
-            (
-                item
-                for item in self.artifact_store.managed_distributions()
-                if item.distribution_name.casefold() == artifact.distribution_name.casefold()
-            ),
-            None,
-        )
         action = "Update" if existing is not None else "Install"
         entry_points = "\n".join(
             f"  {name} = {value}" for name, value in artifact.entry_points
@@ -259,7 +254,9 @@ class ProviderManagerDialog(tk.Toplevel):
         if not messagebox.askyesno(APP_NAME, prompt, parent=self):
             return
         try:
-            removed = self.artifact_store.remove_provider(record.provider_id)
+            removed = self.artifact_store.remove_distribution(
+                record.managed_distribution
+            )
         except (OSError, ValueError) as error:
             messagebox.showerror(APP_NAME, str(error), parent=self)
             return
