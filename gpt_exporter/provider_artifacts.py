@@ -26,6 +26,12 @@ _MANIFEST_NAME = ".msne-provider.json"
 _MANIFEST_SCHEMA_VERSION = 1
 
 
+def canonical_distribution_name(name: str) -> str:
+    """Return the canonical filesystem/project key used for managed distributions."""
+    _validate_distribution_name(name)
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderArtifactInfo:
     """Validated metadata for one provider wheel artifact."""
@@ -38,7 +44,7 @@ class ProviderArtifactInfo:
 
     @property
     def directory_name(self) -> str:
-        return re.sub(r"[-_.]+", "-", self.distribution_name).lower()
+        return canonical_distribution_name(self.distribution_name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,9 +258,17 @@ class ProviderArtifactStore:
             source_filename = str(payload.get("source_filename", ""))
             installed_at = str(payload.get("installed_at", ""))
             raw_entry_points = payload["entry_points"]
-            entry_points = tuple(
-                (str(item[0]), str(item[1])) for item in raw_entry_points
-            )
+            if not isinstance(raw_entry_points, list):
+                raise ValueError("invalid managed provider manifest")
+            parsed_entry_points: list[tuple[str, str]] = []
+            for item in raw_entry_points:
+                if not isinstance(item, (list, tuple)) or len(item) != 2:
+                    raise ValueError("invalid managed provider manifest")
+                name, value = str(item[0]).strip(), str(item[1]).strip()
+                if not name or not value:
+                    raise ValueError("invalid managed provider manifest")
+                parsed_entry_points.append((name, value))
+            entry_points = tuple(parsed_entry_points)
             _validate_distribution_name(distribution_name)
             if not version or not re.fullmatch(r"[0-9a-f]{64}", sha256):
                 raise ValueError("invalid managed provider manifest")
@@ -295,6 +309,18 @@ class ProviderArtifactStore:
             )
         return matches[0] if matches else None
 
+    def managed_for_distribution(self, distribution_name: str) -> ManagedProviderInfo | None:
+        """Return one managed distribution using normalized project-name semantics."""
+        key = canonical_distribution_name(distribution_name)
+        matches = [
+            info
+            for info in self.managed_distributions()
+            if canonical_distribution_name(info.distribution_name) == key
+        ]
+        if len(matches) > 1:
+            raise ValueError(f"Multiple managed distributions match {distribution_name!r}")
+        return matches[0] if matches else None
+
     def destination_for(self, artifact: ProviderArtifactInfo) -> Path:
         _validate_distribution_name(artifact.distribution_name)
         root = self.root.expanduser().resolve()
@@ -309,7 +335,8 @@ class ProviderArtifactStore:
         current: ProviderArtifactInfo,
     ) -> bool:
         return (
-            approved.distribution_name == current.distribution_name
+            canonical_distribution_name(approved.distribution_name)
+            == canonical_distribution_name(current.distribution_name)
             and approved.version == current.version
             and approved.sha256 == current.sha256
             and approved.entry_points == current.entry_points
@@ -410,16 +437,7 @@ class ProviderArtifactStore:
         importlib.invalidate_caches()
         return approved
 
-    def remove_provider(self, provider_id: str) -> ManagedProviderInfo:
-        """Remove only the isolated managed copy for ``provider_id``.
-
-        Bundled, editable, or globally installed providers are never deleted by this
-        operation. A restart is required before relying on the resulting discovery set.
-        """
-        info = self.managed_for_provider(provider_id)
-        if info is None:
-            raise ValueError(f"Provider {provider_id!r} has no locally managed copy")
-
+    def _remove_info(self, info: ManagedProviderInfo) -> ManagedProviderInfo:
         root = self.root.expanduser().resolve()
         destination = info.root.expanduser().resolve()
         if destination.parent != root or not destination.is_dir():
@@ -431,11 +449,28 @@ class ProviderArtifactStore:
         shutil.rmtree(trash, ignore_errors=False)
         return info
 
+    def remove_distribution(self, distribution_name: str) -> ManagedProviderInfo:
+        """Remove exactly one managed distribution by normalized project name."""
+        info = self.managed_for_distribution(distribution_name)
+        if info is None:
+            raise ValueError(
+                f"Distribution {distribution_name!r} has no locally managed copy"
+            )
+        return self._remove_info(info)
+
+    def remove_provider(self, provider_id: str) -> ManagedProviderInfo:
+        """Remove a managed copy addressed by its entry-point alias."""
+        info = self.managed_for_provider(provider_id)
+        if info is None:
+            raise ValueError(f"Provider {provider_id!r} has no locally managed copy")
+        return self._remove_info(info)
+
 
 __all__ = [
     "ManagedProviderInfo",
     "ProviderArtifactInfo",
     "ProviderArtifactStore",
+    "canonical_distribution_name",
     "default_provider_directory",
     "inspect_provider_wheel",
 ]
