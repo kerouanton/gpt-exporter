@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 import unittest
@@ -122,6 +123,23 @@ class ProviderArtifactTests(unittest.TestCase):
             self.assertEqual(managed.version, "2.0")
             self.assertEqual(managed.source_filename, "second.whl")
 
+    def test_normalized_distribution_name_finds_same_managed_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            store = ProviderArtifactStore(base / "providers")
+            store.install(
+                self._write_wheel(
+                    base / "synthetic.whl",
+                    distribution="example_provider",
+                )
+            )
+
+            managed = store.managed_for_distribution("example-provider")
+
+            self.assertIsNotNone(managed)
+            assert managed is not None
+            self.assertEqual(managed.distribution_name, "example_provider")
+
     def test_remove_provider_deletes_only_managed_distribution_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -157,6 +175,24 @@ class ProviderArtifactTests(unittest.TestCase):
 
             store.remove_provider("synthetic")
             self.assertFalse(destination.exists())
+
+    def test_malformed_manifest_entry_point_falls_back_to_legacy_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            store = ProviderArtifactStore(base / "providers")
+            artifact = store.install(self._write_wheel(base / "synthetic.whl"))
+            destination = store.destination_for(artifact)
+            manifest = destination / ".msne-provider.json"
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["entry_points"] = [[]]
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+            managed = store.managed_for_provider("synthetic")
+
+            self.assertIsNotNone(managed)
+            assert managed is not None
+            self.assertFalse(managed.provenance_complete)
+            self.assertEqual(managed.version, "1.2.3")
 
     def test_remove_rejects_provider_without_managed_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
