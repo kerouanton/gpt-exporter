@@ -1,22 +1,22 @@
-"""Read-only Providers dialog for the first ProviderManager UI stage."""
+"""Providers dialog for provider inventory and activation state."""
 
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
-from gpt_exporter.provider_manager import ProviderManager, ProviderRecord
+from gpt_exporter.provider_manager import ProviderManager, ProviderRecord, ProviderState
 from gpt_exporter.version import APP_NAME
 
 
 class ProviderManagerDialog(tk.Toplevel):
-    """Show discovered, incompatible and broken provider candidates."""
+    """Show provider state and allow durable enable/disable changes."""
 
     def __init__(self, parent: tk.Misc) -> None:
         super().__init__(parent)
         self.title(f"{APP_NAME} — Providers")
         self.transient(parent)
-        self.minsize(760, 360)
+        self.minsize(780, 380)
         self.manager: ProviderManager | None = None
         self._records_by_iid: dict[str, ProviderRecord] = {}
 
@@ -31,8 +31,8 @@ class ProviderManagerDialog(tk.Toplevel):
         ttk.Label(
             outer,
             text=(
-                "Read-only inventory. Install, update, enable/disable and remove "
-                "operations will be added in the next ProviderManager stage."
+                "Enable/disable changes are persistent and take full effect on the next "
+                "application start. Provider packages and archive data are not removed."
             ),
         ).pack(anchor="w", pady=(2, 8))
 
@@ -63,20 +63,30 @@ class ProviderManagerDialog(tk.Toplevel):
         buttons = ttk.Frame(outer)
         buttons.pack(fill="x", pady=(8, 0))
         ttk.Button(buttons, text="Refresh", command=self.refresh).pack(side="left")
+        self.toggle_button = ttk.Button(
+            buttons,
+            text="Disable",
+            command=self.toggle_selected,
+            state="disabled",
+        )
+        self.toggle_button.pack(side="left", padx=(8, 0))
         ttk.Button(buttons, text="Close", command=self.destroy).pack(side="right")
 
         self.refresh()
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
-    def refresh(self) -> None:
+    def refresh(self, *, select_provider_id: str | None = None) -> None:
         self.manager = ProviderManager.discover()
         self._records_by_iid.clear()
         for iid in self.tree.get_children():
             self.tree.delete(iid)
 
+        selected_iid: str | None = None
         for index, record in enumerate(self.manager.records(), start=1):
             iid = f"provider-{index}"
             self._records_by_iid[iid] = record
+            if record.provider_id == select_provider_id:
+                selected_iid = iid
             capabilities = ", ".join(record.capabilities) or "—"
             api = str(record.api_version) if record.api_version is not None else "—"
             version = record.version or "—"
@@ -90,18 +100,24 @@ class ProviderManagerDialog(tk.Toplevel):
 
         children = self.tree.get_children()
         if children:
-            self.tree.selection_set(children[0])
-            self.tree.focus(children[0])
+            selected_iid = selected_iid or children[0]
+            self.tree.selection_set(selected_iid)
+            self.tree.focus(selected_iid)
             self._selection_changed()
         else:
+            self.toggle_button.configure(state="disabled")
             self._set_details("No provider was discovered.")
 
-    def _selection_changed(self, _event: tk.Event | None = None) -> None:
+    def _selected_record(self) -> ProviderRecord | None:
         selected = self.tree.selection()
         if not selected:
-            return
-        record = self._records_by_iid.get(selected[0])
+            return None
+        return self._records_by_iid.get(selected[0])
+
+    def _selection_changed(self, _event: tk.Event | None = None) -> None:
+        record = self._selected_record()
         if record is None:
+            self.toggle_button.configure(state="disabled")
             return
 
         lines = [
@@ -115,6 +131,32 @@ class ProviderManagerDialog(tk.Toplevel):
         if record.error:
             lines.append(f"Error: {record.error}")
         self._set_details("\n".join(lines))
+
+        if record.state == ProviderState.ENABLED:
+            self.toggle_button.configure(text="Disable", state="normal")
+        elif record.state == ProviderState.DISABLED:
+            self.toggle_button.configure(text="Enable", state="normal")
+        else:
+            self.toggle_button.configure(text="Enable / Disable", state="disabled")
+
+    def toggle_selected(self) -> None:
+        record = self._selected_record()
+        if record is None or self.manager is None:
+            return
+        enabled = record.state == ProviderState.DISABLED
+        action = "enable" if enabled else "disable"
+        try:
+            self.manager.set_enabled(record.provider_id, enabled)
+        except (KeyError, OSError, ValueError) as error:
+            messagebox.showerror("Providers", str(error), parent=self)
+            return
+
+        self.refresh(select_provider_id=record.provider_id)
+        messagebox.showinfo(
+            "Providers",
+            f"{record.display_name} will be {action}d after MSNE is restarted.",
+            parent=self,
+        )
 
     def _set_details(self, text: str) -> None:
         self.details.configure(state="normal")
