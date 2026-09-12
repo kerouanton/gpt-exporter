@@ -1,10 +1,12 @@
 (async () => {
   "use strict";
 
-  const COLLECTOR_VERSION = "asset-cache-v1";
+  const COLLECTOR_VERSION = "asset-cache-v1-conversation-retry-v1";
   const LIMIT = 28;
   const OUTPUT_NAME = "chatgpt-archive-source.json";
   const FAILURE_RETRY_DELAY_MS = 30 * 24 * 60 * 60 * 1000;
+  const CONVERSATION_FETCH_ATTEMPTS = 3;
+  const CONVERSATION_RETRY_BASE_DELAY_MS = 1500;
 
   console.log(`Collector version: ${COLLECTOR_VERSION}`);
   const FILE_ID_RE = /(?:file_[0-9a-fA-F]{32}|file-[A-Za-z0-9]{20,})/g;
@@ -144,6 +146,39 @@
       throw new Error(`${response.status} ${response.statusText}: ${url}`);
     }
     return response.json();
+  }
+
+  async function fetchConversationWithRetries(summary, index, total) {
+    const targetPath = `/backend-api/conversation/${summary.id}`;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= CONVERSATION_FETCH_ATTEMPTS; attempt += 1) {
+      if (attempt > 1) {
+        const delayMs = CONVERSATION_RETRY_BASE_DELAY_MS * (attempt - 1);
+        console.warn(
+          `Retrying conversation [${index + 1}/${total}] ${summary.title || summary.id} ` +
+          `(attempt ${attempt}/${CONVERSATION_FETCH_ATTEMPTS}) after ${delayMs} ms.`
+        );
+        await sleep(delayMs);
+      }
+
+      try {
+        return await fetchJson(
+          targetPath,
+          targetPath,
+          "/backend-api/conversation/{conversation_id}"
+        );
+      } catch (error) {
+        lastError = error;
+        console.warn(
+          `Conversation request failed [${index + 1}/${total}] ` +
+          `${summary.title || summary.id} (attempt ${attempt}/${CONVERSATION_FETCH_ATTEMPTS}).`,
+          error
+        );
+      }
+    }
+
+    throw lastError || new Error(`Unable to fetch conversation ${summary.id}`);
   }
 
   async function loadConversationList() {
@@ -381,6 +416,7 @@
   }
 
   const conversations = [];
+  const conversationFailures = [];
   const fileIds = new Set();
   const externalImageRecords = new Map();
 
@@ -389,19 +425,32 @@
     console.log(
       `Conversation [${index + 1}/${summaries.length}] ${summary.title || summary.id}`
     );
-    const targetPath = `/backend-api/conversation/${summary.id}`;
-    const conversation = await fetchJson(
-      targetPath,
-      targetPath,
-      "/backend-api/conversation/{conversation_id}"
-    );
-    const foundExternalImages = await annotateExternalImages(conversation);
-    for (const imageRecord of foundExternalImages) {
-      const assetId = await sha256Id(imageRecord.primary_url);
-      if (!externalImageRecords.has(assetId)) externalImageRecords.set(assetId, imageRecord);
+
+    try {
+      const conversation = await fetchConversationWithRetries(summary, index, summaries.length);
+      const foundExternalImages = await annotateExternalImages(conversation);
+      for (const imageRecord of foundExternalImages) {
+        const assetId = await sha256Id(imageRecord.primary_url);
+        if (!externalImageRecords.has(assetId)) externalImageRecords.set(assetId, imageRecord);
+      }
+      conversations.push(conversation);
+      collectFileIds(conversation, fileIds);
+    } catch (error) {
+      const errorText = String(error && error.message ? error.message : error);
+      const failure = {
+        conversation_id: summary.id,
+        title: summary.title || null,
+        error: errorText,
+        attempts: CONVERSATION_FETCH_ATTEMPTS,
+      };
+      conversationFailures.push(failure);
+      console.error(
+        `Skipping conversation after ${CONVERSATION_FETCH_ATTEMPTS} failed attempts: ` +
+        `${summary.title || summary.id}`,
+        error
+      );
     }
-    conversations.push(conversation);
-    collectFileIds(conversation, fileIds);
+
     await sleep(50);
   }
 
@@ -542,6 +591,7 @@
     scope: "non-archived-root-conversations",
     summaries,
     conversations,
+    conversation_failures: conversationFailures,
     assets,
   };
 
@@ -558,7 +608,8 @@
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 
   console.log(
-    `Done: ${conversations.length} conversation(s), ${ids.length} asset candidate(s). ` +
+    `Done: ${conversations.length} conversation(s), ${conversationFailures.length} conversation failure(s), ` +
+      `${ids.length} asset candidate(s). ` +
       `Network attempts: ${counters.attempted}; downloaded: ${counters.downloaded}; ` +
       `failed: ${counters.failed}; cached downloads skipped: ${counters.skipped_downloaded}; ` +
       `cached failures skipped: ${counters.skipped_failed}; ` +
