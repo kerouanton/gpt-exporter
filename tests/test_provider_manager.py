@@ -9,6 +9,7 @@ from gpt_exporter.core import ProviderDescriptor, ProviderRegistry
 from gpt_exporter.core.provider_discovery import (
     ProviderDiscoveryFailure,
     ProviderDiscoveryResult,
+    ProviderDiscoverySuccess,
 )
 from gpt_exporter.provider_artifacts import ProviderArtifactStore
 from gpt_exporter.provider_manager import ProviderManager, ProviderState
@@ -136,6 +137,37 @@ class ProviderManagerTests(unittest.TestCase):
             self.assertEqual(record.managed_source_filename, "synthetic.whl")
             self.assertEqual(
                 manager.managed_info("synthetic").distribution_name,
+                "export-provider-synthetic",
+            )
+
+    def test_managed_provenance_uses_descriptor_id_not_entry_point_alias(self) -> None:
+        registry = ProviderRegistry(
+            [_Provider(ProviderDescriptor("stable-id", "Synthetic", "3.4"))]
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            settings_path = base / "providers.json"
+            self._write_managed_provider(
+                base / "managed-artifacts",
+                provider_id="entry-point-alias",
+            )
+            discovery = ProviderDiscoveryResult(
+                registry=registry,
+                successes=(
+                    ProviderDiscoverySuccess(
+                        name="entry-point-alias",
+                        value="synthetic_provider.plugin:create_provider",
+                        provider_id="stable-id",
+                    ),
+                ),
+            )
+            manager = self._manager(discovery, settings_path)
+            record = manager.records()[0]
+
+            self.assertTrue(record.managed)
+            self.assertEqual(record.provider_id, "stable-id")
+            self.assertEqual(
+                manager.managed_info("stable-id").distribution_name,
                 "export-provider-synthetic",
             )
 
