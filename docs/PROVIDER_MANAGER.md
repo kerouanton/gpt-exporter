@@ -22,7 +22,9 @@ The current implementation exposes these runtime states:
 
 `installed` and `discovered` remain explicit record attributes so later catalog/install transitions do not require redesigning the UI model.
 
-Durable activation state is stored per-user in `providers.json` beside the established workspace settings under the historical application-data directory. Disabling a provider does not delete its package or any archive data. Changes take full effect on the next MSNE start. The UI prevents disabling the final healthy provider so the management dialog remains reachable on the next launch.
+Durable activation state is stored per-user in `providers.json` beside the established workspace settings under the historical application-data directory. Disabling a provider does not delete its package or any archive data. Changes take full effect on the next MSNE start.
+
+Zero active providers is valid. In that state MSNE starts in a provider-neutral recovery window instead of trying to resolve a conversation workspace. The recovery UI keeps `Providers...` reachable so an installed provider can be re-enabled; after re-enabling, restart MSNE to resume the normal workspace shell.
 
 ## Provider metadata
 
@@ -55,7 +57,8 @@ First Stage C increment implemented:
 - durable enable/disable state;
 - application startup honors disabled providers;
 - the Providers dialog exposes `Enable` / `Disable` controls;
-- the final healthy provider cannot be disabled;
+- all providers may be disabled;
+- zero-provider startup enters a recovery/management shell rather than failing;
 - provider packages and archive data are untouched by activation changes.
 
 Still planned for Stage C:
