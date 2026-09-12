@@ -1,14 +1,10 @@
-"""Read-only provider inventory and state model for MSNE.
-
-This is the first ProviderManager stage. It centralizes provider discovery results
-and exposes stable UI-facing records without yet installing, disabling, updating,
-or removing provider distributions.
-"""
+"""Provider inventory and lifecycle state model for MSNE."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 from gpt_exporter.core import ProviderRegistry
 from gpt_exporter.core.provider_discovery import (
@@ -17,12 +13,14 @@ from gpt_exporter.core.provider_discovery import (
     ProviderDiscoveryResult,
 )
 from gpt_exporter.provider_loader import discover_available_providers
+from gpt_exporter.provider_settings import ProviderSettings
 
 
 class ProviderState(str, Enum):
     """Current runtime state of one provider candidate."""
 
     ENABLED = "enabled"
+    DISABLED = "disabled"
     INCOMPATIBLE = "incompatible"
     BROKEN = "broken"
 
@@ -48,25 +46,45 @@ class ProviderRecord:
 
 
 class ProviderManager:
-    """Central read-only view of provider discovery state.
+    """Central view of provider discovery plus durable enable/disable state.
 
-    Mutation operations deliberately do not exist yet. Later stages can add durable
-    enable/disable state and artifact installation around this model without coupling
-    the UI directly to ``importlib.metadata`` or provider-package internals.
+    Artifact installation/removal remains a later Stage C step. Disabling a provider
+    removes it from the active registry on the next application discovery while
+    preserving the installed provider package and its archive data.
     """
 
-    def __init__(self, discovery: ProviderDiscoveryResult) -> None:
+    def __init__(
+        self,
+        discovery: ProviderDiscoveryResult,
+        *,
+        settings: ProviderSettings | None = None,
+    ) -> None:
         self._discovery = discovery
-        self._records = self._build_records(discovery)
+        self.settings = settings or ProviderSettings()
+        self._disabled_ids = self.settings.disabled_ids()
+        self._records = self._build_records(discovery, self._disabled_ids)
+        self._registry = self._build_active_registry(discovery, self._disabled_ids)
 
     @classmethod
-    def discover(cls, *, include_source_packages: bool = True) -> "ProviderManager":
+    def discover(
+        cls,
+        *,
+        include_source_packages: bool = True,
+        settings_path: Path | str | None = None,
+    ) -> "ProviderManager":
         return cls(
-            discover_available_providers(include_embedded=include_source_packages)
+            discover_available_providers(include_embedded=include_source_packages),
+            settings=ProviderSettings(settings_path),
         )
 
     @property
     def registry(self) -> ProviderRegistry:
+        """Return only providers currently enabled for application composition."""
+        return self._registry
+
+    @property
+    def discovered_registry(self) -> ProviderRegistry:
+        """Return every successfully loaded provider, including disabled providers."""
         return self._discovery.registry
 
     @property
@@ -76,6 +94,29 @@ class ProviderManager:
     def records(self) -> tuple[ProviderRecord, ...]:
         return self._records
 
+    def set_enabled(self, provider_id: str, enabled: bool) -> None:
+        """Persist provider activation preference.
+
+        Prevent disabling the final healthy enabled provider because that would make
+        the normal GUI unable to open the Providers dialog on the next launch.
+        """
+        provider_id = provider_id.strip()
+        record = next(
+            (item for item in self._records if item.provider_id == provider_id),
+            None,
+        )
+        if record is None:
+            raise KeyError(f"unknown provider: {provider_id}")
+        if record.state in {ProviderState.BROKEN, ProviderState.INCOMPATIBLE}:
+            raise ValueError(f"Provider '{provider_id}' cannot be enabled or disabled in its current state")
+        if not enabled and record.state == ProviderState.ENABLED:
+            enabled_count = sum(
+                item.state == ProviderState.ENABLED for item in self._records
+            )
+            if enabled_count <= 1:
+                raise ValueError("At least one healthy provider must remain enabled")
+        self.settings.set_enabled(provider_id, enabled)
+
     @staticmethod
     def _failure_state(failure: ProviderDiscoveryFailure) -> ProviderState:
         text = failure.error.casefold()
@@ -83,14 +124,31 @@ class ProviderManager:
             return ProviderState.INCOMPATIBLE
         return ProviderState.BROKEN
 
+    @staticmethod
+    def _build_active_registry(
+        discovery: ProviderDiscoveryResult,
+        disabled_ids: frozenset[str],
+    ) -> ProviderRegistry:
+        return ProviderRegistry(
+            provider
+            for provider in discovery.registry.providers()
+            if provider.descriptor.provider_id not in disabled_ids
+        )
+
     @classmethod
     def _build_records(
         cls,
         discovery: ProviderDiscoveryResult,
+        disabled_ids: frozenset[str],
     ) -> tuple[ProviderRecord, ...]:
         records: list[ProviderRecord] = []
         for provider in discovery.registry.providers():
             descriptor = provider.descriptor
+            state = (
+                ProviderState.DISABLED
+                if descriptor.provider_id in disabled_ids
+                else ProviderState.ENABLED
+            )
             records.append(
                 ProviderRecord(
                     provider_id=descriptor.provider_id,
@@ -98,7 +156,7 @@ class ProviderManager:
                     version=descriptor.version,
                     api_version=int(getattr(descriptor, "api_version", PROVIDER_API_VERSION)),
                     capabilities=tuple(descriptor.capabilities),
-                    state=ProviderState.ENABLED,
+                    state=state,
                 )
             )
 
