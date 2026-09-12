@@ -1,11 +1,29 @@
-"""Application identity and version metadata for GPT Exporter."""
+"""Application identity and version metadata.
+
+The product is being migrated from the historical GPT Exporter identity to
+Multi Social Network Explorer (MSNE). Keep user-facing, distribution, import,
+and repository identities explicit so each compatibility surface can move on
+its own schedule instead of through a repository-wide search/replace.
+"""
 
 from __future__ import annotations
 
 import re
 
 
-APP_NAME = "GPT Exporter"
+# Historical identity. These values are compatibility surfaces and must not be
+# changed implicitly when the visible product name moves to MSNE.
+LEGACY_APP_NAME = "GPT Exporter"
+LEGACY_DISTRIBUTION_NAME = "gpt-exporter"
+LEGACY_PYTHON_PACKAGE = "gpt_exporter"
+LEGACY_REPOSITORY_NAME = "gpt-exporter"
+
+# Current identity. Phase 1 intentionally keeps the visible name unchanged;
+# later rename PRs may change APP_NAME while the legacy constants remain fixed.
+APP_NAME = LEGACY_APP_NAME
+TARGET_APP_NAME = "Multi Social Network Explorer"
+APP_SHORT_NAME = "MSNE"
+
 __version__ = "2.9.0"
 LICENSE_ID = "GPL-3.0-or-later"
 REPOSITORY_URL = "https://github.com/kerouanton/gpt-exporter"
@@ -30,8 +48,14 @@ def windows_version_tuple(version: str = __version__) -> tuple[int, int, int, in
 
 __all__ = [
     "APP_NAME",
+    "APP_SHORT_NAME",
+    "LEGACY_APP_NAME",
+    "LEGACY_DISTRIBUTION_NAME",
+    "LEGACY_PYTHON_PACKAGE",
+    "LEGACY_REPOSITORY_NAME",
     "LICENSE_ID",
     "REPOSITORY_URL",
+    "TARGET_APP_NAME",
     "__version__",
     "display_version",
     "windows_version_tuple",
