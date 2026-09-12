@@ -6,11 +6,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from gpt_exporter.provider_artifacts import ProviderArtifactStore, inspect_provider_wheel
+from gpt_exporter.provider_catalog import ProviderCatalog
 from gpt_exporter.provider_manager import ProviderManager, ProviderRecord, ProviderState
 from gpt_exporter.provider_runtime import (
     install_provider_with_validation,
     validate_provider_dependency_policy,
 )
+from gpt_exporter.ui.provider_catalog_dialog import show_provider_catalog
 from gpt_exporter.version import APP_NAME
 
 
@@ -86,7 +88,12 @@ class ProviderManagerDialog(tk.Toplevel):
         self.enable_button.pack(side="left", padx=(12, 0))
         self.disable_button = ttk.Button(buttons, text="Disable", command=self._disable_selected)
         self.disable_button.pack(side="left", padx=(6, 0))
-        ttk.Button(buttons, text="Refresh", command=self.refresh).pack(side="left", padx=(12, 0))
+        ttk.Button(
+            buttons,
+            text="Catalog snapshot...",
+            command=self._open_catalog_snapshot,
+        ).pack(side="left", padx=(12, 0))
+        ttk.Button(buttons, text="Refresh", command=self.refresh).pack(side="left", padx=(6, 0))
         ttk.Button(buttons, text="Close", command=self.destroy).pack(side="right")
 
         self.refresh()
@@ -183,6 +190,23 @@ class ProviderManagerDialog(tk.Toplevel):
 
     def _disable_selected(self) -> None:
         self._set_provider_enabled(False)
+
+    def _open_catalog_snapshot(self) -> None:
+        if self.manager is None:
+            return
+        filename = filedialog.askopenfilename(
+            parent=self,
+            title="Open Provider Catalog Snapshot",
+            filetypes=(("JSON files", "*.json"), ("All files", "*.*")),
+        )
+        if not filename:
+            return
+        try:
+            catalog = ProviderCatalog.from_file(filename)
+        except (OSError, UnicodeError, ValueError) as error:
+            messagebox.showerror(APP_NAME, str(error), parent=self)
+            return
+        show_provider_catalog(self, catalog=catalog, manager=self.manager)
 
     def _install_from_file(self) -> None:
         filename = filedialog.askopenfilename(
