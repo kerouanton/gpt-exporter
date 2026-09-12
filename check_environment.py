@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from gpt_exporter.providers.gpt.cli import check_environment as _implementation
+from export_provider_chatgpt.cli import check_environment as _implementation
 
 _implementation.ROOT = Path(__file__).resolve().parent
 

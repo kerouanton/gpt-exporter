@@ -9,7 +9,7 @@ import io
 
 
 with contextlib.redirect_stdout(io.StringIO()):
-    from gpt_exporter.providers.gpt.importer import _bundle_importer as _implementation
+    from export_provider_chatgpt.importer import _bundle_importer as _implementation
 
 
 for _name in dir(_implementation):

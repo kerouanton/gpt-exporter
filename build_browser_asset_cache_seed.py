@@ -1,7 +1,7 @@
 """Compatibility launcher for the ChatGPT provider browser-cache seed CLI."""
 
 import sys
-from gpt_exporter.providers.gpt.cli import build_browser_asset_cache_seed as _implementation
+from export_provider_chatgpt.cli import build_browser_asset_cache_seed as _implementation
 
 if __name__ == "__main__":
     _implementation.__file__ = __file__

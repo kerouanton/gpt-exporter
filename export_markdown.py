@@ -9,7 +9,7 @@ import io
 
 
 with contextlib.redirect_stdout(io.StringIO()):
-    from gpt_exporter.providers.gpt.export import _native_markdown as _implementation
+    from export_provider_chatgpt.export import _native_markdown as _implementation
 
 
 for _name in dir(_implementation):

@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from gpt_exporter.providers.gpt.cli import archive_chats as _implementation
+from export_provider_chatgpt.cli import archive_chats as _implementation
 
 # Preserve historical repository-root path semantics for callers importing this module.
 _implementation.ROOT = Path(__file__).resolve().parent
