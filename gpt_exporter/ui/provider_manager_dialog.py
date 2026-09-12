@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import tkinter as tk
-import zipfile
 from tkinter import filedialog, messagebox, ttk
 
 from gpt_exporter.provider_artifacts import ProviderArtifactStore, inspect_provider_wheel
@@ -192,8 +191,8 @@ class ProviderManagerDialog(tk.Toplevel):
             return
 
         try:
-            installed = self.artifact_store.install(artifact.path)
-        except (OSError, ValueError, zipfile.BadZipFile) as error:
+            installed = self.artifact_store.install(artifact)
+        except (OSError, ValueError) as error:
             messagebox.showerror(APP_NAME, str(error), parent=self)
             return
 
