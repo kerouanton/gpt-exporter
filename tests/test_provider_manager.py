@@ -54,12 +54,17 @@ class ProviderManagerTests(unittest.TestCase):
         self.assertTrue(record.discovered)
         self.assertEqual(record.capabilities, ("archive", "workspace-actions"))
 
-    def test_incompatible_failure_is_distinguished_from_broken_provider(self) -> None:
+    def test_incompatible_failure_retains_provider_descriptor_metadata(self) -> None:
         failures = (
             ProviderDiscoveryFailure(
-                name="future-provider",
+                name="entry-point-alias",
                 value="future_provider.plugin:create_provider",
                 error="ValueError: provider API version 2 is incompatible with core API version 1",
+                provider_id="future-provider",
+                display_name="Future Provider",
+                version="9.7",
+                api_version=2,
+                capabilities=("archive", "future-capability"),
             ),
             ProviderDiscoveryFailure(
                 name="broken-provider",
@@ -72,10 +77,19 @@ class ProviderManagerTests(unittest.TestCase):
         )
         records = {record.provider_id: record for record in manager.records()}
 
-        self.assertEqual(records["future-provider"].state, ProviderState.INCOMPATIBLE)
-        self.assertEqual(records["broken-provider"].state, ProviderState.BROKEN)
-        self.assertFalse(records["future-provider"].discovered)
-        self.assertIn("API version 2", records["future-provider"].error)
+        future = records["future-provider"]
+        self.assertEqual(future.state, ProviderState.INCOMPATIBLE)
+        self.assertEqual(future.display_name, "Future Provider")
+        self.assertEqual(future.version, "9.7")
+        self.assertEqual(future.api_version, 2)
+        self.assertEqual(future.capabilities, ("archive", "future-capability"))
+        self.assertFalse(future.discovered)
+        self.assertIn("API version 2", future.error)
+
+        broken = records["broken-provider"]
+        self.assertEqual(broken.state, ProviderState.BROKEN)
+        self.assertEqual(broken.display_name, "broken-provider")
+        self.assertIsNone(broken.api_version)
 
     def test_records_have_stable_display_order(self) -> None:
         registry = ProviderRegistry(
