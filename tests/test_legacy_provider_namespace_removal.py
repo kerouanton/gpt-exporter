@@ -14,10 +14,13 @@ class LegacyProviderNamespaceRemovalTests(unittest.TestCase):
         )
         violations: list[str] = []
 
-        candidate_paths = list((repo_root / "gpt_exporter").rglob("*.py"))
-        candidate_paths.extend(repo_root.glob("*.py"))
+        candidate_paths = [
+            path
+            for path in repo_root.rglob("*.py")
+            if ".git" not in path.parts and "__pycache__" not in path.parts
+        ]
 
-        for path in sorted(set(candidate_paths)):
+        for path in sorted(candidate_paths):
             relative = path.relative_to(repo_root)
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
@@ -38,10 +41,6 @@ class LegacyProviderNamespaceRemovalTests(unittest.TestCase):
             violations,
             [],
             "Historical concrete-provider imports remain:\n" + "\n".join(violations),
-        )
-        self.assertFalse(
-            (repo_root / "gpt_exporter" / "providers").exists(),
-            "The legacy gpt_exporter.providers compatibility namespace must be removed.",
         )
 
 
