@@ -94,13 +94,13 @@ class ProviderManagerTests(unittest.TestCase):
             )
 
             reloaded.set_enabled("beta", True)
-            enabled_again = self._manager(discovery, settings_path)
+            self.assertEqual(reloaded.registry.provider_ids(), ("alpha", "beta"))
             self.assertEqual(
-                enabled_again.registry.provider_ids(),
-                ("alpha", "beta"),
+                {record.provider_id: record.state for record in reloaded.records()},
+                {"alpha": ProviderState.ENABLED, "beta": ProviderState.ENABLED},
             )
 
-    def test_all_healthy_providers_can_be_disabled_and_reenabled(self) -> None:
+    def test_all_healthy_providers_can_be_disabled_and_reenabled_in_one_manager(self) -> None:
         discovery = ProviderDiscoveryResult(
             registry=ProviderRegistry(
                 [
@@ -113,22 +113,45 @@ class ProviderManagerTests(unittest.TestCase):
             settings_path = Path(temporary) / "providers.json"
             manager = self._manager(discovery, settings_path)
             manager.set_enabled("alpha", False)
-            manager = self._manager(discovery, settings_path)
+            self.assertEqual(manager.registry.provider_ids(), ("beta",))
             manager.set_enabled("beta", False)
-
-            disabled_all = self._manager(discovery, settings_path)
-            self.assertEqual(disabled_all.registry.provider_ids(), ())
+            self.assertEqual(manager.registry.provider_ids(), ())
             self.assertTrue(
-                all(record.state == ProviderState.DISABLED for record in disabled_all.records())
+                all(record.state == ProviderState.DISABLED for record in manager.records())
             )
 
-            disabled_all.set_enabled("alpha", True)
-            recovered = self._manager(discovery, settings_path)
-            self.assertEqual(recovered.registry.provider_ids(), ("alpha",))
+            manager.set_enabled("alpha", True)
+            self.assertEqual(manager.registry.provider_ids(), ("alpha",))
             self.assertEqual(
-                {record.provider_id: record.state for record in recovered.records()},
+                {record.provider_id: record.state for record in manager.records()},
                 {"alpha": ProviderState.ENABLED, "beta": ProviderState.DISABLED},
             )
+
+    def test_duplicate_failure_does_not_block_healthy_provider_toggle(self) -> None:
+        discovery = ProviderDiscoveryResult(
+            registry=ProviderRegistry(
+                [_Provider(ProviderDescriptor("alpha", "Zulu Healthy", "1"))]
+            ),
+            failures=(
+                ProviderDiscoveryFailure(
+                    name="alpha-duplicate",
+                    value="duplicate.plugin:create_provider",
+                    error="ValueError: duplicate provider id: alpha",
+                    provider_id="alpha",
+                    display_name="Aardvark Broken Duplicate",
+                ),
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            settings_path = Path(temporary) / "providers.json"
+            manager = self._manager(discovery, settings_path)
+            manager.set_enabled("alpha", False)
+
+            healthy = next(record for record in manager.records() if record.discovered)
+            broken = next(record for record in manager.records() if not record.discovered)
+            self.assertEqual(healthy.state, ProviderState.DISABLED)
+            self.assertEqual(broken.state, ProviderState.BROKEN)
+            self.assertEqual(manager.registry.provider_ids(), ())
 
     def test_incompatible_failure_retains_provider_descriptor_metadata(self) -> None:
         failures = (
