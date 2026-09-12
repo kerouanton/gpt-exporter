@@ -1,17 +1,20 @@
-"""Install provider wheel artifacts into an isolated per-user MSNE directory."""
+"""Install and manage provider wheel artifacts in isolated per-user storage."""
 
 from __future__ import annotations
 
 import configparser
 import hashlib
 import importlib
+import json
 import os
 import re
 import shutil
 import stat
 import tempfile
+import uuid
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from email.parser import Parser
 from pathlib import Path, PurePosixPath
 
@@ -19,6 +22,8 @@ from gpt_exporter.core.provider_discovery import PROVIDER_ENTRY_POINT_GROUP
 
 
 _DISTRIBUTION_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+_MANIFEST_NAME = ".msne-provider.json"
+_MANIFEST_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +39,27 @@ class ProviderArtifactInfo:
     @property
     def directory_name(self) -> str:
         return re.sub(r"[-_.]+", "-", self.distribution_name).lower()
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedProviderInfo:
+    """Provenance for one distribution managed by MSNE."""
+
+    root: Path
+    distribution_name: str
+    version: str
+    sha256: str
+    entry_points: tuple[tuple[str, str], ...]
+    source_filename: str = ""
+    installed_at: str = ""
+
+    @property
+    def provider_ids(self) -> tuple[str, ...]:
+        return tuple(name for name, _value in self.entry_points)
+
+    @property
+    def provenance_complete(self) -> bool:
+        return bool(self.sha256 and self.source_filename and self.installed_at)
 
 
 def default_provider_directory() -> Path:
@@ -78,6 +104,31 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _parse_entry_points(text: str) -> tuple[tuple[str, str], ...]:
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str
+    try:
+        parser.read_string(text)
+    except configparser.Error as error:
+        raise ValueError("Provider wheel has invalid entry_points.txt metadata") from error
+    if not parser.has_section(PROVIDER_ENTRY_POINT_GROUP):
+        raise ValueError(
+            f"Provider wheel does not declare {PROVIDER_ENTRY_POINT_GROUP!r} entry points"
+        )
+    entry_points = tuple(
+        (name.strip(), value.strip())
+        for name, value in parser.items(PROVIDER_ENTRY_POINT_GROUP)
+        if name.strip() and value.strip()
+    )
+    if not entry_points:
+        raise ValueError("Provider wheel declares an empty provider entry-point group")
+    for name, value in entry_points:
+        module_name, separator, attribute = value.partition(":")
+        if not separator or not module_name.strip() or not attribute.strip():
+            raise ValueError(f"Invalid provider entry point {name!r}: {value!r}")
+    return entry_points
 
 
 def inspect_provider_wheel(path: Path | str) -> ProviderArtifactInfo:
@@ -133,28 +184,7 @@ def inspect_provider_wheel(path: Path | str) -> ProviderArtifactInfo:
             ) from error
         except UnicodeDecodeError as error:
             raise ValueError("Provider wheel entry_points.txt is not UTF-8") from error
-
-        parser = configparser.ConfigParser(interpolation=None)
-        parser.optionxform = str
-        try:
-            parser.read_string(entry_points_text)
-        except configparser.Error as error:
-            raise ValueError("Provider wheel has invalid entry_points.txt metadata") from error
-        if not parser.has_section(PROVIDER_ENTRY_POINT_GROUP):
-            raise ValueError(
-                f"Provider wheel does not declare {PROVIDER_ENTRY_POINT_GROUP!r} entry points"
-            )
-        entry_points = tuple(
-            (name.strip(), value.strip())
-            for name, value in parser.items(PROVIDER_ENTRY_POINT_GROUP)
-            if name.strip() and value.strip()
-        )
-        if not entry_points:
-            raise ValueError("Provider wheel declares an empty provider entry-point group")
-        for name, value in entry_points:
-            module_name, separator, attribute = value.partition(":")
-            if not separator or not module_name.strip() or not attribute.strip():
-                raise ValueError(f"Invalid provider entry point {name!r}: {value!r}")
+        entry_points = _parse_entry_points(entry_points_text)
 
     return ProviderArtifactInfo(
         path=wheel_path,
@@ -183,14 +213,94 @@ class ProviderArtifactStore:
                 result.append(child)
         return tuple(result)
 
+    def _legacy_info(self, root: Path) -> ManagedProviderInfo | None:
+        """Read a pre-manifest managed install created by the first Stage C installer."""
+        metadata_files = tuple(root.glob("*.dist-info/METADATA"))
+        if len(metadata_files) != 1:
+            return None
+        metadata_file = metadata_files[0]
+        try:
+            metadata = Parser().parsestr(metadata_file.read_text(encoding="utf-8"))
+            distribution_name = (metadata.get("Name") or "").strip()
+            version = (metadata.get("Version") or "").strip()
+            _validate_distribution_name(distribution_name)
+            entry_points_file = metadata_file.parent / "entry_points.txt"
+            entry_points = _parse_entry_points(entry_points_file.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            return None
+        if not version:
+            return None
+        return ManagedProviderInfo(
+            root=root,
+            distribution_name=distribution_name,
+            version=version,
+            sha256="",
+            entry_points=entry_points,
+        )
+
+    def _info_for_root(self, root: Path) -> ManagedProviderInfo | None:
+        manifest_path = root / _MANIFEST_NAME
+        if not manifest_path.is_file():
+            return self._legacy_info(root)
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if int(payload.get("schema_version", 0)) != _MANIFEST_SCHEMA_VERSION:
+                return self._legacy_info(root)
+            distribution_name = str(payload["distribution_name"])
+            version = str(payload["version"])
+            sha256 = str(payload["sha256"])
+            source_filename = str(payload.get("source_filename", ""))
+            installed_at = str(payload.get("installed_at", ""))
+            raw_entry_points = payload["entry_points"]
+            entry_points = tuple(
+                (str(item[0]), str(item[1])) for item in raw_entry_points
+            )
+            _validate_distribution_name(distribution_name)
+            if not version or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+                raise ValueError("invalid managed provider manifest")
+            if not entry_points:
+                raise ValueError("invalid managed provider manifest")
+        except (KeyError, TypeError, ValueError, OSError, UnicodeError, json.JSONDecodeError):
+            return self._legacy_info(root)
+        return ManagedProviderInfo(
+            root=root,
+            distribution_name=distribution_name,
+            version=version,
+            sha256=sha256,
+            entry_points=entry_points,
+            source_filename=source_filename,
+            installed_at=installed_at,
+        )
+
+    def managed_distributions(self) -> tuple[ManagedProviderInfo, ...]:
+        """Return provenance for all locally managed provider distributions."""
+        result: list[ManagedProviderInfo] = []
+        for root in self.installed_roots():
+            info = self._info_for_root(root)
+            if info is not None:
+                result.append(info)
+        return tuple(result)
+
+    def managed_for_provider(self, provider_id: str) -> ManagedProviderInfo | None:
+        """Return the managed distribution declaring one provider entry-point name."""
+        provider_id = provider_id.strip()
+        matches = [
+            info
+            for info in self.managed_distributions()
+            if provider_id in info.provider_ids
+        ]
+        if len(matches) > 1:
+            raise ValueError(
+                f"Multiple managed distributions declare provider id {provider_id!r}"
+            )
+        return matches[0] if matches else None
+
     def destination_for(self, artifact: ProviderArtifactInfo) -> Path:
         _validate_distribution_name(artifact.distribution_name)
         root = self.root.expanduser().resolve()
         destination = (root / artifact.directory_name).resolve()
         if destination.parent != root:
-            raise ValueError(
-                f"Unsafe provider installation destination: {destination}"
-            )
+            raise ValueError(f"Unsafe provider installation destination: {destination}")
         return destination
 
     @staticmethod
@@ -205,16 +315,37 @@ class ProviderArtifactStore:
             and approved.entry_points == current.entry_points
         )
 
+    @staticmethod
+    def _write_manifest(staging: Path, artifact: ProviderArtifactInfo) -> ManagedProviderInfo:
+        installed_at = datetime.now(timezone.utc).isoformat()
+        payload = {
+            "schema_version": _MANIFEST_SCHEMA_VERSION,
+            "distribution_name": artifact.distribution_name,
+            "version": artifact.version,
+            "sha256": artifact.sha256,
+            "entry_points": [list(item) for item in artifact.entry_points],
+            "source_filename": artifact.path.name,
+            "installed_at": installed_at,
+        }
+        (staging / _MANIFEST_NAME).write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return ManagedProviderInfo(
+            root=staging,
+            distribution_name=artifact.distribution_name,
+            version=artifact.version,
+            sha256=artifact.sha256,
+            entry_points=artifact.entry_points,
+            source_filename=artifact.path.name,
+            installed_at=installed_at,
+        )
+
     def install(
         self,
         artifact_or_path: ProviderArtifactInfo | Path | str,
     ) -> ProviderArtifactInfo:
-        """Install one wheel using verified bytes, staging, and an atomic directory swap.
-
-        When the caller supplies ``ProviderArtifactInfo`` (the GUI confirmation path),
-        installation refuses to continue if the source bytes or confirmed metadata have
-        changed since inspection.
-        """
+        """Install/update one wheel using verified bytes and an atomic directory swap."""
         approved = (
             artifact_or_path
             if isinstance(artifact_or_path, ProviderArtifactInfo)
@@ -248,7 +379,8 @@ class ProviderArtifactStore:
                         )
                     target = staging.joinpath(*member.parts)
                     resolved_target = target.resolve()
-                    if staging.resolve() not in resolved_target.parents and resolved_target != staging.resolve():
+                    staging_root = staging.resolve()
+                    if staging_root not in resolved_target.parents and resolved_target != staging_root:
                         raise ValueError(f"Unsafe path in provider wheel: {info.filename!r}")
                     if info.is_dir():
                         target.mkdir(parents=True, exist_ok=True)
@@ -256,6 +388,8 @@ class ProviderArtifactStore:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with archive.open(info, "r") as source, target.open("wb") as output:
                         shutil.copyfileobj(source, output)
+
+            self._write_manifest(staging, approved)
 
             if backup.exists():
                 shutil.rmtree(backup)
@@ -274,16 +408,32 @@ class ProviderArtifactStore:
                 shutil.rmtree(staging_parent, ignore_errors=True)
 
         importlib.invalidate_caches()
-        return ProviderArtifactInfo(
-            path=approved.path,
-            distribution_name=approved.distribution_name,
-            version=approved.version,
-            sha256=approved.sha256,
-            entry_points=approved.entry_points,
-        )
+        return approved
+
+    def remove_provider(self, provider_id: str) -> ManagedProviderInfo:
+        """Remove only the isolated managed copy for ``provider_id``.
+
+        Bundled, editable, or globally installed providers are never deleted by this
+        operation. A restart is required before relying on the resulting discovery set.
+        """
+        info = self.managed_for_provider(provider_id)
+        if info is None:
+            raise ValueError(f"Provider {provider_id!r} has no locally managed copy")
+
+        root = self.root.expanduser().resolve()
+        destination = info.root.expanduser().resolve()
+        if destination.parent != root or not destination.is_dir():
+            raise ValueError(f"Unsafe managed provider removal target: {destination}")
+
+        trash = root / f".remove-{destination.name}-{uuid.uuid4().hex}"
+        destination.replace(trash)
+        importlib.invalidate_caches()
+        shutil.rmtree(trash, ignore_errors=False)
+        return info
 
 
 __all__ = [
+    "ManagedProviderInfo",
     "ProviderArtifactInfo",
     "ProviderArtifactStore",
     "default_provider_directory",
