@@ -74,6 +74,19 @@ py check_environment.py
 
 A self-contained Windows `onedir` build is supported by the release/build automation.
 
+### Windows onedir executable names
+
+During the controlled rename, the outer extracted directory intentionally remains named `GPT Exporter` for filesystem compatibility. Inside that directory:
+
+```text
+GPT Exporter\MSNE.exe
+GPT Exporter\GPT Exporter.exe
+```
+
+**`MSNE.exe` is the canonical executable to launch.** `GPT Exporter.exe` is retained as a compatibility launcher so existing shortcuts and scripts can keep working during the migration. Both start the same MSNE application and carry MSNE product metadata.
+
+CI artifacts are named `MSNE-Windows-onedir`. Future new-version release ZIPs use `MSNE-<version>-Windows-x64.zip`.
+
 ## Starting the application
 
 From source, the historical launcher remains supported during the rename migration:
