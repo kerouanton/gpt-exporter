@@ -12,6 +12,6 @@ if __name__ == "__main__":
 
 # Preserve the historical import surface for tests and external callers while
 # keeping the concrete ChatGPT application implementation under its provider.
-from gpt_exporter.providers.gpt.ui import app as _implementation
+from export_provider_chatgpt.ui import app as _implementation
 
 sys.modules[__name__] = _implementation
