@@ -198,6 +198,52 @@ def _resolve_workspace(
     return workspace
 
 
+def _launch_provider_recovery_shell() -> int:
+    """Keep MSNE usable when every discovered provider is disabled.
+
+    There is no conversation workspace to open in this state, so present a small
+    provider-neutral recovery window. Provider changes are persisted normally and
+    take effect on the next MSNE launch.
+    """
+    import tkinter as tk
+    from tkinter import ttk
+
+    from gpt_exporter.ui.provider_manager_dialog import show_provider_manager
+
+    root = tk.Tk()
+    root.title(APP_NAME)
+    root.minsize(480, 180)
+
+    body = ttk.Frame(root, padding=18)
+    body.pack(fill="both", expand=True)
+    ttk.Label(
+        body,
+        text="No providers are enabled",
+        font=("TkDefaultFont", 12, "bold"),
+    ).pack(anchor="w")
+    ttk.Label(
+        body,
+        text=(
+            "MSNE can run without an active provider, but there is no conversation "
+            "workspace to open. Enable a provider, then restart MSNE."
+        ),
+        wraplength=440,
+        justify="left",
+    ).pack(anchor="w", pady=(8, 16))
+
+    buttons = ttk.Frame(body)
+    buttons.pack(fill="x")
+    ttk.Button(
+        buttons,
+        text="Manage Providers...",
+        command=lambda: show_provider_manager(root),
+    ).pack(side="left")
+    ttk.Button(buttons, text="Close", command=root.destroy).pack(side="right")
+
+    root.mainloop()
+    return 0
+
+
 def _launch_shared_shell(
     *,
     catalog: WorkspaceCatalog,
@@ -258,6 +304,9 @@ def main(argv: list[str] | None = None) -> int:
                 *launch_arguments,
             ]
         return int(launchers[provider_id](launch_arguments))
+
+    if not registry.provider_ids():
+        return _launch_provider_recovery_shell()
 
     workspace = _resolve_workspace(catalog, registry, arguments.workspace)
     return _launch_shared_shell(
