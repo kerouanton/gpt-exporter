@@ -20,13 +20,13 @@ def _ensure_standard_streams() -> None:
 
 _ensure_standard_streams()
 
-# The historical browser remains directly executable and prints its filename
-# when imported. The compatibility launcher imports it as an implementation
-# module, so keep that diagnostic out of the application's own output surface.
+# The historical shared browser still prints its filename when imported.
+# Keep that diagnostic out of the application's own output surface while
+# importing the canonical packaged implementation directly.
 with contextlib.redirect_stdout(io.StringIO()):
-    import archive_browser as browser
+    from gpt_exporter.ui.browser import archive_browser as browser
 
-import archive_gui_workflow as workflow
+from . import archive_workflow as workflow
 from gpt_exporter.index import IndexUpdateResult, update_index as update_archive_index
 from gpt_exporter.resources import read_release_history, read_user_guide
 from gpt_exporter.ui import show_about_dialog, show_markdown_document

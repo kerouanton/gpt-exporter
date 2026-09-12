@@ -13,7 +13,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "characterization"
-IMPORT_SCRIPT = PROJECT_ROOT / "import_browser_bundle.py"
+IMPORT_MODULE = "export_provider_chatgpt.importer._bundle_importer"
 CONVERSATION_ID = "conv-characterization-001"
 
 
@@ -31,7 +31,7 @@ def run_import(user_profile: Path, bundle_path: Path) -> subprocess.CompletedPro
     environment = os.environ.copy()
     environment["USERPROFILE"] = str(user_profile)
     return subprocess.run(
-        [sys.executable, str(IMPORT_SCRIPT), str(bundle_path)],
+        [sys.executable, "-m", IMPORT_MODULE, str(bundle_path)],
         cwd=PROJECT_ROOT,
         env=environment,
         text=True,

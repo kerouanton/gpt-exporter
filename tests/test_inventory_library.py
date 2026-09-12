@@ -18,7 +18,7 @@ from gpt_exporter.archive.inventory import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-INVENTORY_SCRIPT = PROJECT_ROOT / "inventory_media.py"
+INVENTORY_MODULE = "export_provider_chatgpt.cli.inventory_media"
 
 
 def synthetic_conversation() -> dict:
@@ -180,7 +180,7 @@ class InventoryLibraryTests(unittest.TestCase):
             self.assertFalse(archive_root.exists())
             self.assertEqual(completed.stdout, "")
 
-    def test_legacy_cli_uses_library_and_preserves_reports(self) -> None:
+    def test_provider_cli_uses_library_and_preserves_reports(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             profile = Path(temporary_directory)
             archive_root = profile / "Documents" / "ChatGPT Archive"
@@ -191,7 +191,7 @@ class InventoryLibraryTests(unittest.TestCase):
             environment = os.environ.copy()
             environment["USERPROFILE"] = str(profile)
             completed = subprocess.run(
-                [sys.executable, str(INVENTORY_SCRIPT)],
+                [sys.executable, "-m", INVENTORY_MODULE],
                 cwd=PROJECT_ROOT,
                 env=environment,
                 text=True,

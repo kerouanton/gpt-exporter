@@ -13,6 +13,7 @@ from gpt_exporter.export.markdown import export_markdown
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+MARKDOWN_MODULE = "export_provider_chatgpt.export._native_markdown"
 
 
 class MarkdownLibraryTests(unittest.TestCase):
@@ -162,7 +163,7 @@ class MarkdownLibraryTests(unittest.TestCase):
             self.assertEqual(result.resolved_assets.get("attachment"), 1)
             self.assertEqual(result.cleaned_marker_types.get("entity"), 1)
 
-    def test_library_and_legacy_cli_produce_identical_markdown(self) -> None:
+    def test_library_and_provider_cli_produce_identical_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             archive_root = Path(temporary) / "archive"
             input_path, assets, markdown = self._build_fixture(archive_root)
@@ -180,7 +181,8 @@ class MarkdownLibraryTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    str(REPOSITORY_ROOT / "export_markdown.py"),
+                    "-m",
+                    MARKDOWN_MODULE,
                     str(input_path),
                     "--output",
                     str(cli_path),

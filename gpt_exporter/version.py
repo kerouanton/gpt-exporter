@@ -18,15 +18,16 @@ LEGACY_DISTRIBUTION_NAME = "gpt-exporter"
 LEGACY_PYTHON_PACKAGE = "gpt_exporter"
 LEGACY_REPOSITORY_NAME = "gpt-exporter"
 
-# Canonical product identity. Packaging/import/repository compatibility may
-# continue to use the explicit legacy constants during the migration.
+# Canonical product identity. Packaging/import compatibility may continue to
+# use the explicit legacy constants during the migration.
 TARGET_APP_NAME = "Multi Social Network Explorer"
 APP_NAME = TARGET_APP_NAME
 APP_SHORT_NAME = "MSNE"
+REPOSITORY_NAME = "Multi_Social_Network_Explorer"
 
 __version__ = "2.10.0"
 LICENSE_ID = "GPL-3.0-or-later"
-REPOSITORY_URL = "https://github.com/kerouanton/gpt-exporter"
+REPOSITORY_URL = "https://github.com/kerouanton/Multi_Social_Network_Explorer"
 
 
 def display_version(version: str = __version__) -> str:
@@ -54,6 +55,7 @@ __all__ = [
     "LEGACY_PYTHON_PACKAGE",
     "LEGACY_REPOSITORY_NAME",
     "LICENSE_ID",
+    "REPOSITORY_NAME",
     "REPOSITORY_URL",
     "TARGET_APP_NAME",
     "__version__",

@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import gpt_exporter_gui as gui
+from export_provider_chatgpt.ui import app as gui
 from gpt_exporter.resources import read_release_history, read_user_guide
 from gpt_exporter.ui.markdown_viewer import markdown_segments
 from gpt_exporter.version import APP_NAME, APP_SHORT_NAME, __version__, display_version, windows_version_tuple
@@ -63,7 +63,7 @@ sample
 
     def test_gui_version_option_uses_central_version_without_import_noise(self) -> None:
         completed = subprocess.run(
-            [sys.executable, str(REPOSITORY_ROOT / "gpt_exporter_gui.py"), "--version"],
+            [sys.executable, str(REPOSITORY_ROOT / "msne.py"), "--version"],
             cwd=REPOSITORY_ROOT,
             text=True,
             capture_output=True,
@@ -74,9 +74,9 @@ sample
         self.assertEqual(completed.stdout.strip(), f"{APP_NAME} {display_version()}")
         self.assertEqual(completed.stderr, "")
 
-    def test_importing_gui_is_silent(self) -> None:
+    def test_importing_msne_launcher_is_silent(self) -> None:
         completed = subprocess.run(
-            [sys.executable, "-c", "import gpt_exporter_gui"],
+            [sys.executable, "-c", "import msne"],
             cwd=REPOSITORY_ROOT,
             text=True,
             capture_output=True,

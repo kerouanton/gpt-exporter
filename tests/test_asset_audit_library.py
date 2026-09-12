@@ -20,7 +20,7 @@ from gpt_exporter.archive.audit import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-AUDIT_SCRIPT = PROJECT_ROOT / "audit_asset_references.py"
+AUDIT_MODULE = "export_provider_chatgpt.cli.audit_asset_references"
 
 
 def write_conversation_with_active_dictation(path: Path) -> None:
@@ -183,7 +183,7 @@ class AssetAuditLibraryTests(unittest.TestCase):
 
         self.assertEqual(references, {"file_docxtext", "file_docxlink"})
 
-    def test_legacy_cli_strict_exit_code_and_report_are_preserved(self) -> None:
+    def test_provider_cli_strict_exit_code_and_report_are_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             archive_root = Path(temporary_directory) / "archive"
             archive_root.mkdir()
@@ -192,7 +192,8 @@ class AssetAuditLibraryTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    str(AUDIT_SCRIPT),
+                    "-m",
+                    AUDIT_MODULE,
                     "--archive-root",
                     str(archive_root),
                     "--strict",

@@ -90,7 +90,7 @@ jobs:
 
       - name: Build Windows onedir application
         if: steps.version.outputs.release == 'true'
-        run: python -m PyInstaller --noconfirm --clean packaging/gpt_exporter.spec
+        run: python -m PyInstaller --noconfirm --clean packaging/msne.spec
 
       - name: Verify release build
         if: steps.version.outputs.release == 'true'
@@ -107,21 +107,11 @@ jobs:
           $expectedNumeric = python -c "from gpt_exporter.version import windows_version_tuple; print('.'.join(map(str, windows_version_tuple())))"
           $info = (Get-Item $exe).VersionInfo
 
-          if ($info.ProductName -ne $expectedName) {
-              throw "Unexpected ProductName: '$($info.ProductName)'"
-          }
-          if ($info.FileDescription -ne $expectedName) {
-              throw "Unexpected FileDescription: '$($info.FileDescription)'"
-          }
-          if ($info.ProductVersion -ne $expectedVersion) {
-              throw "Unexpected ProductVersion: '$($info.ProductVersion)'"
-          }
-          if ($info.FileVersion -ne $expectedVersion) {
-              throw "Unexpected FileVersion string: '$($info.FileVersion)'"
-          }
-          if ($info.OriginalFilename -ne "$expectedLegacyName.exe") {
-              throw "Unexpected OriginalFilename: '$($info.OriginalFilename)'"
-          }
+          if ($info.ProductName -ne $expectedName) { throw "Unexpected ProductName: '$($info.ProductName)'" }
+          if ($info.FileDescription -ne $expectedName) { throw "Unexpected FileDescription: '$($info.FileDescription)'" }
+          if ($info.ProductVersion -ne $expectedVersion) { throw "Unexpected ProductVersion: '$($info.ProductVersion)'" }
+          if ($info.FileVersion -ne $expectedVersion) { throw "Unexpected FileVersion string: '$($info.FileVersion)'" }
+          if ($info.OriginalFilename -ne "$expectedLegacyName.exe") { throw "Unexpected OriginalFilename: '$($info.OriginalFilename)'" }
 
           $actualNumeric = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
           if ($actualNumeric -ne $expectedNumeric) {
@@ -134,12 +124,8 @@ jobs:
           $genericResourceRoot = Join-Path $internalRoot "gpt_exporter\resources"
           foreach ($name in @("HELP.md", "HISTORY.md")) {
               $path = Join-Path $genericResourceRoot $name
-              if (-not (Test-Path $path -PathType Leaf)) {
-                  throw "Required packaged resource is missing: $path"
-              }
-              if ((Get-Item $path).Length -le 0) {
-                  throw "Required packaged resource is empty: $path"
-              }
+              if (-not (Test-Path $path -PathType Leaf)) { throw "Required packaged resource is missing: $path" }
+              if ((Get-Item $path).Length -le 0) { throw "Required packaged resource is empty: $path" }
           }
 
           $collectors = @(
@@ -147,33 +133,21 @@ jobs:
               (Join-Path $internalRoot "export_provider_discord\resources\export_current_dm.js")
           )
           foreach ($collector in $collectors) {
-              if (-not (Test-Path $collector -PathType Leaf)) {
-                  throw "Required provider resource is missing: $collector"
-              }
-              if ((Get-Item $collector).Length -le 0) {
-                  throw "Required provider resource is empty: $collector"
-              }
+              if (-not (Test-Path $collector -PathType Leaf)) { throw "Required provider resource is missing: $collector" }
+              if ((Get-Item $collector).Length -le 0) { throw "Required provider resource is empty: $collector" }
           }
 
           $metadataRoots = @()
           $metadataRoots += Get-ChildItem $internalRoot -Directory -Filter "export_provider_chatgpt-*.dist-info"
           $metadataRoots += Get-ChildItem $internalRoot -Directory -Filter "export_provider_discord-*.dist-info"
-          if ($metadataRoots.Count -ne 2) {
-              throw "Expected two provider distribution metadata directories, found $($metadataRoots.Count)"
-          }
+          if ($metadataRoots.Count -ne 2) { throw "Expected two provider distribution metadata directories, found $($metadataRoots.Count)" }
           foreach ($metadataRoot in $metadataRoots) {
               $entryPoints = Join-Path $metadataRoot.FullName "entry_points.txt"
-              if (-not (Test-Path $entryPoints -PathType Leaf)) {
-                  throw "Provider entry-point metadata is missing: $entryPoints"
-              }
+              if (-not (Test-Path $entryPoints -PathType Leaf)) { throw "Provider entry-point metadata is missing: $entryPoints" }
           }
 
-          if (-not (Test-Path ".\LICENSE" -PathType Leaf)) {
-              throw "Repository LICENSE is missing."
-          }
-          if ((Get-Item ".\LICENSE").Length -le 0) {
-              throw "Repository LICENSE is empty."
-          }
+          if (-not (Test-Path ".\LICENSE" -PathType Leaf)) { throw "Repository LICENSE is missing." }
+          if ((Get-Item ".\LICENSE").Length -le 0) { throw "Repository LICENSE is empty." }
 
           Write-Host "Release build verified: $expectedName $expectedVersion (legacy executable basename: $expectedLegacyName)"
 

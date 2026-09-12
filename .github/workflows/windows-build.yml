@@ -39,7 +39,7 @@ jobs:
           python -c "from importlib.metadata import entry_points; eps={ep.name:ep.value for ep in entry_points(group='gpt_exporter.provider_plugins')}; assert eps['gpt']=='export_provider_chatgpt.plugin:create_provider'; assert eps['discord']=='export_provider_discord.plugin:create_provider'; print(eps)"
 
       - name: Build Windows onedir application
-        run: python -m PyInstaller --noconfirm --clean packaging/gpt_exporter.spec
+        run: python -m PyInstaller --noconfirm --clean packaging/msne.spec
 
       - name: Verify windowed executable metadata
         shell: pwsh
@@ -125,7 +125,7 @@ jobs:
       - name: Upload Windows onedir artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GPT-Exporter-Windows-onedir
+          name: MSNE-Windows-onedir
           path: dist/GPT Exporter/
           if-no-files-found: error
           retention-days: 14

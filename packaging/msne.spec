@@ -29,8 +29,10 @@ PROVIDER_PACKAGES = (
     ("export_provider_chatgpt", "export-provider-chatgpt"),
     ("export_provider_discord", "export-provider-discord"),
 )
-CONSOLE_BUILD = os.environ.get("GPT_EXPORTER_CONSOLE", "").strip() == "1"
-VERSION_INFO_PATH = Path(SPECPATH) / ".gpt_exporter-version-info.txt"
+CONSOLE_BUILD = os.environ.get(
+    "MSNE_CONSOLE", os.environ.get("GPT_EXPORTER_CONSOLE", "")
+).strip() == "1"
+VERSION_INFO_PATH = Path(SPECPATH) / ".msne-version-info.txt"
 
 
 def _write_windows_version_info() -> None:
@@ -84,7 +86,7 @@ for provider_package, distribution_name in PROVIDER_PACKAGES:
 
 
 a = Analysis(
-    [str(ROOT / "gpt_exporter_gui.py")],
+    [str(ROOT / "msne.py")],
     pathex=[str(ROOT)],
     binaries=[],
     datas=datas,

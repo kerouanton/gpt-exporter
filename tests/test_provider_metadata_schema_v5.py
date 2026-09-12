@@ -192,7 +192,7 @@ class ProviderMetadataSchemaV6Tests(unittest.TestCase):
                 {"channel_id": "channel-2", "guild_id": "guild-1"},
             )
 
-    def test_root_chatgpt_index_cli_creates_schema_v6(self) -> None:
+    def test_provider_chatgpt_index_cli_creates_schema_v6(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             archive_root = Path(temporary) / "archive"
             downloads = archive_root / "downloads"
@@ -225,7 +225,8 @@ class ProviderMetadataSchemaV6Tests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    "index_chatgpt_archive.py",
+                    "-m",
+                    "export_provider_chatgpt.indexing.cli",
                     "--archive-root",
                     str(archive_root),
                     "--downloads-dir",

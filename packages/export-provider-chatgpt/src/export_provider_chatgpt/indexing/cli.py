@@ -1,4 +1,4 @@
-"""Schema-v5 compatibility shell around the retained ChatGPT index CLI."""
+"""Compatibility shell around the retained ChatGPT index CLI."""
 
 from __future__ import annotations
 
@@ -142,3 +142,7 @@ def main() -> int:
 
 
 __all__ = ["implementation", "main"]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
