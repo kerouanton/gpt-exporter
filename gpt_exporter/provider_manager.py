@@ -62,9 +62,7 @@ class ProviderManager:
     ) -> None:
         self._discovery = discovery
         self.settings = settings or ProviderSettings()
-        self._disabled_ids = self.settings.disabled_ids()
-        self._records = self._build_records(discovery, self._disabled_ids)
-        self._registry = self._build_active_registry(discovery, self._disabled_ids)
+        self._refresh_state()
 
     @classmethod
     def discover(
@@ -96,7 +94,7 @@ class ProviderManager:
         return self._records
 
     def set_enabled(self, provider_id: str, enabled: bool) -> None:
-        """Persist provider activation preference.
+        """Persist provider activation preference and refresh this manager snapshot.
 
         All healthy providers may be disabled. The shared application treats the
         resulting empty active registry as a recovery/management state rather than
@@ -104,14 +102,30 @@ class ProviderManager:
         """
         provider_id = provider_id.strip()
         record = next(
-            (item for item in self._records if item.provider_id == provider_id),
+            (
+                item
+                for item in self._records
+                if item.provider_id == provider_id
+                and item.discovered
+                and item.state in {ProviderState.ENABLED, ProviderState.DISABLED}
+            ),
             None,
         )
         if record is None:
+            if any(item.provider_id == provider_id for item in self._records):
+                raise ValueError(
+                    f"Provider '{provider_id}' cannot be enabled or disabled in its current state"
+                )
             raise KeyError(f"unknown provider: {provider_id}")
-        if record.state in {ProviderState.BROKEN, ProviderState.INCOMPATIBLE}:
-            raise ValueError(f"Provider '{provider_id}' cannot be enabled or disabled in its current state")
+
         self.settings.set_enabled(provider_id, enabled)
+        self._refresh_state()
+
+    def _refresh_state(self) -> None:
+        """Reload durable activation settings and rebuild derived lifecycle state."""
+        self._disabled_ids = self.settings.disabled_ids()
+        self._records = self._build_records(self._discovery, self._disabled_ids)
+        self._registry = self._build_active_registry(self._discovery, self._disabled_ids)
 
     @staticmethod
     def _failure_state(failure: ProviderDiscoveryFailure) -> ProviderState:
