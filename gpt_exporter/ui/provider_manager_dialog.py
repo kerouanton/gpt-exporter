@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+import zipfile
 from tkinter import filedialog, messagebox, ttk
 
 from gpt_exporter.provider_artifacts import ProviderArtifactStore, inspect_provider_wheel
