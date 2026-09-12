@@ -50,6 +50,15 @@ class ChatGPTProviderPackageTests(unittest.TestCase):
         resource = self.package_src / "export_provider_chatgpt" / "resources" / "collect_chatgpt_archive.js"
         self.assertGreater(resource.stat().st_size, 1000)
 
+    def test_collector_survives_individual_conversation_fetch_failures(self) -> None:
+        resource = self.package_src / "export_provider_chatgpt" / "resources" / "collect_chatgpt_archive.js"
+        source = resource.read_text(encoding="utf-8")
+        self.assertIn("CONVERSATION_FETCH_ATTEMPTS = 3", source)
+        self.assertIn("fetchConversationWithRetries", source)
+        self.assertIn("conversationFailures.push", source)
+        self.assertIn("conversation_failures: conversationFailures", source)
+        self.assertIn("Skipping conversation after", source)
+
 
 if __name__ == "__main__":
     unittest.main()
