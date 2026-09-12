@@ -1,6 +1,6 @@
 import unittest
 
-from export_provider_chatgpt import indexing as indexer
+from export_provider_chatgpt.indexing import _native_indexer as indexer
 
 
 class IndexerSmokeTests(unittest.TestCase):
