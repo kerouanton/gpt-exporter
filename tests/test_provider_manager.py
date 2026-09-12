@@ -100,19 +100,35 @@ class ProviderManagerTests(unittest.TestCase):
                 ("alpha", "beta"),
             )
 
-    def test_last_healthy_provider_cannot_be_disabled(self) -> None:
+    def test_all_healthy_providers_can_be_disabled_and_reenabled(self) -> None:
         discovery = ProviderDiscoveryResult(
             registry=ProviderRegistry(
-                [_Provider(ProviderDescriptor("only", "Only", "1"))]
+                [
+                    _Provider(ProviderDescriptor("alpha", "Alpha", "1")),
+                    _Provider(ProviderDescriptor("beta", "Beta", "1")),
+                ]
             )
         )
         with tempfile.TemporaryDirectory() as temporary:
-            manager = self._manager(
-                discovery,
-                Path(temporary) / "providers.json",
+            settings_path = Path(temporary) / "providers.json"
+            manager = self._manager(discovery, settings_path)
+            manager.set_enabled("alpha", False)
+            manager = self._manager(discovery, settings_path)
+            manager.set_enabled("beta", False)
+
+            disabled_all = self._manager(discovery, settings_path)
+            self.assertEqual(disabled_all.registry.provider_ids(), ())
+            self.assertTrue(
+                all(record.state == ProviderState.DISABLED for record in disabled_all.records())
             )
-            with self.assertRaisesRegex(ValueError, "At least one healthy provider"):
-                manager.set_enabled("only", False)
+
+            disabled_all.set_enabled("alpha", True)
+            recovered = self._manager(discovery, settings_path)
+            self.assertEqual(recovered.registry.provider_ids(), ("alpha",))
+            self.assertEqual(
+                {record.provider_id: record.state for record in recovered.records()},
+                {"alpha": ProviderState.ENABLED, "beta": ProviderState.DISABLED},
+            )
 
     def test_incompatible_failure_retains_provider_descriptor_metadata(self) -> None:
         failures = (
