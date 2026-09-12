@@ -80,7 +80,10 @@ class ProviderManager:
         artifact_root: Path | str | None = None,
     ) -> "ProviderManager":
         return cls(
-            discover_available_providers(include_embedded=include_source_packages),
+            discover_available_providers(
+                include_embedded=include_source_packages,
+                artifact_root=artifact_root,
+            ),
             settings=ProviderSettings(settings_path),
             artifact_store=ProviderArtifactStore(artifact_root),
         )
@@ -133,7 +136,8 @@ class ProviderManager:
         """Reload durable settings/provenance and rebuild derived lifecycle state."""
         self._disabled_ids = self.settings.disabled_ids()
         self._managed_by_provider = self._build_managed_map(
-            self.artifact_store.managed_distributions()
+            self.artifact_store.managed_distributions(),
+            self._discovery,
         )
         self._records = self._build_records(
             self._discovery,
@@ -145,13 +149,26 @@ class ProviderManager:
     @staticmethod
     def _build_managed_map(
         distributions: tuple[ManagedProviderInfo, ...],
+        discovery: ProviderDiscoveryResult,
     ) -> dict[str, ManagedProviderInfo]:
+        """Map managed distributions to stable descriptor IDs, not entry-point aliases."""
         result: dict[str, ManagedProviderInfo] = {}
+        successful_by_entry_point = {
+            (success.name, success.value): success.provider_id
+            for success in discovery.successes
+        }
         for info in distributions:
-            for provider_id in info.provider_ids:
-                # Duplicate managed provider IDs are diagnosed by artifact operations;
-                # inventory remains deterministic and non-fatal.
-                result.setdefault(provider_id, info)
+            mapped = False
+            for name, value in info.entry_points:
+                provider_id = successful_by_entry_point.get((name, value))
+                if provider_id:
+                    result.setdefault(provider_id, info)
+                    mapped = True
+            # Broken/incompatible providers may not have a successful descriptor ID yet.
+            # Retain entry-point aliases as a fallback so their managed origin remains visible.
+            if not mapped:
+                for provider_id in info.provider_ids:
+                    result.setdefault(provider_id, info)
         return result
 
     @staticmethod
