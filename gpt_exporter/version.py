@@ -24,7 +24,7 @@ TARGET_APP_NAME = "Multi Social Network Explorer"
 APP_NAME = TARGET_APP_NAME
 APP_SHORT_NAME = "MSNE"
 
-__version__ = "2.9.0"
+__version__ = "2.10.0"
 LICENSE_ID = "GPL-3.0-or-later"
 REPOSITORY_URL = "https://github.com/kerouanton/gpt-exporter"
 
