@@ -52,24 +52,31 @@ Implemented:
 
 ### Stage C — local lifecycle and artifact management
 
-First Stage C increment implemented:
+Implemented so far:
 
 - durable enable/disable state;
 - application startup honors disabled providers;
 - the Providers dialog exposes `Enable` / `Disable` controls;
 - all providers may be disabled;
 - zero-provider startup enters a recovery/management shell rather than failing;
-- provider packages and archive data are untouched by activation changes.
+- provider packages and archive data are untouched by activation changes;
+- isolated per-user provider directory under the established application-data root;
+- `Install from file...` for `.whl` provider artifacts;
+- pre-install validation of wheel structure, provider entry-point metadata and archive paths;
+- SHA-256 display and explicit confirmation before executable provider code is installed;
+- staged extraction and atomic replacement of a previously managed version;
+- managed provider roots are added to discovery without mutating global Python or PyInstaller `_internal` files.
+
+Managed wheels are stored one distribution per directory below the per-user provider root. Reinstalling the same distribution replaces the previously managed copy atomically. MSNE refreshes its inventory after installation, but a restart is required before relying on a newly installed/replaced provider for an active workspace because Python modules may already be loaded in the current process.
 
 Still planned for Stage C:
 
-- app-local provider directory for the Windows onedir distribution;
-- `Install from file...` for a provider wheel/package artifact;
-- remove locally installed provider artifacts;
-- integrity validation before installation;
-- safe rollback when activation fails.
+- remove locally managed provider artifacts;
+- stronger runtime activation validation with rollback when a newly installed provider cannot load;
+- explicit managed/bundled provenance in the ProviderManager record/UI;
+- dependency policy for third-party wheels that require additional Python distributions.
 
-The GUI must not perform `git clone`. End-user installation must target an isolated app-local/per-user provider location rather than the global Python environment or PyInstaller's bundled `_internal` tree.
+The GUI must not perform `git clone`. End-user installation targets the isolated per-user provider location rather than the global Python environment or PyInstaller's bundled `_internal` tree.
 
 ### Stage D — catalog and updates
 
@@ -86,4 +93,4 @@ Only after the provider contract and install/update path are stable should the c
 
 ## Trust and safety boundary
 
-Installing a provider is equivalent to installing executable Python code. Therefore install/update operations must display the provider identity and source, verify integrity metadata, reject incompatible provider APIs before activation, and never silently replace a working provider with an unverified artifact.
+Installing a provider is equivalent to installing executable Python code. Therefore install/update operations display the provider distribution identity, version, declared provider entry points, destination and SHA-256 before confirmation. The installer rejects path traversal and symbolic-link members and does not invoke `pip`, Git, or a global package manager. Future catalog installs must additionally verify trusted catalog integrity metadata and reject incompatible provider APIs before activation.
