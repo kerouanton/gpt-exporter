@@ -9,7 +9,7 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 from export_provider_chatgpt.cli import archive_chats
-from export_provider_chatgpt import indexing as indexer
+from export_provider_chatgpt.indexing import _native_indexer as indexer
 from gpt_exporter.paths import ArchivePaths, default_archive_paths, default_user_profile
 from export_provider_chatgpt.paths import default_archive_paths as gpt_default_archive_paths
 
