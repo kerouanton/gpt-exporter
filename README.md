@@ -1,15 +1,15 @@
-# GPT Exporter
+# Multi Social Network Explorer (MSNE)
 
-GPT Exporter is a Windows-oriented local conversation archiver, exporter, indexer and Browser that is evolving from a ChatGPT-specific tool into a provider-neutral multi-source application.
+**Multi Social Network Explorer (MSNE)** is a Windows-oriented local conversation archiver, exporter, indexer and Browser built around independently packaged providers.
 
-The current development line includes **ChatGPT** and **Discord** providers. The shared application provides the canonical model, SQLite search/indexing, Browser/workspace shell, common archive workflow/progress UI, persistent logs, and shared Markdown/DOCX rendering. Service-specific collection and source interpretation live below `gpt_exporter/providers/`.
+The current development line includes **ChatGPT** and **Discord** providers. The shared host supplies the canonical model, SQLite search/indexing, Browser/workspace shell, common archive workflow/progress UI, persistent logs, and shared Markdown/DOCX infrastructure. Service-specific collection, source interpretation and provider actions live in the independently packaged distributions under `packages/export-provider-chatgpt` and `packages/export-provider-discord`.
 
 > [!IMPORTANT]
-> GPT Exporter processes private conversation data and temporary browser-session material. Never publish generated archives, browser exports, SQLite indexes, cookies, tokens, account identifiers, or private attachments. See `SECURITY.md`.
+> MSNE processes private conversation data and temporary browser-session material. Never publish generated archives, browser exports, SQLite indexes, cookies, tokens, account identifiers, or private attachments. See `SECURITY.md`.
 
 ## Current architecture
 
-The application is already substantially provider-neutral:
+The host is provider-neutral and discovers providers through the stable `gpt_exporter.provider_plugins` entry-point contract:
 
 ```text
 shared GUI / CLI / application
@@ -18,22 +18,23 @@ shared GUI / CLI / application
 canonical core + workspaces + index + export + Browser
           |
           v
-provider contracts/actions
+provider SDK / discovery / composition hooks
           |
-          +--> ChatGPT
-          +--> Discord
+          +--> export-provider-chatgpt
+          +--> export-provider-discord
+          +--> independently developed future providers
 ```
 
-However, the provider packages are **not yet fully dynamically installable**: `gpt_exporter/application.py` still explicitly composes the known ChatGPT and Discord implementations. The next architectural milestone will replace this with provider discovery/capabilities so adding or removing a provider requires no edit to the main application.
+The host is valid with zero providers installed. ChatGPT-only, Discord-only, both-provider and zero-provider installation matrices are covered by tests, and an unknown synthetic provider can participate through the shared composition hooks without edits to the application core.
 
-See:
+The historical Python distribution/import identities remain `gpt-exporter` and `gpt_exporter` during the controlled rename. This is intentional compatibility, not unfinished branding. See `docs/MSNE_RENAME_INVENTORY.md` and issue #86 for the migration plan.
 
-- `docs/ARCHITECTURE.md` — current architecture and boundaries;
-- `docs/PROVIDER_PACKAGE_ARCHITECTURE.md` — next provider-package milestone specification;
-- `docs/HANDOVER_PROVIDER_PACKAGING.md` — development handover for that milestone;
+See also:
+
+- `docs/ARCHITECTURE.md` — shared architecture and boundaries;
+- `docs/PROVIDER_PACKAGE_ARCHITECTURE.md` — provider-package design and compatibility contract;
+- `docs/HANDOVER_PROVIDER_PACKAGING.md` — provider extraction history/handover;
 - `docs/TODO.md` — deliberately deferred work.
-
-After provider independence/packageability is proven, the planned future project identity is **Multi Social Network Explorer (MSNE)**. The rename is intentionally a later milestone.
 
 ## Shared application principles
 
@@ -59,32 +60,36 @@ Install dependencies:
 py -m pip install -r requirements.txt
 ```
 
+For a source checkout that needs both current providers:
+
+```text
+py -m pip install --no-deps -e packages/export-provider-chatgpt -e packages/export-provider-discord
+```
+
 Optional environment check:
 
 ```text
 py check_environment.py
 ```
 
-A self-contained Windows `onedir` build is also supported by the release/build automation.
+A self-contained Windows `onedir` build is supported by the release/build automation.
 
 ## Starting the application
 
-From source:
+From source, the historical launcher remains supported during the rename migration:
 
 ```text
 py gpt_exporter_gui.py
 ```
 
-The shared application opens the active named conversation workspace. Current default provider workspaces are based on the installed ChatGPT and Discord implementations.
+The shared application opens the active named conversation workspace and discovers installed providers dynamically.
 
-Historical explicit provider launch paths remain available during migration:
+Historical explicit provider launch paths remain available as compatibility paths:
 
 ```text
 py gpt_exporter_gui.py --provider gpt
 py gpt_exporter_gui.py --provider discord
 ```
-
-These are compatibility paths, not the final provider-package interface.
 
 ## Shared archive workflow
 
@@ -106,15 +111,17 @@ Persistent workflow logs are written below the active workspace's `reports` dire
 
 ## ChatGPT provider
 
-ChatGPT remains the historical provider and preserves the cumulative/non-destructive archive rules established by the frozen v2.7 line.
+ChatGPT is the historical provider and preserves the cumulative/non-destructive archive rules established by the frozen v2.7 line.
 
-Its provider directory owns ChatGPT-specific browser collection, source-schema interpretation, historical compatibility and archive behavior. Once data reaches the canonical boundary, shared indexing/Browser/rendering infrastructure is used wherever appropriate.
+Its extracted distribution owns ChatGPT-specific browser collection, source-schema interpretation, historical compatibility and archive behavior. Once data reaches the canonical boundary, shared indexing/Browser/rendering infrastructure is used wherever appropriate.
 
-The historical default workspace remains under:
+The historical default workspace remains:
 
 ```text
 %USERPROFILE%\Documents\ChatGPT Archive
 ```
+
+This provider data path is deliberately not renamed as part of the MSNE product rename.
 
 See `FROZEN_VERSION.md`, `docs/RELEASE_NOTES_V2.8.md`, and `docs/RELEASE_NOTES_V2.9.md` for the historical release lineage.
 
@@ -160,17 +167,17 @@ The real 6,674-message Gadget MCS ↔ Littleloulita validation produced:
 2026Q3    : 2,215 messages
 ```
 
-Observed DOCX page counts and byte sizes differed strongly enough to confirm that page count is not a reliable split criterion. The Browser currently opens the latest part; richer multipart navigation and changed-period-only regeneration are deferred in `docs/TODO.md`.
+The Browser currently opens the latest part; richer multipart navigation and changed-period-only regeneration are deferred in `docs/TODO.md`.
 
 ## Search and organization
 
 The shared Browser provides SQLite FTS5 search and provider-neutral organization facilities including projects, categories and tags. Incremental indexing preserves Browser-managed organizational metadata.
 
-The canonical index stores provider metadata generically so a new service should not require adding service-specific columns to the shared conversation table.
+The canonical index stores provider metadata generically so a new service does not require adding service-specific columns to the shared conversation table.
 
 ## Archive preservation principles
 
-The project follows conservative preservation rules:
+MSNE follows conservative preservation rules:
 
 - normal archive updates are cumulative/non-destructive unless an explicitly documented provider operation says otherwise;
 - missing data in a partial recapture must not silently erase known history;
@@ -181,26 +188,18 @@ The project follows conservative preservation rules:
 
 For Discord specifically, remote deletion affects the remote service only; it does not delete the local canonical archive.
 
-## CLI and library use
+## Provider packaging
 
-The GUI is a normal user entry point, but the architecture does not make Tkinter the business-logic layer.
-
-Core/provider archive operations must remain usable as Python/library/command-line operations. Historical command wrappers are retained during migration, and the next provider-package milestone will formalize provider-neutral CLI capability dispatch alongside GUI discovery.
-
-## Provider packaging — next milestone
-
-The next major refactor must make provider independence literal:
+Providers are separate installable distributions. The host contract is intentionally stable during the MSNE rename:
 
 ```text
-remove ChatGPT package -> app/CLI still work with Discord
-remove Discord package -> app/CLI still work with ChatGPT
-remove all providers -> shared application imports/startup remain valid
-add unknown provider package -> discovered without editing main-app source
+gpt_exporter.provider_sdk
+gpt_exporter.provider_plugins
 ```
 
-A future provider such as `export-provider-linkedin` should be developable in its own repository against a stable provider API/SDK, produce an installable artifact, and appear in the shared GUI/CLI without adding LinkedIn-specific branches to the main exporter.
+Removing ChatGPT does not invalidate Discord; removing Discord does not invalidate ChatGPT; removing both still leaves a valid provider-neutral host. The Windows onedir build installs the provider distributions separately and freezes their package code, resources and entry-point metadata.
 
-The final package/distribution mechanism is deliberately undecided; architectural independence comes first. See `docs/PROVIDER_PACKAGE_ARCHITECTURE.md`.
+A future provider can therefore be developed independently against the public SDK/entry-point contract rather than by adding service-specific branches to the host.
 
 ## Development
 
@@ -216,7 +215,7 @@ Compile-check the Python sources:
 py -m compileall -q .
 ```
 
-GitHub Actions validates supported Windows/Python combinations and builds the Windows `onedir` application. Because the current provider work has been developed as stacked pull requests, always inspect the current CI state before declaring the whole branch green; obsolete tests may need reconciliation with intentionally changed semantics.
+GitHub Actions validates supported Windows/Python combinations and builds the Windows `onedir` application.
 
 See `CONTRIBUTING.md` before changing archive semantics or provider boundaries.
 
@@ -231,10 +230,11 @@ Important current documents:
 - `docs/PROVIDER_SELECTION.md`
 - `docs/PROVIDER_PACKAGE_ARCHITECTURE.md`
 - `docs/HANDOVER_PROVIDER_PACKAGING.md`
+- `docs/MSNE_RENAME_INVENTORY.md`
 - `docs/TODO.md`
 - `CHANGELOG.md`
 - `FROZEN_VERSION.md`
 
 ## License
 
-GPT Exporter is free software licensed under **GNU GPL v3 or later (`GPL-3.0-or-later`)**. See `LICENSE`.
+Multi Social Network Explorer (MSNE) is free software licensed under **GNU GPL v3 or later (`GPL-3.0-or-later`)**. See `LICENSE`.
