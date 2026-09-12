@@ -69,16 +69,18 @@ Implemented:
 - per-install provenance manifest recording distribution/version, SHA-256, provider entry points, source wheel filename and installation timestamp;
 - provenance is visible in `ProviderManager` records and in the Providers dialog;
 - `Remove managed copy` removes only the isolated per-user distribution and never archive data, bundled providers, editable development installs or global Python packages;
-- managed installs created before provenance manifests were introduced remain detectable and removable, with unknown provenance fields shown explicitly.
+- managed installs created before provenance manifests were introduced remain detectable and removable, with unknown provenance fields shown explicitly;
+- managed-wheel runtime dependencies are explicit: Stage C accepts self-contained wheels whose only external runtime requirement is the MSNE host distribution;
+- every newly installed provider entry point is loaded immediately after installation and validated against the `ConversationProvider` contract and current provider API version;
+- provider entry-point aliases remain independent from the provider descriptor's stable `provider_id`;
+- if runtime validation of an update fails, the previous managed distribution is restored automatically;
+- if runtime validation of a first install fails, the failed managed copy is removed completely.
 
-Managed wheels are stored one distribution per directory below the per-user provider root. Installing another wheel with the same distribution name is an update: the confirmation dialog shows the currently managed version/hash and the incoming version/hash, then the managed directory is replaced atomically. MSNE refreshes its inventory after install/update/remove, but a restart is required before relying on the resulting provider set because Python modules and packaging metadata may already be loaded in the current process.
+Managed wheels are stored one distribution per directory below the per-user provider root. Installing another wheel with the same distribution name is an update: the confirmation dialog shows the currently managed version/hash and the incoming version/hash, then the managed directory is replaced atomically. The installer then loads the approved entry points in a temporary module scope and validates their provider descriptors before accepting the new managed copy. MSNE refreshes its inventory after install/update/remove, but a restart is still required before an active workspace starts using newly installed code.
 
-Removing a managed copy can reveal another copy of the same provider after restart, for example a provider bundled with the current Windows build or an editable development install. This is intentional: artifact removal is scoped strictly to MSNE-managed per-user storage. Use `Disable` when the goal is to keep a provider unavailable regardless of which installed copy supplies it.
+The Stage C dependency rule is intentionally conservative. The GUI does not run `pip` and does not resolve arbitrary transitive dependencies into the global environment. A provider wheel that declares third-party runtime requirements is rejected with those requirements listed explicitly. A later provider-distribution contract may introduce dependency bundles or another isolated dependency mechanism without weakening this boundary.
 
-Still planned for Stage C:
-
-- stronger runtime activation validation with rollback when a newly installed provider cannot load;
-- explicit dependency policy for third-party wheels that require additional Python distributions.
+Removing a managed copy can reveal another copy of the same provider after restart, for example a provider bundled with the current Windows build or an editable development install. This is intentional during the transition: artifact removal is scoped strictly to MSNE-managed per-user storage. Use `Disable` when the goal is to keep a provider unavailable regardless of which installed copy supplies it. In the final separated-provider architecture, normal end-user providers are expected to be managed artifacts; editable/environment discovery remains a development workflow rather than a user-facing provenance class.
 
 The GUI must not perform `git clone`. End-user installation targets the isolated per-user provider location rather than the global Python environment or PyInstaller's bundled `_internal` tree.
 
@@ -97,4 +99,4 @@ Only after the provider contract and install/update path are stable should the c
 
 ## Trust and safety boundary
 
-Installing a provider is equivalent to installing executable Python code. Therefore install/update operations display the provider distribution identity, version, declared provider entry points, destination and SHA-256 before confirmation. The installer rejects path traversal and symbolic-link members and does not invoke `pip`, Git, or a global package manager. Removal is constrained to an immediate child of the managed provider root and never deletes conversation archives or non-managed provider installations. Future catalog installs must additionally verify trusted catalog integrity metadata and reject incompatible provider APIs before activation.
+Installing a provider is equivalent to installing executable Python code. Therefore install/update operations display the provider distribution identity, version, declared provider entry points, declared runtime requirements, destination and SHA-256 before confirmation. The installer rejects path traversal and symbolic-link members and does not invoke `pip`, Git, or a global package manager. Runtime entry points are validated immediately after installation, and failed updates are rolled back before the new managed copy is accepted. Removal is constrained to an immediate child of the managed provider root and never deletes conversation archives or non-managed provider installations. Future catalog installs must additionally verify trusted catalog integrity metadata and reject incompatible provider APIs before activation.
