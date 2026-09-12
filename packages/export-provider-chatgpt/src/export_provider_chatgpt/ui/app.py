@@ -21,8 +21,8 @@ def _ensure_standard_streams() -> None:
 _ensure_standard_streams()
 
 # The historical browser remains directly executable and prints its filename
-# when imported.  GPT Exporter imports it as an implementation module, so keep
-# that compatibility diagnostic out of the application's own output surface.
+# when imported. The compatibility launcher imports it as an implementation
+# module, so keep that diagnostic out of the application's own output surface.
 with contextlib.redirect_stdout(io.StringIO()):
     import archive_browser as browser
 
@@ -50,7 +50,7 @@ def update_browser_index(
 
 
 class GPTExporterApp(browser.ArchiveBrowser):
-    """Archive Browser extended with the v2.8 archive workflow."""
+    """Historical application class retained as a compatibility surface."""
 
     def _build_menu(self) -> None:
         menu_bar = tk.Menu(self)
@@ -116,7 +116,7 @@ class GPTExporterApp(browser.ArchiveBrowser):
         help_menu.add_command(label="Release History…", command=self.show_release_history)
         help_menu.add_command(label="Search Syntax…", command=self.show_search_syntax)
         help_menu.add_separator()
-        help_menu.add_command(label="About GPT Exporter…", command=self.show_about)
+        help_menu.add_command(label=f"About {APP_NAME}…", command=self.show_about)
         menu_bar.add_cascade(label="Help", menu=help_menu)
 
         self.config(menu=menu_bar)
@@ -124,12 +124,12 @@ class GPTExporterApp(browser.ArchiveBrowser):
     def show_user_guide(self) -> None:
         """Open the packaged end-user guide."""
 
-        self._show_markdown_resource("GPT Exporter User Guide", read_user_guide)
+        self._show_markdown_resource(f"{APP_NAME} User Guide", read_user_guide)
 
     def show_release_history(self) -> None:
         """Open the packaged release history."""
 
-        self._show_markdown_resource("GPT Exporter Release History", read_release_history)
+        self._show_markdown_resource(f"{APP_NAME} Release History", read_release_history)
 
     def _show_markdown_resource(self, title: str, reader) -> None:
         try:
@@ -343,7 +343,7 @@ class GPTExporterApp(browser.ArchiveBrowser):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="GPT Exporter graphical archive, index and browsing application"
+        description=f"{APP_NAME} graphical archive, index and browsing application"
     )
     parser.add_argument(
         "--version",
