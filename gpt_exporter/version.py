@@ -18,10 +18,10 @@ LEGACY_DISTRIBUTION_NAME = "gpt-exporter"
 LEGACY_PYTHON_PACKAGE = "gpt_exporter"
 LEGACY_REPOSITORY_NAME = "gpt-exporter"
 
-# Current identity. Phase 1 intentionally keeps the visible name unchanged;
-# later rename PRs may change APP_NAME while the legacy constants remain fixed.
-APP_NAME = LEGACY_APP_NAME
+# Canonical product identity. Packaging/import/repository compatibility may
+# continue to use the explicit legacy constants during the migration.
 TARGET_APP_NAME = "Multi Social Network Explorer"
+APP_NAME = TARGET_APP_NAME
 APP_SHORT_NAME = "MSNE"
 
 __version__ = "2.9.0"

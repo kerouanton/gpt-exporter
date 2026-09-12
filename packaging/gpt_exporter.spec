@@ -11,7 +11,13 @@ ROOT = Path(SPECPATH).parent.resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from gpt_exporter.version import APP_NAME, LICENSE_ID, display_version, windows_version_tuple
+from gpt_exporter.version import (
+    APP_NAME,
+    LEGACY_APP_NAME,
+    LICENSE_ID,
+    display_version,
+    windows_version_tuple,
+)
 
 
 RESOURCE_DIRECTORY = ROOT / "gpt_exporter" / "resources"
@@ -49,7 +55,7 @@ def _write_windows_version_info() -> None:
           StringStruct(u'FileDescription', u'{APP_NAME}'),
           StringStruct(u'FileVersion', u'{human_version}'),
           StringStruct(u'InternalName', u'{APP_NAME}'),
-          StringStruct(u'OriginalFilename', u'{APP_NAME}.exe'),
+          StringStruct(u'OriginalFilename', u'{LEGACY_APP_NAME}.exe'),
           StringStruct(u'ProductName', u'{APP_NAME}'),
           StringStruct(u'ProductVersion', u'{human_version}'),
           StringStruct(u'Comments', u'Licensed under {LICENSE_ID}')
@@ -97,7 +103,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name=APP_NAME,
+    name=LEGACY_APP_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -118,5 +124,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name=APP_NAME,
+    name=LEGACY_APP_NAME,
 )

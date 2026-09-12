@@ -1,7 +1,7 @@
 [project]
 name = "gpt-exporter"
 version = "2.9.0"
-description = "GUI-first local archiver, exporter, indexer, and browser for ChatGPT conversations"
+description = "Multi Social Network Explorer (MSNE): local multi-provider conversation archiver, exporter, indexer, and browser"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "GPL-3.0-or-later"

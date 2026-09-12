@@ -50,6 +50,7 @@ jobs:
           }
 
           $expectedName = python -c "from gpt_exporter.version import APP_NAME; print(APP_NAME)"
+          $expectedLegacyName = python -c "from gpt_exporter.version import LEGACY_APP_NAME; print(LEGACY_APP_NAME)"
           $expectedVersion = python -c "from gpt_exporter.version import display_version; print(display_version())"
           $expectedNumeric = python -c "from gpt_exporter.version import windows_version_tuple; print('.'.join(map(str, windows_version_tuple())))"
           $info = (Get-Item $exe).VersionInfo
@@ -66,7 +67,7 @@ jobs:
           if ($info.FileVersion -ne $expectedVersion) {
               throw "Unexpected FileVersion string: '$($info.FileVersion)'"
           }
-          if ($info.OriginalFilename -ne "$expectedName.exe") {
+          if ($info.OriginalFilename -ne "$expectedLegacyName.exe") {
               throw "Unexpected OriginalFilename: '$($info.OriginalFilename)'"
           }
 
@@ -76,7 +77,7 @@ jobs:
           }
 
           python -c "import pefile; p=pefile.PE(r'dist\GPT Exporter\GPT Exporter.exe', fast_load=True); assert p.OPTIONAL_HEADER.Subsystem == 2, f'Expected Windows GUI subsystem (2), got {p.OPTIONAL_HEADER.Subsystem}'; print('Windowed PE subsystem OK')"
-          Write-Host "Windows version metadata OK: $expectedName $expectedVersion"
+          Write-Host "Windows version metadata OK: $expectedName $expectedVersion (legacy executable basename: $expectedLegacyName)"
 
       - name: Verify packaged resources and provider metadata
         shell: pwsh

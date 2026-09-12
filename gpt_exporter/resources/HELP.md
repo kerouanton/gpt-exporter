@@ -1,6 +1,6 @@
-# GPT Exporter User Guide
+# Multi Social Network Explorer (MSNE) User Guide
 
-GPT Exporter preserves, exports, indexes, searches, and organizes a local ChatGPT conversation archive.
+Multi Social Network Explorer (MSNE) preserves, exports, indexes, searches, and organizes local conversation archives from independently packaged providers such as ChatGPT and Discord.
 
 The normal entry point is the graphical application. The command-line tools remain available for diagnostics and advanced workflows.
 
@@ -26,7 +26,7 @@ Use **Help → Search Syntax…** for the dedicated search-expression reference.
 
 ## Projects
 
-Projects are local organizational metadata stored in the rebuildable SQLite index. They are independent from native ChatGPT Project provenance.
+Projects are local organizational metadata stored in the rebuildable SQLite index. They are independent from provider-native project or grouping concepts.
 
 You can:
 
@@ -45,22 +45,20 @@ Select a conversation, then use **Open DOCX** to open its generated document wit
 
 Use **Open in Explorer** to reveal the corresponding export in Windows Explorer.
 
-DOCX files are derived outputs. The durable archive source remains the cumulative conversation JSON/XZ plus archived assets.
+DOCX files are derived outputs. Durable archive data remains provider-owned canonical conversation data plus archived assets.
 
 ## Archiving new or updated conversations
 
-Use:
+Use the active provider's archive action from the **Archive** menu. The shared workflow window handles collector guidance, download detection, background processing, progress, persistent logs, and Browser refresh; each provider supplies its own service-specific collection and archive operations.
 
-**Archive → Archive New Conversations…**
+For ChatGPT, the guided workflow is:
 
-The guided workflow performs the normal collection and archive update:
-
-1. GPT Exporter opens the archive workflow window and copies the collector JavaScript to the clipboard.
+1. MSNE opens the archive workflow window and copies the collector JavaScript to the clipboard.
 2. Open ChatGPT in your normal authenticated browser session.
 3. Open Developer Tools and select the Console.
 4. Paste and run the collector JavaScript.
 5. Wait for the browser to download `chatgpt-archive-source.json`.
-6. GPT Exporter detects the new non-empty bundle.
+6. MSNE detects the new non-empty bundle.
 7. The archive pipeline imports the bundle, inventories media, builds asset diagnostics, exports changed conversations, and updates the search index.
 8. The Browser refreshes after success.
 
@@ -68,19 +66,11 @@ The progress window closes automatically only when both the archive pipeline and
 
 ## Archive menu
 
-Useful maintenance commands include:
-
-- **Open ChatGPT** — open ChatGPT in the default browser.
-- **Copy Collector JavaScript** — copy the collector again.
-- **Show Collector JavaScript in Explorer** — reveal the collector source file.
-- **Process Downloaded Bundle…** — process an already downloaded browser bundle manually.
-- **Update Search Index** — perform an incremental index update.
-- **Open Archive Folder** — open the active archive directory.
-- **Show Last Archive Log** — open the latest persistent workflow log.
+Available commands depend on the active provider. Common maintenance actions include updating the search index, opening the active archive folder, and viewing the latest archive log. Provider-specific commands may open the remote service, copy or reveal collector JavaScript, process an already-downloaded bundle, regenerate derived exports, or perform explicitly guarded remote maintenance operations.
 
 ## Persistent logs
 
-Each archive run writes a timestamped log below the archive `reports` directory and refreshes a stable latest-log file.
+Each archive run writes a timestamped log below the active workspace `reports` directory and refreshes a stable latest-log file.
 
 Typical names are:
 
@@ -89,50 +79,51 @@ reports\archive-workflow-YYYY-MM-DD_HH-MM-SS.log
 reports\archive-workflow-latest.log
 ```
 
-Use **Archive → Show Last Archive Log** when an archive operation needs diagnosis.
+Use the provider's latest-log command when an archive operation needs diagnosis.
 
 ## Preservation model
 
-GPT Exporter follows conservative archive rules:
+MSNE follows conservative archive rules:
 
-- canonical durable conversation data is stored below `downloads` as compressed JSON/XZ;
-- archived assets are preserved below `assets`;
-- DOCX, Markdown, SQLite indexes, manifests, reports, and workflow logs are derived or rebuildable;
-- a shorter or equal incoming conversation snapshot never replaces a larger stored snapshot;
-- normal incremental archiving does not prune older conversations merely because they are absent from a later browser bundle;
-- duplicate physical assets are not automatically deduplicated because identical bytes may represent different historical provenance.
+- canonical durable conversation data is retained by the active provider;
+- archived assets are preserved under the provider workspace;
+- DOCX, Markdown, SQLite indexes, manifests, reports, and workflow logs are derived or rebuildable unless explicitly documented otherwise;
+- a partial recapture must not silently erase known history;
+- ambiguous asset mappings are not guessed;
+- provider-specific destructive remote actions must not silently damage the local canonical archive.
 
-## Default archive location
+## Default archive locations
 
-The integrated Windows workflow currently targets:
+Current default provider workspaces include:
 
 ```text
 %USERPROFILE%\Documents\ChatGPT Archive
+%USERPROFILE%\Documents\Discord Archive
 ```
 
-The Browser may open another SQLite database for inspection, but the integrated archive-update workflow deliberately refuses to write through a Browser instance pointed at a different archive database.
+These provider archive names are historical/data-domain identities and are not automatically renamed to MSNE directories.
 
 ## Privacy
 
-The local archive may contain private conversations, attachments, generated documents, and temporary browser-session material.
+Local archives may contain private conversations, attachments, generated documents, and temporary browser-session material.
 
 Do not publish archive data, browser bundles, SQLite databases, access tokens, account identifiers, or private attachments.
 
 ## Troubleshooting
 
-If the Browser does not show a newly archived conversation, first use **Archive → Show Last Archive Log** and verify whether the archive pipeline completed successfully.
+If the Browser does not show a newly archived conversation, first inspect the latest archive log and verify whether the provider pipeline completed successfully.
 
-If the index is stale while the durable archive files are correct, use **Archive → Update Search Index**.
+If the index is stale while the durable archive files are correct, use the search-index update action.
 
-If a generated DOCX is missing or outdated, verify that the conversation was part of the latest current batch and inspect the workflow log for exporter warnings or errors.
+If a generated DOCX is missing or outdated, inspect the relevant provider workflow log and regeneration/repair commands.
 
 For release-specific behavior and known limitations, open **Help → Release History…**.
 
 ## Version information
 
-Use **Help → About GPT Exporter…** to see the running application version.
+Use **Help → About Multi Social Network Explorer…** to see the running application version.
 
-From a terminal, the GUI entry point also supports:
+From a terminal, the historical GUI entry point remains supported during the compatibility migration:
 
 ```text
 py gpt_exporter_gui.py --version

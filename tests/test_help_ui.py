@@ -12,7 +12,7 @@ from unittest.mock import patch
 import gpt_exporter_gui as gui
 from gpt_exporter.resources import read_release_history, read_user_guide
 from gpt_exporter.ui.markdown_viewer import markdown_segments
-from gpt_exporter.version import APP_NAME, __version__, display_version, windows_version_tuple
+from gpt_exporter.version import APP_NAME, APP_SHORT_NAME, __version__, display_version, windows_version_tuple
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -29,8 +29,9 @@ class HelpUiTests(unittest.TestCase):
         guide = read_user_guide()
         history = read_release_history()
 
-        self.assertIn("# GPT Exporter User Guide", guide)
-        self.assertIn("Archive → Archive New Conversations", guide)
+        self.assertIn(APP_NAME, guide)
+        self.assertIn(APP_SHORT_NAME, guide)
+        self.assertIn("## Archiving new or updated conversations", guide)
         self.assertIn("# GPT Exporter Release History", history)
         self.assertIn("v2.9", history)
         self.assertIn("v2.8", history)
@@ -144,7 +145,7 @@ sample
 
         self.assertEqual(
             labels,
-            ["User Guide…", "Release History…", "Search Syntax…", "About GPT Exporter…"],
+            ["User Guide…", "Release History…", "Search Syntax…", f"About {APP_NAME}…"],
         )
 
 
