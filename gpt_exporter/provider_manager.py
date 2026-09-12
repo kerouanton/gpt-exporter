@@ -103,13 +103,15 @@ class ProviderManager:
             )
 
         for failure in discovery.failures:
+            provider_id = failure.provider_id or failure.name
+            display_name = failure.display_name or provider_id
             records.append(
                 ProviderRecord(
-                    provider_id=failure.name,
-                    display_name=failure.name,
-                    version="",
-                    api_version=None,
-                    capabilities=(),
+                    provider_id=provider_id,
+                    display_name=display_name,
+                    version=failure.version,
+                    api_version=failure.api_version,
+                    capabilities=tuple(failure.capabilities),
                     state=cls._failure_state(failure),
                     discovered=False,
                     entry_point=failure.value,
