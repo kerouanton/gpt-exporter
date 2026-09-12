@@ -199,7 +199,7 @@ class ProviderManagerDialog(tk.Toplevel):
             existing = self.artifact_store.managed_for_distribution(
                 artifact.distribution_name
             )
-        except (FileNotFoundError, OSError, ValueError, zipfile.BadZipFile) as error:
+        except (FileNotFoundError, OSError, ValueError) as error:
             messagebox.showerror(APP_NAME, str(error), parent=self)
             return
 
