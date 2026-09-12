@@ -164,8 +164,8 @@ class BatchExportLibraryTests(unittest.TestCase):
             self.assertTrue(result.success)
             self.assertEqual(sys.argv, original)
 
-        launcher = (REPOSITORY_ROOT / "export_all.py").read_text(encoding="utf-8")
-        provider_cli = (
+        root_launcher = REPOSITORY_ROOT / "export_all.py"
+        provider_cli_path = (
             REPOSITORY_ROOT
             / "packages"
             / "export-provider-chatgpt"
@@ -173,11 +173,9 @@ class BatchExportLibraryTests(unittest.TestCase):
             / "export_provider_chatgpt"
             / "cli"
             / "export_all.py"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("importlib.util", launcher)
-        self.assertNotIn("spec_from_file_location", launcher)
-        self.assertNotIn("sys.argv =", launcher)
-        self.assertIn("export_provider_chatgpt.cli", launcher)
+        )
+        self.assertFalse(root_launcher.exists())
+        provider_cli = provider_cli_path.read_text(encoding="utf-8")
         self.assertIn("export_batch", provider_cli)
 
     def test_library_import_has_no_console_archive_or_provider_side_effects(self) -> None:
