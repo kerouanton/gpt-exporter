@@ -12,6 +12,7 @@ REPLACEMENTS = {
     "gpt_exporter.providers.gpt": "export_provider_chatgpt",
     "gpt_exporter.providers.discord": "export_provider_discord",
     '"providers.gpt.cli"': '"export_provider_chatgpt.cli"',
+    '"providers.gpt.ui"': '"export_provider_chatgpt.ui"',
 }
 
 changed: list[str] = []
