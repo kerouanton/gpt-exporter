@@ -5,14 +5,23 @@ from __future__ import annotations
 import tkinter as tk
 from typing import Any
 
+from gpt_exporter.ui.provider_manager_dialog import show_provider_manager
 from gpt_exporter.ui.remote_delete import RemoteDeletionDialog
 from gpt_exporter.ui.workspace_shell import ConversationWorkspaceApp
 
 
 class RemoteDeletionWorkspaceApp(ConversationWorkspaceApp):
-    """Conversation workspace with a provider-neutral remote deletion entry point."""
+    """Conversation workspace with provider management and remote cleanup entry points."""
 
     REMOTE_DELETE_MENU_LABEL = "Delete / Clean Remote Conversation…"
+
+    def _build_menu(self) -> None:
+        super()._build_menu()
+        menu_name = str(self.cget("menu"))
+        menu_bar = self.nametowidget(menu_name)
+        tools_menu = tk.Menu(menu_bar, tearoff=False)
+        tools_menu.add_command(label="Providers…", command=self.show_providers)
+        menu_bar.add_cascade(label="Tools", menu=tools_menu)
 
     def _build_ui(self) -> None:
         super()._build_ui()
@@ -24,6 +33,9 @@ class RemoteDeletionWorkspaceApp(ConversationWorkspaceApp):
             command=self.remote_delete_selected,
             state="disabled",
         )
+
+    def show_providers(self) -> None:
+        show_provider_manager(self)
 
     def _remote_delete_supported(self, row: dict[str, Any]) -> bool:
         actions = self.provider_actions
