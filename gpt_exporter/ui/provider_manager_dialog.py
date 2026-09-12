@@ -17,7 +17,7 @@ class ProviderManagerDialog(tk.Toplevel):
         self.title(f"{APP_NAME} — Providers")
         self.transient(parent)
         self.minsize(760, 360)
-        self.manager = ProviderManager.discover()
+        self.manager: ProviderManager | None = None
         self._records_by_iid: dict[str, ProviderRecord] = {}
 
         outer = ttk.Frame(self, padding=10)
