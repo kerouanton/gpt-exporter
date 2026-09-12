@@ -7,6 +7,10 @@ from tkinter import filedialog, messagebox, ttk
 
 from gpt_exporter.provider_artifacts import ProviderArtifactStore, inspect_provider_wheel
 from gpt_exporter.provider_manager import ProviderManager, ProviderRecord, ProviderState
+from gpt_exporter.provider_runtime import (
+    install_provider_with_validation,
+    validate_provider_dependency_policy,
+)
 from gpt_exporter.version import APP_NAME
 
 
@@ -190,11 +194,12 @@ class ProviderManagerDialog(tk.Toplevel):
             return
         try:
             artifact = inspect_provider_wheel(filename)
+            requirements = validate_provider_dependency_policy(artifact.path)
             destination = self.artifact_store.destination_for(artifact)
             existing = self.artifact_store.managed_for_distribution(
                 artifact.distribution_name
             )
-        except (FileNotFoundError, OSError, ValueError) as error:
+        except (FileNotFoundError, OSError, ValueError, zipfile.BadZipFile) as error:
             messagebox.showerror(APP_NAME, str(error), parent=self)
             return
 
@@ -208,30 +213,39 @@ class ProviderManagerDialog(tk.Toplevel):
                 f"Current managed version: {existing.version}\n"
                 f"Current SHA-256: {existing.sha256 or 'unknown'}\n"
             )
+        dependency_text = "\n".join(f"  {item}" for item in requirements) or "  none"
         prompt = (
             f"{action} provider distribution?\n\n"
             f"Distribution: {artifact.distribution_name}\n"
             f"Version: {artifact.version}\n"
             f"SHA-256: {artifact.sha256}\n"
             f"{current}"
-            f"Entry points:\n{entry_points}\n\n"
+            f"Entry points:\n{entry_points}\n"
+            f"Runtime requirements:\n{dependency_text}\n\n"
             f"Destination:\n{destination}\n\n"
+            "MSNE will install the wheel, load its provider entry points, verify the provider "
+            "API, and automatically restore the previous managed version if validation fails.\n\n"
             "Installing a provider installs executable Python code. Continue?"
         )
         if not messagebox.askyesno(APP_NAME, prompt, parent=self):
             return
 
         try:
-            installed = self.artifact_store.install(artifact)
-        except (OSError, ValueError) as error:
+            installed, provider_ids = install_provider_with_validation(
+                self.artifact_store,
+                artifact,
+            )
+        except (OSError, TypeError, ValueError) as error:
             messagebox.showerror(APP_NAME, str(error), parent=self)
             return
 
         self.refresh()
+        validated_ids = ", ".join(provider_ids)
         messagebox.showinfo(
             APP_NAME,
             (
-                f"{action}d {installed.distribution_name} {installed.version}.\n\n"
+                f"{action}d {installed.distribution_name} {installed.version}.\n"
+                f"Validated provider ID(s): {validated_ids}.\n\n"
                 "The provider inventory has been refreshed. Restart MSNE before using "
                 "a newly installed or replaced provider in an active workspace."
             ),
