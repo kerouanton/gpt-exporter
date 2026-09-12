@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from export_provider_chatgpt import indexing as indexer
+from export_provider_chatgpt.indexing import _native_indexer as indexer
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "characterization"
