@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from gpt_exporter.ui.browser import archive_browser
-from export_provider_chatgpt import indexing as indexer
+from export_provider_chatgpt.indexing import _native_indexer as indexer
 
 
 class PortableDefaultPathTests(unittest.TestCase):
