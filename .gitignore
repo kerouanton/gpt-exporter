@@ -18,3 +18,5 @@ build/
 dist/
 /GPT Exporter.spec
 packaging/.gpt_exporter-version-info.txt
+packaging/.msne-version-info.txt
+packaging/.gpt_exporter-legacy-version-info.txt
