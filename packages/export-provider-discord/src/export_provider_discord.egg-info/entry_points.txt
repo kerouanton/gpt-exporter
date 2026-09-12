@@ -1,2 +1,0 @@
-[gpt_exporter.provider_plugins]
-discord = export_provider_discord.plugin:create_provider
