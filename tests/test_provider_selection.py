@@ -117,8 +117,8 @@ class ProviderSelectionTests(unittest.TestCase):
         repo_root = Path(__file__).resolve().parents[1]
         script = (
             "import sys; import gpt_exporter.application; "
-            "raise SystemExit(int(any(name.startswith(('gpt_exporter.providers.gpt', "
-            "'gpt_exporter.providers.discord', 'export_provider_chatgpt', "
+            "raise SystemExit(int(any(name.startswith(('export_provider_chatgpt', "
+            "'export_provider_discord', 'export_provider_chatgpt', "
             "'export_provider_discord')) for name in sys.modules)))"
         )
         result = subprocess.run(

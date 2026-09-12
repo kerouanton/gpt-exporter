@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timezone
 
 from gpt_exporter.core import CanonicalConversation, CanonicalMessage
-from gpt_exporter.providers.discord.docx_parts import docx_paths_for_parts, plan_docx_parts
+from export_provider_discord.docx_parts import docx_paths_for_parts, plan_docx_parts
 
 
 def message(message_id: str, when: str) -> CanonicalMessage:

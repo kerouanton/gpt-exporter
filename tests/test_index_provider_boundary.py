@@ -59,8 +59,8 @@ class IndexProviderBoundaryTests(unittest.TestCase):
                 assert result.success
                 assert result.updated == 1
                 assert not any(
-                    name == "gpt_exporter.providers.gpt"
-                    or name.startswith("gpt_exporter.providers.gpt.")
+                    name == "export_provider_chatgpt"
+                    or name.startswith("export_provider_chatgpt.")
                     for name in sys.modules
                 )
             """

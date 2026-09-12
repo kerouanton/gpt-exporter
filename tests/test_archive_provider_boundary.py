@@ -29,8 +29,8 @@ class ArchiveProviderBoundaryTests(unittest.TestCase):
             import sys
             import gpt_exporter.archive
             assert not any(
-                name == "gpt_exporter.providers.gpt"
-                or name.startswith("gpt_exporter.providers.gpt.")
+                name == "export_provider_chatgpt"
+                or name.startswith("export_provider_chatgpt.")
                 for name in sys.modules
             )
             """
@@ -53,8 +53,8 @@ class ArchiveProviderBoundaryTests(unittest.TestCase):
             import gpt_exporter.archive.inventory
             import gpt_exporter.archive.manifest
             assert not any(
-                name == "gpt_exporter.providers.gpt"
-                or name.startswith("gpt_exporter.providers.gpt.")
+                name == "export_provider_chatgpt"
+                or name.startswith("export_provider_chatgpt.")
                 for name in sys.modules
             )
             """

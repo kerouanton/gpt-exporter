@@ -7,13 +7,13 @@ from pathlib import Path
 from unittest import mock
 
 from gpt_exporter.core import CanonicalConversation
-from gpt_exporter.providers.discord.collector import (
+from export_provider_discord.collector import (
     collector_javascript,
     snapshot_exports,
     validate_collector_export,
     wait_for_new_export,
 )
-from gpt_exporter.providers.discord.provider import DiscordProvider
+from export_provider_discord.provider import DiscordProvider
 
 
 def collector_payload(*, message_ids=("100", "101")) -> dict:

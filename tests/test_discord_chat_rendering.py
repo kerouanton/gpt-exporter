@@ -8,7 +8,7 @@ from pathlib import Path
 from gpt_exporter.core import CanonicalAsset, CanonicalConversation, CanonicalMessage
 from gpt_exporter.export.docx import export_docx
 from gpt_exporter.export.markdown import export_canonical_markdown, render_canonical_markdown
-from gpt_exporter.providers.discord.collector import collector_javascript
+from export_provider_discord.collector import collector_javascript
 
 
 def conversation() -> CanonicalConversation:

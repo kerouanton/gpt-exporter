@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 
 from gpt_exporter.core import CanonicalConversation, ConversationProvider
-from gpt_exporter.providers.discord import DiscordProvider
-from gpt_exporter.providers.discord.naming import dm_artifact_stem, dm_title
+from export_provider_discord import DiscordProvider
+from export_provider_discord.naming import dm_artifact_stem, dm_title
 
 
 class DiscordProviderTests(unittest.TestCase):

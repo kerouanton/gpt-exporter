@@ -58,8 +58,8 @@ class ProviderCompositionHookTests(unittest.TestCase):
 
     def test_application_source_does_not_name_concrete_provider_packages(self) -> None:
         source = inspect.getsource(application)
-        self.assertNotIn("gpt_exporter.providers.gpt", source)
-        self.assertNotIn("gpt_exporter.providers.discord", source)
+        self.assertNotIn("export_provider_chatgpt", source)
+        self.assertNotIn("export_provider_discord", source)
 
     def test_default_workspaces_are_supplied_by_provider_hook(self) -> None:
         self.assertEqual(application.build_default_workspaces(self.registry), (self.workspace,))

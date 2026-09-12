@@ -9,7 +9,7 @@ from PIL import Image
 
 from gpt_exporter.core import CanonicalAsset, CanonicalConversation, CanonicalMessage
 from gpt_exporter.export.docx import export_docx
-from gpt_exporter.providers.discord.archive import (
+from export_provider_discord.archive import (
     _participant_label,
     _participant_records,
     _prepend_dm_participant_header,

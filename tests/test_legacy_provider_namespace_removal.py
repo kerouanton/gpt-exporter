@@ -42,6 +42,10 @@ class LegacyProviderNamespaceRemovalTests(unittest.TestCase):
             [],
             "Historical concrete-provider imports remain:\n" + "\n".join(violations),
         )
+        self.assertFalse(
+            (repo_root / "gpt_exporter" / "providers").exists(),
+            "The legacy gpt_exporter.providers compatibility namespace must be removed.",
+        )
 
 
 if __name__ == "__main__":

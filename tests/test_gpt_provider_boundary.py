@@ -40,7 +40,7 @@ class GPTProviderBoundaryTests(unittest.TestCase):
             [
                 "import sys",
                 "import gpt_exporter.pipeline",
-                "assert not any(name.startswith('gpt_exporter.providers.gpt') for name in sys.modules)",
+                "assert not any(name.startswith('export_provider_chatgpt') for name in sys.modules)",
             ]
         )
         completed = subprocess.run(
@@ -54,10 +54,10 @@ class GPTProviderBoundaryTests(unittest.TestCase):
         self.assertEqual(completed.stdout, "")
 
     def test_provider_modules_are_importable(self) -> None:
-        from gpt_exporter.providers.gpt import pipeline
-        from gpt_exporter.providers.gpt.importer import import_bundle
-        from gpt_exporter.providers.gpt.resources import collector_path
-        from gpt_exporter.providers.gpt.ui import archive_workflow
+        from export_provider_chatgpt import pipeline
+        from export_provider_chatgpt.importer import import_bundle
+        from export_provider_chatgpt.resources import collector_path
+        from export_provider_chatgpt.ui import archive_workflow
 
         self.assertTrue(callable(pipeline.archive_bundle))
         self.assertTrue(callable(import_bundle))
@@ -65,7 +65,7 @@ class GPTProviderBoundaryTests(unittest.TestCase):
         self.assertTrue(callable(archive_workflow.open_chatgpt))
 
     def test_relocated_gui_preserves_historical_application_root(self) -> None:
-        from gpt_exporter.providers.gpt.ui import archive_workflow
+        from export_provider_chatgpt.ui import archive_workflow
 
         self.assertEqual(archive_workflow.ROOT, REPOSITORY_ROOT)
         self.assertEqual(archive_workflow._implementation.ROOT, REPOSITORY_ROOT)

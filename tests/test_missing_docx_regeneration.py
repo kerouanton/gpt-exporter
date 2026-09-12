@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from gpt_exporter.providers.gpt.importer import (
+from export_provider_chatgpt.importer import (
     _augment_current_batch_with_missing_docx,
     _docx_name_for_conversation,
 )

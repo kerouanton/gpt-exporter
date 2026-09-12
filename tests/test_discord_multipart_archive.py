@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from gpt_exporter.providers.discord.archive import archive_collector_export
+from export_provider_discord.archive import archive_collector_export
 
 
 def _payload() -> dict:
@@ -69,9 +69,9 @@ class DiscordMultipartArchiveTests(unittest.TestCase):
             root = temp / "archive"
 
             with (
-                mock.patch("gpt_exporter.providers.discord.archive.export_canonical_markdown") as markdown,
-                mock.patch("gpt_exporter.providers.discord.archive.export_docx") as docx,
-                mock.patch("gpt_exporter.providers.discord.archive.update_index"),
+                mock.patch("export_provider_discord.archive.export_canonical_markdown") as markdown,
+                mock.patch("export_provider_discord.archive.export_docx") as docx,
+                mock.patch("export_provider_discord.archive.update_index"),
             ):
                 result = archive_collector_export(source, archive_root=root)
 

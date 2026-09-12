@@ -1,0 +1,2 @@
+[gpt_exporter.provider_plugins]
+gpt = export_provider_chatgpt.plugin:create_provider

@@ -12,8 +12,8 @@ from unittest import mock
 
 from gpt_exporter.core import CanonicalConversation
 from gpt_exporter.core.serialization import write_canonical_conversation
-from gpt_exporter.providers.discord.raw_archive import read_raw_bytes
-from gpt_exporter.providers.discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
+from export_provider_discord.raw_archive import read_raw_bytes
+from export_provider_discord.ui.remote_delete_actions import DiscordRemoteDeleteActions
 from gpt_exporter.ui import workspace_shell
 from gpt_exporter.workspaces import ConversationWorkspace
 

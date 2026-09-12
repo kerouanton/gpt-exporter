@@ -5,9 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from gpt_exporter.providers.discord.collector import EXPORTER_NAME, SCHEMA_VERSION
-from gpt_exporter.providers.discord.ui.workspace_actions import DiscordWorkspaceActions
-from gpt_exporter.providers.gpt.ui.workspace_actions import GPTWorkspaceActions
+from export_provider_discord.collector import EXPORTER_NAME, SCHEMA_VERSION
+from export_provider_discord.ui.workspace_actions import DiscordWorkspaceActions
+from export_provider_chatgpt.ui.workspace_actions import GPTWorkspaceActions
 from gpt_exporter.ui.archive_workflow import ArchiveWorkflowSpec
 
 
@@ -23,7 +23,7 @@ class SharedArchiveWorkflowTests(unittest.TestCase):
         actions = GPTWorkspaceActions(app, SimpleNamespace(root_path=Path("C:/archive")))
 
         with mock.patch(
-            "gpt_exporter.providers.gpt.ui.workspace_actions.ArchiveWorkflowDialog"
+            "export_provider_chatgpt.ui.workspace_actions.ArchiveWorkflowDialog"
         ) as dialog:
             actions.archive_new()
 
@@ -34,7 +34,7 @@ class SharedArchiveWorkflowTests(unittest.TestCase):
         actions = DiscordWorkspaceActions(app, SimpleNamespace(root_path=Path("C:/archive")))
 
         with mock.patch(
-            "gpt_exporter.providers.discord.ui.workspace_actions.ArchiveWorkflowDialog"
+            "export_provider_discord.ui.workspace_actions.ArchiveWorkflowDialog"
         ) as dialog:
             actions.archive_new()
 
@@ -48,7 +48,7 @@ class SharedArchiveWorkflowTests(unittest.TestCase):
             actions = GPTWorkspaceActions(app, SimpleNamespace(root_path=Path(temp_name) / "archive"))
 
             with mock.patch(
-                "gpt_exporter.providers.gpt.ui.workspace_actions.ArchiveProcessingDialog"
+                "export_provider_chatgpt.ui.workspace_actions.ArchiveProcessingDialog"
             ) as dialog:
                 self.assertTrue(actions.process_export(bundle))
 
@@ -78,7 +78,7 @@ class SharedArchiveWorkflowTests(unittest.TestCase):
             actions = DiscordWorkspaceActions(app, SimpleNamespace(root_path=downloads / "archive"))
 
             with mock.patch(
-                "gpt_exporter.providers.discord.ui.workspace_actions.ArchiveProcessingDialog"
+                "export_provider_discord.ui.workspace_actions.ArchiveProcessingDialog"
             ) as dialog:
                 self.assertTrue(actions.process_export(export_path))
 
@@ -101,7 +101,7 @@ class SharedArchiveWorkflowTests(unittest.TestCase):
         lines: list[str] = []
 
         with mock.patch(
-            "gpt_exporter.providers.discord.ui.workspace_actions.archive_collector_export",
+            "export_provider_discord.ui.workspace_actions.archive_collector_export",
             return_value=result,
         ) as archive:
             self.assertIs(actions.run_export(Path("C:/Downloads/export.json"), lines.append), result)
@@ -120,10 +120,10 @@ class SharedArchiveWorkflowTests(unittest.TestCase):
         bundle = Path("C:/Downloads/chatgpt-archive-source.json")
 
         with mock.patch(
-            "gpt_exporter.providers.gpt.ui.workspace_actions.workflow.find_latest_source_bundle",
+            "export_provider_chatgpt.ui.workspace_actions.workflow.find_latest_source_bundle",
             return_value=bundle,
         ), mock.patch(
-            "gpt_exporter.providers.gpt.ui.workspace_actions.workflow.source_bundle_signature",
+            "export_provider_chatgpt.ui.workspace_actions.workflow.source_bundle_signature",
             return_value=("bundle", 1, 10),
         ):
             self.assertIsNone(actions.find_new_export(("bundle", 1, 10)))

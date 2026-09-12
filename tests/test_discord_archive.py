@@ -9,8 +9,8 @@ from pathlib import Path
 from unittest import mock
 
 from gpt_exporter.core.serialization import read_canonical_conversation
-from gpt_exporter.providers.discord.archive import archive_collector_export
-from gpt_exporter.providers.discord.raw_archive import read_raw_bytes
+from export_provider_discord.archive import archive_collector_export
+from export_provider_discord.raw_archive import read_raw_bytes
 
 
 def payload(message_ids: tuple[str, ...]) -> dict:
@@ -69,9 +69,9 @@ class DiscordArchiveTests(unittest.TestCase):
             root = temp / "archive"
 
             with (
-                mock.patch("gpt_exporter.providers.discord.archive.export_canonical_markdown") as markdown,
-                mock.patch("gpt_exporter.providers.discord.archive.export_docx") as docx,
-                mock.patch("gpt_exporter.providers.discord.archive.update_index") as index,
+                mock.patch("export_provider_discord.archive.export_canonical_markdown") as markdown,
+                mock.patch("export_provider_discord.archive.export_docx") as docx,
+                mock.patch("export_provider_discord.archive.update_index") as index,
             ):
                 result = archive_collector_export(source, archive_root=root)
 
@@ -117,10 +117,10 @@ class DiscordArchiveTests(unittest.TestCase):
             root = temp / "archive"
 
             with (
-                mock.patch("gpt_exporter.providers.discord.archive.export_canonical_markdown"),
-                mock.patch("gpt_exporter.providers.discord.archive.export_docx"),
-                mock.patch("gpt_exporter.providers.discord.archive.update_index"),
-                mock.patch("gpt_exporter.providers.discord.archive.download_conversation_assets") as downloader,
+                mock.patch("export_provider_discord.archive.export_canonical_markdown"),
+                mock.patch("export_provider_discord.archive.export_docx"),
+                mock.patch("export_provider_discord.archive.update_index"),
+                mock.patch("export_provider_discord.archive.download_conversation_assets") as downloader,
             ):
                 downloader.return_value.available = 0
                 downloader.return_value.downloaded = 0
@@ -155,8 +155,8 @@ class DiscordArchiveTests(unittest.TestCase):
                 Path(docx_path).write_bytes(b"PK-fake-docx")
 
             with (
-                mock.patch("gpt_exporter.providers.discord.archive.export_canonical_markdown"),
-                mock.patch("gpt_exporter.providers.discord.archive.export_docx", side_effect=fake_docx),
+                mock.patch("export_provider_discord.archive.export_canonical_markdown"),
+                mock.patch("export_provider_discord.archive.export_docx", side_effect=fake_docx),
             ):
                 result = archive_collector_export(source, archive_root=root)
 
@@ -187,9 +187,9 @@ class DiscordArchiveTests(unittest.TestCase):
             recapture.write_text(json.dumps(recapture_payload), encoding="utf-8")
 
             with (
-                mock.patch("gpt_exporter.providers.discord.archive.export_canonical_markdown"),
-                mock.patch("gpt_exporter.providers.discord.archive.export_docx"),
-                mock.patch("gpt_exporter.providers.discord.archive.update_index"),
+                mock.patch("export_provider_discord.archive.export_canonical_markdown"),
+                mock.patch("export_provider_discord.archive.export_docx"),
+                mock.patch("export_provider_discord.archive.update_index"),
             ):
                 archive_collector_export(complete, archive_root=root)
                 second = archive_collector_export(recapture, archive_root=root)

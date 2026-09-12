@@ -1,7 +1,7 @@
 """Archive compatibility APIs.
 
 Concrete ChatGPT archive analysis and import implementations live under
-``gpt_exporter.providers.gpt``. This package keeps historical entry points lazy
+``export_provider_chatgpt``. This package keeps historical entry points lazy
 so importing it does not select or load a concrete provider.
 """
 

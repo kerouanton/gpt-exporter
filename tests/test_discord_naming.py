@@ -1,6 +1,6 @@
 import unittest
 
-from gpt_exporter.providers.discord.naming import (
+from export_provider_discord.naming import (
     dm_artifact_stem,
     dm_peer,
     dm_title,

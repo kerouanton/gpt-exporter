@@ -9,8 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from gpt_exporter.providers.discord.archive import archive_collector_export
-from gpt_exporter.providers.discord.ui.workspace_actions import DiscordWorkspaceActions
+from export_provider_discord.archive import archive_collector_export
+from export_provider_discord.ui.workspace_actions import DiscordWorkspaceActions
 from gpt_exporter.workspaces import ConversationWorkspace
 
 
@@ -68,9 +68,9 @@ class DiscordHumanNamingTests(unittest.TestCase):
             )
 
             with (
-                mock.patch("gpt_exporter.providers.discord.archive.export_canonical_markdown"),
-                mock.patch("gpt_exporter.providers.discord.archive.export_docx"),
-                mock.patch("gpt_exporter.providers.discord.archive.update_index"),
+                mock.patch("export_provider_discord.archive.export_canonical_markdown"),
+                mock.patch("export_provider_discord.archive.export_docx"),
+                mock.patch("export_provider_discord.archive.update_index"),
             ):
                 original = archive_collector_export(first, archive_root=root)
                 partial = archive_collector_export(second, archive_root=root)

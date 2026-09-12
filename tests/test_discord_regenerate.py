@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from gpt_exporter.providers.discord.archive import archive_collector_export
-from gpt_exporter.providers.discord.raw_archive import read_raw_bytes
+from export_provider_discord.archive import archive_collector_export
+from export_provider_discord.raw_archive import read_raw_bytes
 
 
 class DiscordRegenerationTests(unittest.TestCase):
@@ -74,7 +74,7 @@ class DiscordRegenerationTests(unittest.TestCase):
                 Path(docx_path).write_bytes(b"PK-fake-docx")
 
             with mock.patch(
-                "gpt_exporter.providers.discord.archive.export_docx",
+                "export_provider_discord.archive.export_docx",
                 side_effect=fake_docx,
             ):
                 first = archive_collector_export(source, archive_root=root)
