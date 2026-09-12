@@ -1,9 +1,9 @@
-"""Provider discovery bridge for installed plugins and source-checkout packages.
+"""Provider discovery bridge for installed, managed and source-checkout packages.
 
-Installed providers are discovered through the public entry-point contract. When
-running directly from this repository without installing the provider distributions,
-the loader can also discover provider packages generically below ``packages/``.
-The shared application never imports or names a concrete provider.
+Installed providers are discovered through the public entry-point contract. MSNE also
+supports isolated per-user provider distributions and, when running directly from the
+repository, generic source packages below ``packages/``. The shared application never
+imports or names a concrete provider.
 """
 
 from __future__ import annotations
@@ -23,6 +23,20 @@ from gpt_exporter.core.provider_discovery import (
     PROVIDER_ENTRY_POINT_GROUP,
     discover_providers,
 )
+from gpt_exporter.provider_artifacts import ProviderArtifactStore
+
+
+def prepare_managed_provider_imports() -> tuple[Path, ...]:
+    """Expose isolated per-user provider distribution roots to Python packaging."""
+    roots = ProviderArtifactStore().installed_roots()
+    # Insert in reverse so the stable sorted order is preserved at the front of sys.path.
+    for root in reversed(roots):
+        root_text = str(root)
+        if root_text not in sys.path:
+            sys.path.insert(0, root_text)
+    if roots:
+        importlib.invalidate_caches()
+    return roots
 
 
 def prepare_source_provider_imports() -> tuple[Path, ...]:
@@ -100,17 +114,18 @@ def discover_available_providers(
     include_embedded: bool = True,
     entry_points: Callable[[], object] | None = None,
 ) -> ProviderDiscoveryResult:
-    """Discover installed entry points plus optional source-checkout packages.
+    """Discover entry-point providers plus optional source-checkout packages.
 
-    ``include_embedded=False`` means entry-point-only discovery and is used by the
-    installation matrix to prove that the host works with independently installed
-    provider distributions. The compatibility flag name is retained temporarily
-    while the historical in-tree provider namespaces are being removed.
+    Isolated per-user managed provider roots are added before entry-point discovery so
+    the same public packaging contract works in a normal Python checkout and in the
+    Windows onedir executable. ``include_embedded=False`` means entry-point-only
+    discovery and is used by the installation matrix.
 
-    Installed entry-point providers win when a source package exposes the same
+    Installed/managed entry-point providers win when a source package exposes the same
     stable provider ID. Individual provider failures remain non-fatal.
     """
 
+    prepare_managed_provider_imports()
     external = (
         discover_providers()
         if entry_points is None
@@ -159,4 +174,8 @@ def discover_available_providers(
     return ProviderDiscoveryResult(registry=registry, failures=tuple(failures))
 
 
-__all__ = ["discover_available_providers", "prepare_source_provider_imports"]
+__all__ = [
+    "discover_available_providers",
+    "prepare_managed_provider_imports",
+    "prepare_source_provider_imports",
+]
